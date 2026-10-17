@@ -1,0 +1,9 @@
+public:
+  prism_host: prism.example.test
+  id_host: id.example.test
+prism_central:
+  url: https://pc.example.test:9440
+oidc:
+  issuer: https://id.example.test/realms/portico
+  client_id: portico
+  client_secret_file: /nonexistent
