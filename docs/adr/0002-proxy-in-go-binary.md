@@ -31,5 +31,6 @@ behaviour the Go proxy must match, not a component of the product.
   nginx block.
 - `lab/auth/probe-local-login.sh` is the acceptance test: every line 403.
 - Less battle-testing than nginx; acceptable at MSP scale. WebSocket
-  behaviour through the Go proxy must be measured in Milestone 1 (the lab's
-  VM-console test, write-up 08, measures it through nginx first).
+  behaviour through the Go proxy was measured in Milestone 1: the VM
+  console (noVNC over `/vnc/.../proxy`) works through `httputil.ReverseProxy`
+  with HTTP/1.1 upstream and no buffering (write-up 09).
