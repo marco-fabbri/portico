@@ -111,7 +111,8 @@ model. Small MSPs have no turnkey answer.
   tenants (Portico-issued API keys bound to federated identities) is step 2.
 - Prism Central SAML limits (Nutanix Security Guide 7.6): SP-initiated login
   only, redirect binding only, `NameID` becomes the username, sessions max 8 h
-  / 15 min idle.
+  / 15 min idle. Behind a proxy the IdP must be created with `redirectURL`
+  set to the public name (write-up 04).
 - Appliance footprint target: 2 vCPU, 6 GiB RAM, 40 GiB disk (Portico +
   Keycloak + PostgreSQL + cloudflared on one VM).
 - Lab: NTNX-01, single node, Prism Central `https://10.23.210.175:9440`,
@@ -176,9 +177,14 @@ break-glass account stays.
    Portico, or directly → Portico `:443`.
 2. Portico checks its session cookie. No valid session → redirect to Keycloak
    (OIDC authorization code flow). After login, Portico issues its own cookie.
-3. With a session, Portico applies policy: deny `Authorization: Basic`, deny
-   known local-login endpoints, deny paths outside the allow-list for the
-   service, add/strip headers.
+3. With a session, Portico applies policy (measured on pc.7.6, write-up 06):
+   deny `Authorization: Basic` and `X-ntnx-api-key` headers; deny
+   `POST /api/iam/*/authn/login-requests/*/$actions/validate-credentials` and
+   `POST /PrismGateway/j_spring_security_check`; deny
+   `GET /api/iam/*/authn/users` listing for tenants (a Project Admin can
+   enumerate all accounts); deny paths outside the allow-list for the
+   service once write-up 08 says one is practical; add/strip headers.
+   `lab/auth/probe-local-login.sh` must return 403 on every line.
 4. Request is proxied to Prism Central on 9440 with the public host name.
 5. Prism Central's own login page offers SAML; the user picks it (or Portico
    auto-starts it, to be measured) and is sent to Keycloak, which already has a
@@ -200,8 +206,15 @@ A tenant in Portico is a row that ties together:
   global role),
 - metadata (display name, contacts, status).
 
-Creating a tenant performs these steps idempotently, records each step, and
-finishes with an automated visibility check. A tenant can be disabled (group
+Creating a tenant performs these steps idempotently (measured calls in
+write-up 05: project with `id` slug, resource group with cluster and
+container, SAML user group, IdP `$actions/share`, role membership with
+`ProjectsScopeTemplate`), records each step, and finishes with an automated
+visibility check. Deletion runs the reverse order and must unshare the IdP
+before deleting the project. The tenant row stores: project `id` and
+`extId`, resource group extId, SAML group extId, role membership extIds,
+IdP sharing state. Project naming: `<prefix>-<slug>`, prefix configurable,
+default `portico` (SP Central uses `sp-`). A tenant can be disabled (group
 disabled → login impossible) and deleted (project left in place unless
 explicitly chosen; Portico never deletes VMs).
 
@@ -231,23 +244,27 @@ Step 1 scope decisions (design calls):
 ### 4.5 Service account in Prism Central
 
 Portico never stores the credentials of `admin` or of any human
-administrator. It works through a dedicated local service account, `portico`,
-holding the minimum set of permissions Portico needs (create/read projects,
-manage role mappings and SAML identity provider settings, create local users
-for the visibility check; the exact minimal role set is a lab measurement,
-section 6). The setup wizard offers two paths:
+administrator. It works through a dedicated **service account** named
+`portico` (pc.7.6 `userType: SERVICE_ACCOUNT`, no password) authenticated
+with an **API key** sent as `X-ntnx-api-key` (write-up 07). The account is
+a member of the predefined `Project Manager_acp` authorization policy,
+which was measured sufficient for the whole tenant cycle plus probe-user
+creation; no custom role in step 1. This mirrors SP Central's
+`sp_svc_acc_<uuid>` pattern. The setup wizard offers two paths:
 
-1. **Pre-created**: the MSP creates the `portico` account and role in Prism
-   Central following Portico's documented role definition, then enters its
-   credentials.
-2. **Bootstrap**: the MSP enters, once, the credentials of any account allowed
-   to create users and roles (it need not be the built-in `admin`). Portico
-   creates the `portico` account and role, verifies it can log in, stores only
-   the new account's credentials, and discards the bootstrap credentials
-   (held in memory only, never written to disk or logs).
+1. **Pre-created**: the MSP creates the service account and an API key in
+   Prism Central (Admin Center → IAM → Identities → Service Accounts), adds
+   it to `Project Manager_acp`, and enters the key.
+2. **Bootstrap**: the MSP enters, once, the credentials of any account
+   allowed to create users and edit authorization policies (it need not be
+   the built-in `admin`). Portico creates the service account, generates
+   the key, adds the account to the policy, verifies the key works, stores
+   only the key (encrypted), and discards the bootstrap credentials (held in
+   memory only, never written to disk or logs).
 
-The UI says this explicitly: "an account that can create users and roles",
-not "the admin account".
+Key rotation (create second key, switch, revoke first) is a step 2 UI
+feature; step 1 logs the key expiry. The UI says "an account that can
+create users and edit authorization policies", not "the admin account".
 
 ### 4.6 Data and secrets
 
@@ -309,34 +326,43 @@ internal admin UI. Nothing else is configurable from the console.
 | appliance compromise | CIS L1, SELinux, minimal services, secrets encrypted at rest, no inbound ports in tunnel mode |
 | Cloudflare removed/bypassed | direct mode has identical policy; Cloudflare is transport, not security |
 
-## 6. What must be measured in the lab before step 1 code is final
+## 6. Lab measurements (Milestone 0, 2026-10-17, pc.7.6.0.6)
 
-These are the "HYPOTHESIS" items; each gets a short write-up in
-`docs/lab/`.
+Each item below was a hypothesis; the write-ups in `docs/lab/` hold the
+evidence and the re-measure procedure.
 
-1. **SAML behind a different host name**: Prism Central believes it is
-   `10.23.210.175`; the public name is different. Does the SAML round trip
-   (metadata ACS URL, RelayState, redirect) survive? Which Prism Central
-   setting fixes the external name, if any?
-2. **Local login endpoints on pc.7.6**: which exact requests carry local
-   credentials (form login, IAM endpoints, `PrismGateway`), so the deny list
-   is correct for this version. Record how to re-derive after an upgrade.
-3. **Projects 2.0 API surface on pc.7.6**: which v4 endpoints create a
-   project, allocate clusters/containers, set quotas, and bind a group to a
-   role inside the project (entity-level authorization policies); whether any
-   step still falls back to v3. What the "Default Project" contains on
-   NTNX-01 after the 7.6 upgrade and how Portico must leave it alone.
-4. **UI behaviour of a tenant behind the proxy**: which calls the console
-   makes, whether an allow-list is practical or only a deny-list is realistic
-   for step 1; VM console WebSockets through the proxy.
-5. **Fallback to local auth**: what Prism Central does when the SAML IdP is
-   down, to confirm the proxy policy is sufficient.
-6. **Resource cost** of Keycloak + PostgreSQL + Portico on 6 GiB.
-7. **Minimal role for the `portico` service account**: which Prism Central
-   role/permissions let it manage projects, role mappings, SAML settings and
-   local users, and whether a custom role can be created via API on pc.7.6.
-8. **SAML identity provider via API**: create/read the SAML IdP configuration
-   in Prism Central through the API, and detect an existing one.
+1. **SAML behind a different host name** — MEASURED (API side): the global
+   SP metadata is pinned to the IP, but a SAML IdP created with
+   `redirectURL=https://<public host>` (iam `v4.1.b3`) gets its own
+   `.../saml-identity-providers/{id}/sp-metadata` with entityID and ACS on
+   the public name; Keycloak's client must use that entityID. Browser
+   round trip: pending (write-up 04).
+2. **Local login endpoints** — MEASURED: `POST /api/iam/v4.1.b3/authn/login-requests/{iam-sessionid}/$actions/validate-credentials`,
+   legacy `POST /PrismGateway/j_spring_security_check`, `Authorization: Basic`
+   on every API generation, and `X-ntnx-api-key`. Deny list in §4.3
+   (write-up 06).
+3. **Projects 2.0 API** — MEASURED: `multidomain/v4.4.b1` projects (`id`
+   slug required) and resource groups; `iam/v4.1.b3` role memberships with
+   `scopeTemplateName=ProjectsScopeTemplate`; IdP shared per project; v3 is
+   empty; `_internal` untouched by a full cycle; quotas live in the Policy
+   Engine, not in these APIs (write-up 05).
+4. **Tenant UI behaviour and WebSockets** — pending browser (write-up 08).
+5. **Fallback to local auth** — MEASURED: local login works with the IdP
+   down; nothing "falls back", local auth is always on; the proxy policy is
+   the only thing that closes it (write-up 06).
+6. **Resource cost** — MEASURED: Keycloak 26.3 + PostgreSQL 16 idle ≈ 1.3 GiB
+   of the 6 GiB VM; 6 GiB stays (write-up 03).
+7. **`portico` identity** — MEASURED: a service account with an API key
+   (`X-ntnx-api-key`), member of the predefined `Project Manager_acp`
+   policy, performs the whole tenant cycle and creates probe users
+   (write-up 07).
+8. **SAML IdP via API** — MEASURED: create/list/share/unshare/delete on
+   `iam/v4.1.b3`; `v4.0` rejects `redirectURL`; an existing IdP is detected
+   by listing (write-up 04).
+
+Still open after Milestone 0: the browser-side SAML round trip (1), the
+console's call families and WebSockets (4), whether `Project Manager` may
+create the SAML IdP and share subnets (7), quota automation (Policy Engine).
 
 ## 7. Repository layout (initial)
 
