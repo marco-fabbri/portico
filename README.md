@@ -43,9 +43,14 @@ different project model and are out of scope.
 
 ## Status
 
-**Design.** Nothing runs yet. The design document is in
-[`docs/superpowers/specs/2026-10-17-portico-design.md`](docs/superpowers/specs/2026-10-17-portico-design.md).
-Lab measurements will land in `docs/lab/`, decisions in `docs/adr/`.
+**Milestone 1: the core binary runs in the lab.** `portico serve` fronts
+Prism Central and Keycloak on two public names, requires a Keycloak login
+before any request reaches Prism Central, refuses every local-login path
+measured on pc.7.6, and offers an internal pass-through for administrators.
+No tenant provisioning yet (Milestone 2), no appliance image (Milestone 3).
+The design document is in
+[`docs/superpowers/specs/2026-10-17-portico-design.md`](docs/superpowers/specs/2026-10-17-portico-design.md),
+lab measurements in `docs/lab/`, decisions in `docs/adr/`.
 
 ## License
 

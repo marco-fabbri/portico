@@ -23,3 +23,5 @@ is left behind without a row here.
 | subnet sharing (PC) | `MGMT` shared with project `portico-lab-tenant-a` | Task 8 prep | `POST /api/networking/v4.4/config/subnets/{extId}/$actions/unshare` |
 | VM (PC) | `portico-lab-tenant-a-vm1` (1 vCPU, 1 GiB, in project tenant A, image rocky-9-genericcloud) | Task 8 prep | power off + `DELETE /api/vmm/v4.0/ahv/config/vms/{extId}` |
 | SAML user (PC) | `alice@lab.portico.test`, created by Prism Central at her first SAML login | Task 5 | deleted with the IdP, or `DELETE /api/iam/v4.0/authn/users/{extId}` |
+| Keycloak OIDC client | `portico` in realm `portico-lab`, redirect `https://prism.lab.portico.test/.portico/callback`; secret in `~/portico-secrets/portico-oidc-secret` | M1 Task 8 | gone with the VM; delete the secret file when the lab ends |
+| VM service | `portico.service` (user `portico`, `/usr/local/bin/portico`, `/etc/portico/`), nginx disabled; firewalld ports 8443 and 9440 | M1 Task 8 | `lab/portico/undeploy.sh` restores nginx; gone with the VM |

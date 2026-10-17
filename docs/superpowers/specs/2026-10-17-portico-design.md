@@ -165,7 +165,11 @@ that host: no Portico session required, Keycloak admin console paths
 (`/admin`, `/realms/master`) denied on the public listener. Two host names
 mean two tunnel ingress rules or two SAN entries in the certificate; in
 exchange the Keycloak admin console is never published and the "session
-required" rule has no exception on the Prism Central host.
+required" rule has no exception on the Prism Central host. The two public
+names must share a registrable domain (`prism.msp.example` and
+`id.msp.example`): Portico's session cookie is `SameSite=Lax` and the SAML
+response is a top-level POST from the identity host to the Prism Central
+host, which a Lax cookie joins only between same-site hosts (Milestone 1).
 
 Admin authentication on the internal listener (design call): the Portico
 admin UI has a local break-glass account created at first boot (password set
@@ -177,16 +181,29 @@ break-glass account stays.
 
 1. Browser hits `https://prism.<msp>.example` → Cloudflare edge → tunnel →
    Portico, or directly → Portico `:443`.
-2. Portico checks its session cookie. No valid session → redirect to Keycloak
-   (OIDC authorization code flow). After login, Portico issues its own cookie.
-3. With a session, Portico applies policy (measured on pc.7.6, write-up 06):
-   deny `Authorization: Basic` and `X-ntnx-api-key` headers; deny
-   `POST /api/iam/*/authn/login-requests/*/$actions/validate-credentials` and
-   `POST /PrismGateway/j_spring_security_check`; deny
-   `GET /api/iam/*/authn/users` listing for tenants (a Project Admin can
-   enumerate all accounts); deny paths outside the allow-list for the
-   service once write-up 08 says one is practical; add/strip headers.
-   `lab/auth/probe-local-login.sh` must return 403 on every line.
+2. Portico applies the deny list first, before looking for a session
+   (measured on pc.7.6, write-up 06): `Authorization: Basic` and
+   `X-ntnx-api-key` headers, any method on
+   `/api/iam/*/authn/login-requests/*/$actions/validate-credentials` and on
+   `/PrismGateway/j_spring_security_check`, `GET /api/iam/*/authn/users`
+   (a Project Admin can enumerate all accounts). Paths are matched after
+   normalisation (case, repeated slashes, `;` parameters, `.` and `..`).
+   A credential sent without a session gets 403, never a login redirect.
+3. Portico checks its session cookie (`__Host-portico_session`, Secure,
+   HttpOnly, SameSite=Lax, 8 h absolute, 15 min idle). No valid session: a
+   browser navigation is redirected to `/.portico/login`, anything else
+   gets 401. The login is the OIDC authorization code flow with PKCE
+   against Keycloak; Portico's own endpoints live under the reserved
+   prefix `/.portico/` (`login`, `callback`, `logout`) on the Prism Central
+   host. Portico talks to Keycloak on the loopback (Keycloak's dynamic
+   backchannel keeps the public issuer in tokens) and discovers it lazily,
+   so Portico runs with Keycloak down and fails closed. With a session, the
+   path must be inside the allow-list measured in write-up 08 (prefixes
+   `/console/`, `/static/`, `/ui/iam/`, `/api/`, `/dm/`,
+   `/PrismGateway/services/rest/v1/`, `/vnc/`, plus `/`, `/auth_code`,
+   `/favicon.ico`; configurable). Portico's cookies are stripped before
+   forwarding. `lab/auth/probe-local-login.sh` is the acceptance test
+   (write-up 09).
 4. Request is proxied to Prism Central on 9440 with the public host name.
 5. Prism Central's own login page offers two buttons, SAML and local account
    (write-up 04). The user picks SAML (step 2 may send tenants straight to
@@ -419,8 +436,8 @@ portico/
 
 | # | milestone | done when |
 |---|---|---|
-| 0 | Lab measurements (section 6) | write-ups in `docs/lab/`, design updated |
-| 1 | Core binary: proxy + OIDC session + policy + internal listener | a browser through Portico reaches Prism Central only after Keycloak login; `curl -u admin:…` through the public path gets 403 from Portico |
+| 0 | Lab measurements (section 6) | done 2026-10-17: write-ups in `docs/lab/`, design updated |
+| 1 | Core binary: proxy + OIDC session + policy + internal listener | done 2026-10-17 (write-up 09): a browser through Portico reaches Prism Central only after Keycloak login; `curl -u admin:…` through the public path gets 403 from Portico |
 | 2 | Tenant arrival | `portico provision` / UI creates project + group + mapping, visibility check passes on NTNX-01 |
 | 3 | Appliance image | Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
 | 4 | First release (step 1 complete) | README, install guide, release artefacts, known limits documented |

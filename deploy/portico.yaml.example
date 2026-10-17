@@ -45,6 +45,7 @@ policy:
     - /PrismGateway/services/rest/v1/
     - /vnc/
     - /auth_code
+    - /favicon.ico
 
 log:
   level: info                    # debug, info, warn, error
