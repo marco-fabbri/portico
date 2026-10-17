@@ -26,6 +26,9 @@ keycloak:
   url: http://127.0.0.1:8080     # backchannel; the browser uses id_host
 
 oidc:
+  # Keycloak client: confidential, standard flow, PKCE S256,
+  # redirect URI https://<prism_host>/.portico/callback and
+  # post-logout redirect URI https://<prism_host>/ (logout fails otherwise).
   issuer: https://id.msp.example/realms/portico  # required: as it appears in tokens
   client_id: portico                            # required
   client_secret_file: /etc/portico/oidc-client-secret  # required, mode 0600

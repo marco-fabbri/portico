@@ -31,6 +31,11 @@ func req(method, path string, headers map[string]string) *http.Request {
 	return r
 }
 
+func withSecondAuth(r *http.Request, v string) *http.Request {
+	r.Header.Add("Authorization", v)
+	return r
+}
+
 func TestPrismPolicyDeny(t *testing.T) {
 	p := PrismPolicy{AllowPrefixes: config.DefaultAllowPrefixes}
 	vc := "/api/iam/v4.1.b3/authn/login-requests/abc/$actions/validate-credentials"
@@ -44,6 +49,8 @@ func TestPrismPolicyDeny(t *testing.T) {
 		{"basic lower", req("GET", "/api/x", map[string]string{"Authorization": "basic abc"}), "deny-basic-auth", true},
 		{"basic padded", req("GET", "/api/x", map[string]string{"Authorization": " BASIC abc"}), "deny-basic-auth", true},
 		{"bearer passes", req("GET", "/api/x", map[string]string{"Authorization": "Bearer abc"}), "", false},
+		{"basic tab", req("GET", "/api/x", map[string]string{"Authorization": "Basic\tabc"}), "deny-basic-auth", true},
+		{"basic second value", withSecondAuth(req("GET", "/api/x", map[string]string{"Authorization": "Bearer abc"}), "Basic abc"), "deny-basic-auth", true},
 		{"api key empty", req("GET", "/api/x", map[string]string{"X-ntnx-api-key": ""}), "deny-api-key", true},
 		{"api key", req("GET", "/api/x", map[string]string{"X-NTNX-API-KEY": "k"}), "deny-api-key", true},
 		{"validate POST", req("POST", vc, nil), "deny-local-login", true},

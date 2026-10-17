@@ -310,3 +310,25 @@ func TestLogoutClearsSessionAndRedirects(t *testing.T) {
 		t.Errorf("got %d %q", rec.Code, loc)
 	}
 }
+
+func TestLogoutExpiresUpstreamCookies(t *testing.T) {
+	idp := newFakeIDP(t)
+	a, _ := newTestAuth(t, idp)
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "https://prism.test/.portico/logout", nil)
+	r.AddCookie(&http.Cookie{Name: SessionCookie, Value: "sid"})
+	r.AddCookie(&http.Cookie{Name: "NTNX_IGW_SESSION", Value: "x"})
+	r.AddCookie(&http.Cookie{Name: "iam-sessionid", Value: "y"})
+	a.Logout().ServeHTTP(rec, r)
+	expired := map[string]bool{}
+	for _, c := range rec.Result().Cookies() {
+		if c.MaxAge == -1 && c.Path == "/" && c.Value == "" {
+			expired[c.Name] = true
+		}
+	}
+	for _, name := range []string{SessionCookie, "NTNX_IGW_SESSION", "iam-sessionid"} {
+		if !expired[name] {
+			t.Errorf("cookie %s not expired on logout: %v", name, rec.Result().Cookies())
+		}
+	}
+}
