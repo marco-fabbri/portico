@@ -1,0 +1,36 @@
+# Portico settings for the lab VM portico-lab (10.23.210.190). Lab only:
+# tls_verify is off because Prism Central uses a self-signed certificate,
+# and the internal listeners reuse the lab certificate. Secrets are files.
+public:
+  listen: ":443"
+  tls:
+    cert_file: /etc/portico/tls/lab.crt
+    key_file: /etc/portico/tls/lab.key
+  prism_host: prism.lab.portico.test
+  id_host: id.lab.portico.test
+
+internal:
+  admin_listen: "10.23.210.190:8443"
+  passthrough_listen: "10.23.210.190:9440"
+  tls:
+    cert_file: /etc/portico/tls/lab.crt
+    key_file: /etc/portico/tls/lab.key
+
+prism_central:
+  url: https://10.23.210.175:9440
+  tls_verify: false
+
+keycloak:
+  url: http://127.0.0.1:8080
+
+oidc:
+  issuer: https://id.lab.portico.test/realms/portico-lab
+  client_id: portico
+  client_secret_file: /etc/portico/oidc-client-secret
+
+session:
+  max_age: 8h
+  idle: 15m
+
+log:
+  level: debug

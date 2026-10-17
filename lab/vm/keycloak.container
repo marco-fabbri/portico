@@ -15,6 +15,9 @@ Environment=KC_DB_USERNAME=keycloak
 Environment=KC_HOSTNAME=https://id.lab.portico.test
 Environment=KC_HTTP_ENABLED=true
 Environment=KC_PROXY_HEADERS=xforwarded
+# Portico reaches Keycloak on the loopback: token and JWKS endpoints follow
+# the request URL while the issuer stays the public name.
+Environment=KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
 Environment=KC_HEALTH_ENABLED=true
 PublishPort=127.0.0.1:8080:8080
 Exec=start

@@ -4,6 +4,7 @@
 #   lab/saml/keycloak-realm.sh group NAME                    create group
 #   lab/saml/keycloak-realm.sh user EMAIL GROUP              create user in group (password in ~/portico-secrets/<local>-pw)
 #   lab/saml/keycloak-realm.sh saml-client ENTITY_ID ACS_URL create/update the SAML client for Prism Central
+#   lab/saml/keycloak-realm.sh oidc-client REDIRECT_URI     create/update the OIDC client "portico" (secret to ~/portico-secrets/portico-oidc-secret)
 # Requires `source lab/env.sh`.
 set -euo pipefail
 cd "$(dirname "$0")/../.." || exit 1
@@ -67,6 +68,25 @@ case "${1:?subcommand}" in
         kc POST "/$R/clients/$cid/protocol-mappers/models" "$tmp/m.json" 2>&1 >/dev/null | tr -d '\n'; echo " mapper $m added"
       fi
     done
+    ;;
+  oidc-client)
+    redirect="${2:?redirect URI}"
+    jq -n --arg r "$redirect" '{
+      clientId:"portico", protocol:"openid-connect", enabled:true, name:"Portico (lab)",
+      publicClient:false, standardFlowEnabled:true, directAccessGrantsEnabled:false,
+      implicitFlowEnabled:false, serviceAccountsEnabled:false,
+      redirectUris:[$r], webOrigins:[],
+      attributes:{"pkce.code.challenge.method":"S256", "post.logout.redirect.uris":"+"}
+      }' > "$tmp/oc.json"
+    cid=$(kc GET "/$R/clients?clientId=portico" 2>/dev/null | jq -r '.[0].id // empty')
+    if [ -z "$cid" ]; then kc POST "/$R/clients" "$tmp/oc.json" 2>&1 >/dev/null | tr -d '\n'; echo " oidc client created"
+    else kc PUT "/$R/clients/$cid" "$tmp/oc.json" 2>&1 >/dev/null | tr -d '\n'; echo " oidc client updated"; fi
+    cid=$(kc GET "/$R/clients?clientId=portico" 2>/dev/null | jq -r '.[0].id')
+    umask 077
+    if [ ! -s "$S/portico-oidc-secret" ]; then
+      kc GET "/$R/clients/$cid/client-secret" 2>/dev/null | jq -r '.value' > "$S/portico-oidc-secret"
+      [ -s "$S/portico-oidc-secret" ] && echo " client secret saved to $S/portico-oidc-secret"
+    fi
     ;;
   *) echo "unknown subcommand $1" >&2; exit 2 ;;
 esac

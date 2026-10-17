@@ -54,7 +54,9 @@ systemctl enable --now firewalld >/dev/null
 firewall-cmd -q --add-service=https --permanent && firewall-cmd -q --reload
 systemctl daemon-reload
 # Quadlet-generated units cannot be enabled; the [Install] section handles that.
-systemctl start postgres.service keycloak.service
+# restart, not start: a changed quadlet must take effect.
+systemctl start postgres.service
+systemctl restart keycloak.service
 nginx -t && systemctl enable --now nginx && systemctl reload nginx
 REMOTE
 

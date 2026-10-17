@@ -16,6 +16,11 @@ here runs on the appliance.
 - `test_env.sh` — checks `env.sh`; `test_scripts.sh` — static checks and
   shellcheck on every lab script.
 
+- `portico/` — `deploy.sh` builds the Go binary, installs it on the lab VM
+  as `portico.service` in place of nginx and waits for the health endpoint;
+  `undeploy.sh` restores nginx; `portico.yaml` is the lab configuration.
+- `saml/keycloak-realm.sh oidc-client` registers Portico's OIDC client.
+
 Secrets rule: credentials live in `~/portico-secrets/` (mode 0600). Scripts
 read them from there and never print, log, or copy them under the
 repository.
