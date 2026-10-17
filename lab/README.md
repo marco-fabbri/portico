@@ -10,7 +10,11 @@ here runs on the appliance.
 - `pc.sh METHOD PATH [JSON_FILE]` — calls the Prism Central API with Basic
   auth. Body on stdout, `HTTP <code>` on stderr. Adds `NTNX-Request-Id` on
   v4 writes and `If-Match` when `IF_MATCH` is set.
-- `test_env.sh` — checks `env.sh`.
+- `lib.sh` — shared helpers sourced by the other scripts: `wait_task`
+  (with a timeout), `etag_of`, `remote_stage_dir` (private directory on the
+  VM for files in transit).
+- `test_env.sh` — checks `env.sh`; `test_scripts.sh` — static checks and
+  shellcheck on every lab script.
 
 Secrets rule: credentials live in `~/portico-secrets/` (mode 0600). Scripts
 read them from there and never print, log, or copy them under the

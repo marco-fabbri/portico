@@ -12,7 +12,8 @@ S="${PORTICO_SECRETS:-$HOME/portico-secrets}"
 IAM0="/api/iam/v4.0"; IAM1="/api/iam/v4.1.b3"
 SA_NAME="portico"; KEY_NAME="portico-lab-key"; POLICY_NAME="Project Manager_acp"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-etag_of() { local h; h=$(mktemp); PC_HEADERS_FILE="$h" lab/pc.sh GET "$1" >/dev/null 2>&1; grep -i '^etag:' "$h" | awk '{print $2}' | tr -d '\r'; rm -f "$h"; }
+# shellcheck source=lab/lib.sh
+source lab/lib.sh
 sa_extid() { lab/pc.sh GET "$IAM0/authn/users" 2>/dev/null | jq -r --arg n "$SA_NAME" '.data[] | select(.username==$n) | .extId'; }
 policy_extid() {
   local p; p=$(lab/pc.sh GET "$IAM1/authz/authorization-policies" 2>/dev/null | jq -r --arg n "$POLICY_NAME" '.data[] | select(.displayName==$n) | .extId')

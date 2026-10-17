@@ -23,9 +23,9 @@ if [ -n "$idp" ] && lab/pc.sh GET "$IAM1/authn/saml-identity-providers/$idp" 2>/
   IF_MATCH="$(etag_of "$IAM1/authn/saml-identity-providers/$idp")" lab/pc.sh POST "$IAM1/authn/config/saml-identity-provider/$idp/\$actions/unshare" "$tmp/u.json" 2>/dev/null | jq -r '.data.message'; rm -rf "$tmp"
 fi
 for rg in $(resource_group_extids "$pj"); do
-  IF_MATCH="$(etag_of "$MD/config/resource-groups/$rg")" lab/pc.sh DELETE "$MD/config/resource-groups/$rg" 2>/dev/null | jq -r '.data.extId' | { read -r t; [ -n "$t" ] && wait_task "$t"; }; echo "resource group $rg deleted"
+  IF_MATCH="$(etag_of "$MD/config/resource-groups/$rg")" lab/pc.sh DELETE "$MD/config/resource-groups/$rg" 2>/dev/null | jq -r '.data.extId' | { read -r t; [ -n "$t" ] && wait_task "$t" >/dev/null; }; echo "resource group $rg deleted"
 done
-IF_MATCH="$(etag_of "$MD/config/projects/$pj")" lab/pc.sh DELETE "$MD/config/projects/$pj" 2>/dev/null | jq -r '.data.extId' | { read -r t; [ -n "$t" ] && wait_task "$t"; }
+IF_MATCH="$(etag_of "$MD/config/projects/$pj")" lab/pc.sh DELETE "$MD/config/projects/$pj" 2>/dev/null | jq -r '.data.extId' | { read -r t; [ -n "$t" ] && wait_task "$t" >/dev/null; }
 echo "project $name deleted"
 # Optional: also delete the SAML group of this tenant in Prism Central.
 if [ -n "${2:-}" ]; then
