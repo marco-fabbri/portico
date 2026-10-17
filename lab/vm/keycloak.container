@@ -1,0 +1,27 @@
+# Podman quadlet: Keycloak behind nginx. Lab only.
+[Unit]
+Description=Keycloak (lab)
+Requires=postgres.service
+After=postgres.service
+
+[Container]
+Image=quay.io/keycloak/keycloak:26.3
+ContainerName=keycloak
+Network=portico-lab.network
+EnvironmentFile=/etc/portico-lab/keycloak.env
+Environment=KC_DB=postgres
+Environment=KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
+Environment=KC_DB_USERNAME=keycloak
+Environment=KC_HOSTNAME=https://id.lab.portico.test
+Environment=KC_HTTP_ENABLED=true
+Environment=KC_PROXY_HEADERS=xforwarded
+Environment=KC_HEALTH_ENABLED=true
+PublishPort=127.0.0.1:8080:8080
+Exec=start
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
