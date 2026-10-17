@@ -1,0 +1,11 @@
+{
+  "_comment": "PUT /api/iam/v4.1.b3/authz/authorization-policies/<policy-extId> with If-Match: the predefined Project Manager_acp policy read back, read-only fields removed, and the service account UUID appended to identities[].identityFilter.user.uuid.anyof. Lab lab/auth/create-service-account.sh.",
+  "displayName": "Project Manager_acp",
+  "description": "Project Manager",
+  "authorizationPolicyType": "PREDEFINED_UPDATE_IDENTITY_ONLY",
+  "role": "<project-manager-role-extId>",
+  "identities": [
+    { "identityFilter": { "user": { "uuid": { "anyof": [ "<existing-member-uuid>", "<service-account-extId>" ] } } } }
+  ],
+  "entities": [ { "entityFilter": { "*": { "*": { "eq": "*" } } } } ]
+}

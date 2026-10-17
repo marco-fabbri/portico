@@ -29,9 +29,10 @@ endpoints=(
 mkdir -p lab/payloads
 echo '{"kind":"project","length":50}' > lab/payloads/v3-projects-list.json
 
+codefile=$(mktemp); trap 'rm -f "$codefile"' EXIT
 for e in "${endpoints[@]}"; do
   IFS='|' read -r key method path body <<<"$e"
-  resp=$(lab/pc.sh "$method" "$path" ${body:+"$body"} 2>/tmp/inv_code); code=$(tr -d '\n' </tmp/inv_code)
+  resp=$(lab/pc.sh "$method" "$path" ${body:+"$body"} 2>"$codefile"); code=$(tr -d '\n' <"$codefile")
   if head -c 20 <<<"$resp" | grep -q '<!doctype\|<html'; then
     kind="HTML (UI catch-all, endpoint does not exist)"; json='null'
   elif jq -e . >/dev/null 2>&1 <<<"$resp"; then

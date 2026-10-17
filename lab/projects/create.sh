@@ -19,7 +19,7 @@ if [ -z "$pj" ]; then
   jq -n --arg n "$name" '{id:$n, name:$n, description:("Portico lab project " + $n)}' > "$tmp/p.json"
   cp "$tmp/p.json" docs/lab/payloads/project-create.json
   code=$(post "$MD/config/projects" "$tmp/p.json" "$tmp/resp.json") || { echo "$code"; cat "$tmp/resp.json"; exit 1; }
-  wait_task "$(jq -r .data.extId "$tmp/resp.json")"
+  wait_task "$(jq -r .data.extId "$tmp/resp.json")" >/dev/null
   pj=$(project_extid "$name"); echo "project created: $name $pj"
 else echo "project exists: $name $pj"; fi
 
@@ -30,6 +30,6 @@ if [ -z "$(resource_group_extids "$pj")" ]; then
     '{name:$n, projectExtId:$p, placementTargets:[{clusterExtId:$c, storageContainers:[{extId:$s}]}]}' > "$tmp/rg.json"
   cp "$tmp/rg.json" docs/lab/payloads/resource-group-create.json
   code=$(post "$MD/config/resource-groups" "$tmp/rg.json" "$tmp/resp.json") || { echo "$code"; cat "$tmp/resp.json"; exit 1; }
-  wait_task "$(jq -r .data.extId "$tmp/resp.json")"
+  wait_task "$(jq -r .data.extId "$tmp/resp.json")" >/dev/null
   echo "resource group created: cluster=$cluster container=$container"
 else echo "resource group exists"; fi
