@@ -32,3 +32,5 @@ lab.env
 .idea/
 .vscode/
 *.swp
+.superpowers/
+docs/lab/raw/

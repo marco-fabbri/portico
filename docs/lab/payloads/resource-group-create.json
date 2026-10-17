@@ -1,0 +1,14 @@
+{
+  "name": "portico-lab-tenant-c-rg",
+  "projectExtId": "7425cc51-be53-5ee1-8053-f3070214b561",
+  "placementTargets": [
+    {
+      "clusterExtId": "00065dbb-5b39-35c7-78ee-5254000e0b96",
+      "storageContainers": [
+        {
+          "extId": "206ecd5c-0ae4-44e7-bf94-dc7b0870f9e2"
+        }
+      ]
+    }
+  ]
+}

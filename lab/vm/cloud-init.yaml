@@ -1,0 +1,44 @@
+#cloud-config
+# Lab VM portico-lab on NTNX-01. Rendered by lab/vm/create-vm.sh, which
+# replaces __SSH_KEY__, __IP__, __GW__ before sending it to Prism Central.
+hostname: portico-lab
+fqdn: portico-lab.lab.portico.test
+timezone: Europe/Rome
+users:
+  - name: lab
+    groups: [wheel]
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - __SSH_KEY__
+ssh_pwauth: false
+package_update: true
+packages:
+  - podman
+  - nginx
+  - policycoreutils-python-utils
+  - jq
+bootcmd:
+  # Static network first: bootcmd runs before package install, and the lab
+  # VLAN has no DHCP. write_files/runcmd would be too late for dnf.
+  - |
+    cat > /etc/NetworkManager/system-connections/eth0.nmconnection <<'NM'
+    [connection]
+    id=eth0
+    type=ethernet
+    interface-name=eth0
+    autoconnect=true
+    [ipv4]
+    method=manual
+    address1=__IP__/24,__GW__
+    dns=1.1.1.1;1.0.0.1;
+    [ipv6]
+    method=disabled
+    NM
+    chmod 600 /etc/NetworkManager/system-connections/eth0.nmconnection
+    nmcli connection reload
+    nmcli connection up eth0 || true
+runcmd:
+  - systemctl enable --now podman.socket
+final_message: "portico-lab ready after $UPTIME seconds"
