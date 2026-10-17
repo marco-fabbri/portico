@@ -71,12 +71,14 @@ case "${1:?subcommand}" in
     ;;
   oidc-client)
     redirect="${2:?redirect URI}"
-    jq -n --arg r "$redirect" '{
+    # RP-initiated logout returns to the origin of the redirect URI.
+    home="${redirect%%/.portico/*}/"
+    jq -n --arg r "$redirect" --arg h "$home" '{
       clientId:"portico", protocol:"openid-connect", enabled:true, name:"Portico (lab)",
       publicClient:false, standardFlowEnabled:true, directAccessGrantsEnabled:false,
       implicitFlowEnabled:false, serviceAccountsEnabled:false,
       redirectUris:[$r], webOrigins:[],
-      attributes:{"pkce.code.challenge.method":"S256", "post.logout.redirect.uris":"+"}
+      attributes:{"pkce.code.challenge.method":"S256", "post.logout.redirect.uris":$h}
       }' > "$tmp/oc.json"
     cid=$(kc GET "/$R/clients?clientId=portico" 2>/dev/null | jq -r '.[0].id // empty')
     if [ -z "$cid" ]; then kc POST "/$R/clients" "$tmp/oc.json" 2>&1 >/dev/null | tr -d '\n'; echo " oidc client created"

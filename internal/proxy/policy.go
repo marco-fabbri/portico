@@ -42,9 +42,10 @@ type PrismPolicy struct {
 // Deny returns the first matching deny rule. It runs before the session
 // check: a credential sent without a session is refused, not redirected.
 func (p PrismPolicy) Deny(r *http.Request) (rule string, denied bool) {
-	if auth := r.Header.Get("Authorization"); auth != "" {
-		scheme, _, _ := strings.Cut(strings.TrimSpace(auth), " ")
-		if strings.EqualFold(scheme, "basic") {
+	// Every Authorization value counts, and any whitespace separates the
+	// scheme: the deny list must be broader than the upstream's parser.
+	for _, auth := range r.Header.Values("Authorization") {
+		if f := strings.Fields(auth); len(f) > 0 && strings.EqualFold(f[0], "basic") {
 			return "deny-basic-auth", true
 		}
 	}
