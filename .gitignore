@@ -32,3 +32,4 @@ lab.env
 .idea/
 .vscode/
 *.swp
+.superpowers/
