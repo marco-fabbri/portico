@@ -1,0 +1,9 @@
+{
+  "name": "portico-lab-keycloak",
+  "usernameAttribute": "email",
+  "emailAttribute": "email",
+  "groupsAttribute": "groups",
+  "isSignedAuthnReqEnabled": false,
+  "redirectURL": "https://prism.lab.portico.test",
+  "idpMetadataXml": "<base64 of the Keycloak realm SAML descriptor>"
+}

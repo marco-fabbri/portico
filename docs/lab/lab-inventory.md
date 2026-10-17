@@ -13,3 +13,8 @@ is left behind without a row here.
 | VM | `portico-lab` (2 vCPU, 6 GiB, 40 GiB, `10.23.210.190`, subnet MGMT) | Task 3 | `lab/vm/delete-vm.sh` |
 | secrets (Mac) | `~/portico-secrets/keycloak-admin-pw`, `keycloak-db-pw`, `lab-ca.crt`, `lab-ca.key` | Task 4 | delete when the lab ends |
 | VM services | podman quadlets `postgres`, `keycloak`, network `portico-lab`; nginx with lab cert; firewalld | Task 4 | gone with the VM |
+| project | `portico-lab-tenant-a` (extId `735bdb5e-457a-5e55-85a2-0d021d87feda`) + resource group `portico-lab-tenant-a-rg` | Task 5/6 | `lab/projects/delete.sh portico-lab-tenant-a tenant-a` |
+| SAML group (PC) | `tenant-a` (idp portico-lab-keycloak) + role membership Project Admin in tenant A | Task 6 | removed by the delete above |
+| local user (PC) | `portico-lab-bob` (Project Admin of tenant A; password in `~/portico-secrets/bob-pw`) | Task 6 | `DELETE /api/iam/v4.0/authn/users/{extId}` when the lab ends |
+| SAML IdP (PC) | `portico-lab-keycloak` (extId `247f2c3d-4566-52fe-84ed-48b14799bf05`, redirectURL `https://prism.lab.portico.test`, shared with tenant A) | Task 5 | `lab/saml/pc-idp.sh delete` |
+| Keycloak | realm `portico-lab`, groups `tenant-a`, `tenant-b`, user `alice@lab.portico.test` (password `~/portico-secrets/alice-pw`), SAML client for Prism Central | Task 5/6 | gone with the VM |
