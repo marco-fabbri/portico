@@ -96,7 +96,7 @@ model. Small MSPs have no turnkey answer.
   Central should find tenants it can recognise, not a parallel model to
   unwind. Portico adds no state to Prism Central beyond what a project needs.
 - Nutanix documentation (Projects Guide pc.7.6, Security Guide 7.6, v4 API
-  reference for IAM and Projects) is kept by Marco in `~/portico-kb`, outside
+  reference for IAM and Projects) is kept by Marco in `kb/` (gitignored), outside
   the repository (copyrighted material, never committed). Portal pages are
   not readable from the CLI, so this folder is the source for API details.
 - Step 1 tenants use the **browser only**. The public path accepts only

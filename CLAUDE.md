@@ -22,7 +22,7 @@ Italian; nothing Italian goes on disk here. The only exception is
   Prism Central and Prism Element, user `admin`). Scripts read from there.
   Never copy, print, or log them. Never commit them.
 - Nutanix documentation (Projects Guide pc.7.6, Security Guide 7.6, v4 API
-  reference): `~/portico-kb/`. Copyrighted; never commit. Portal pages are not
+  reference): `kb/` (gitignored). Copyrighted; never commit. Portal pages are not
   readable from the CLI, so this folder is the source for API details.
 
 ## Platform baseline
