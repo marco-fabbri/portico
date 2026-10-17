@@ -23,7 +23,8 @@ type UpstreamOptions struct {
 	// http://127.0.0.1:8080.
 	Target *url.URL
 	// HostHeader is sent as Host and X-Forwarded-Host: the public name,
-	// because Prism Central and Keycloak build their URLs from it.
+	// because Prism Central and Keycloak build their URLs from it. Empty
+	// keeps the inbound Host (internal pass-through).
 	HostHeader string
 	// TLS configures the client side for an https Target; nil for http.
 	TLS *tls.Config
@@ -65,8 +66,12 @@ func NewUpstream(o UpstreamOptions) *httputil.ReverseProxy {
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(o.Target)
 			pr.SetXForwarded()
-			pr.Out.Host = o.HostHeader
-			pr.Out.Header.Set("X-Forwarded-Host", o.HostHeader)
+			host := o.HostHeader
+			if host == "" {
+				host = pr.In.Host
+			}
+			pr.Out.Host = host
+			pr.Out.Header.Set("X-Forwarded-Host", host)
 			// The public URL is https in both exposure modes, even when
 			// cloudflared delivers plain HTTP to the loopback.
 			pr.Out.Header.Set("X-Forwarded-Proto", "https")
