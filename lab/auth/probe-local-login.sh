@@ -1,47 +1,66 @@
 #!/usr/bin/env bash
-# Probe the local-login paths of Prism Central through the public name
-# (design 6.2). Prints one line per request: METHOD PATH -> HTTP code.
-# Today (nginx stand-in, no policy) the real paths answer 200/302. Once the
-# Portico proxy is in place every line must be 403: this script is the
-# Milestone 1 acceptance test.
+# Milestone 1 acceptance test: the local-login paths of Prism Central
+# measured in docs/lab write-up 06 must be refused by Portico on the public
+# name, the identity host must expose only the realm, and the internal
+# pass-through must still accept local credentials.
+# Prints one line per request: METHOD PATH -> got (expected). Exit 1 if any
+# line differs.
 #   lab/auth/probe-local-login.sh [BASE_URL]   default https://$LAB_PRISM_HOST
-# Requires `source lab/env.sh` (admin password for the login attempt).
+# Requires `source lab/env.sh` (admin password for the login attempts).
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
-: "${LAB_PRISM_HOST:?source lab/env.sh first}" "${LAB_VM_IP:?}" "${PC_PASS:?}"
+: "${LAB_PRISM_HOST:?source lab/env.sh first}" "${LAB_ID_HOST:?}" "${LAB_VM_IP:?}" "${PC_PASS:?}"
 S="${PORTICO_SECRETS:-$HOME/portico-secrets}"
 base="${1:-https://$LAB_PRISM_HOST}"
 host="${base#https://}"; host="${host%%/*}"
-C=(-s --cacert "$S/lab-ca.crt" --resolve "$host:443:$LAB_VM_IP")
+C=(-s --cacert "$S/lab-ca.crt" --resolve "$host:443:$LAB_VM_IP" --resolve "$LAB_ID_HOST:443:$LAB_VM_IP" -o /dev/null)
 umask 077; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-cj="$tmp/cookies"
 # Credentials go to curl through config files, never on the command line.
 printf 'user = "admin:%s"\n' "$PC_PASS" > "$tmp/basic.cfg"
 printf 'data-urlencode = "j_username=admin"\ndata-urlencode = "j_password=%s"\n' "$PC_PASS" > "$tmp/form.cfg"
-[ -s "$S/portico-sa-key" ] && printf 'header = "X-ntnx-api-key: %s"\n' "$(cut -d= -f2- "$S/portico-sa-key")" > "$tmp/apikey.cfg"
-line() { printf '%-6s %-78s -> %s\n' "$1" "$2" "$3"; }
-
-# 1. Console redirect chain: sets the iam-sessionid cookie (the login request id).
-code=$(curl "${C[@]}" -c "$cj" -b "$cj" -o /dev/null -w '%{http_code}' "$base/console/"); line GET /console/ "$code"
-loc=$(curl "${C[@]}" -c "$cj" -b "$cj" -D - -o /dev/null "$base/console/" | grep -i '^location:' | awk '{print $2}' | tr -d '\r')
-code=$(curl "${C[@]}" -c "$cj" -b "$cj" -o /dev/null -w '%{http_code}' "$base$loc"); line GET "${loc%%\?*}?..." "$code"
-sid=$(awk '!/^#/ && $6=="iam-sessionid" {print $7}' "$cj")
-
-# 2. Local login with the form credentials (what the IAM login page does).
 printf '{"username":"admin","password":"%s"}' "$PC_PASS" > "$tmp/vc.json"
-p="/api/iam/v4.1.b3/authn/login-requests/${sid:-no-session}/\$actions/validate-credentials"
-code=$(curl "${C[@]}" -c "$cj" -b "$cj" -o "$tmp/vb" -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary "@$tmp/vc.json" "$base$p")
-line POST "/api/iam/v4.1.b3/authn/login-requests/<iam-sessionid>/\$actions/validate-credentials" "$code $(jq -r '.data.authCodeUri // empty' "$tmp/vb" 2>/dev/null | cut -c1-60)"
+[ -s "$S/portico-sa-key" ] && printf 'header = "X-ntnx-api-key: %s"\n' "$(cut -d= -f2- "$S/portico-sa-key")" > "$tmp/apikey.cfg"
 
-# 3. Legacy form login (pre-IAM).
-code=$(curl "${C[@]}" -o /dev/null -w '%{http_code}' -X POST --config "$tmp/form.cfg" "$base/PrismGateway/j_spring_security_check"); line POST /PrismGateway/j_spring_security_check "$code"
+fail=0
+check() {  # check METHOD LABEL EXPECTED_CODE [EXPECTED_LOCATION_PREFIX] -- curl args
+  local method="$1" label="$2" want="$3" loc="" got
+  shift 3
+  if [ "$1" != "--" ]; then loc="$1"; shift; fi
+  shift  # the "--"
+  got=$(curl "${C[@]}" -w '%{http_code} %{redirect_url}' "$@")
+  local code="${got%% *}" redirect="${got#* }" ok="ok"
+  [ "$code" = "$want" ] || ok="FAIL"
+  if [ -n "$loc" ] && [[ "$redirect" != "$loc"* ]]; then ok="FAIL"; fi
+  [ "$ok" = ok ] || fail=1
+  printf '%-4s %-6s %-82s -> %s (%s)\n' "$ok" "$method" "$label" "$code" "$want"
+}
 
-# 4. Basic auth on APIs of three generations.
+# Public name of Prism Central
+check GET  "/console/ (no session)" 302 "$base/.portico/login?rd=" -- -H 'Accept: text/html' "$base/console/"
+check POST "/api/iam/v4.1.b3/authn/login-requests/<id>/\$actions/validate-credentials (admin)" 403 -- \
+  -X POST -H 'Content-Type: application/json' --data-binary "@$tmp/vc.json" "$base/api/iam/v4.1.b3/authn/login-requests/$(uuidgen | tr '[:upper:]' '[:lower:]')/\$actions/validate-credentials"
+check POST "/PrismGateway/j_spring_security_check (admin form)" 403 -- -X POST --config "$tmp/form.cfg" "$base/PrismGateway/j_spring_security_check"
 for p in /api/iam/v4.0/authn/users /api/nutanix/v3/users/me /PrismGateway/services/rest/v1/cluster /api/clustermgmt/v4.0/config/clusters; do
-  code=$(curl "${C[@]}" -o /dev/null -w '%{http_code}' --config "$tmp/basic.cfg" "$base$p"); line "GET" "$p (Basic admin)" "$code"
+  check GET "$p (Basic admin)" 403 -- --config "$tmp/basic.cfg" "$base$p"
 done
-
-# 5. API key of the service account (must also be blocked on the public path).
-if [ -s "$S/portico-sa-key" ]; then
-  code=$(curl "${C[@]}" -o /dev/null -w '%{http_code}' --config "$tmp/apikey.cfg" "$base/api/multidomain/v4.4.b1/config/projects"); line GET "/api/multidomain/v4.4.b1/config/projects (X-ntnx-api-key)" "$code"
+if [ -s "$tmp/apikey.cfg" ]; then
+  check GET "/api/multidomain/v4.4.b1/config/projects (X-ntnx-api-key)" 403 -- --config "$tmp/apikey.cfg" "$base/api/multidomain/v4.4.b1/config/projects"
 fi
+check POST "/api/nutanix/v3/groups (no session, no credentials)" 401 -- -X POST -H 'Content-Type: application/json' -d '{}' "$base/api/nutanix/v3/groups"
+
+# Logout: Portico sends the browser to Keycloak's end-session endpoint, which
+# must accept the post-logout URI (400 "invalid redirect uri" otherwise).
+logout_loc=$(curl "${C[@]}" -w '%{redirect_url}' "$base/.portico/logout")
+check GET "/.portico/logout" 302 "https://$LAB_ID_HOST/realms/portico-lab/protocol/openid-connect/logout?" -- "$base/.portico/logout"
+# Without a Keycloak session the end-session endpoint goes straight back to
+# the Prism Central host (a browser with a session gets a confirmation page).
+check GET "end-session URL from the logout redirect (through the identity host)" 302 "$base/" -- "$logout_loc"
+
+# Public name of the identity provider
+check GET "https://$LAB_ID_HOST/admin/master/console/" 403 -- "https://$LAB_ID_HOST/admin/master/console/"
+check GET "https://$LAB_ID_HOST/realms/portico-lab/" 200 -- "https://$LAB_ID_HOST/realms/portico-lab/"
+
+# Internal pass-through (lab certificate has no IP SAN: -k)
+check GET "https://$LAB_VM_IP:9440/PrismGateway/services/rest/v1/cluster (Basic admin, internal)" 200 -- -k --config "$tmp/basic.cfg" "https://$LAB_VM_IP:9440/PrismGateway/services/rest/v1/cluster"
+
+if [ $fail -eq 0 ]; then echo "PASS: every line matched"; else echo "FAIL: see lines marked FAIL" >&2; exit 1; fi

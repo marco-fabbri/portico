@@ -40,7 +40,8 @@ creation with `PC_API_KEY` instead of Basic auth.
 - MEASURED: adding its UUID to the predefined **`Project Manager_acp`**
   policy (`PUT /api/iam/v4.1.b3/authz/authorization-policies/{extId}` with
   `identities[].identityFilter.user.uuid.anyof += [uuid]`, type
-  `PREDEFINED_UPDATE_IDENTITY_ONLY`) is enough for the whole tenant cycle:
+  `PREDEFINED_UPDATE_IDENTITY_ONLY`; sanitised body in
+  `payloads/authorization-policy-update.json`) is enough for the whole tenant cycle:
   project create/delete, resource group create/delete, SAML user-group
   create/delete, IdP share/unshare, role membership create/delete, and
   **local user create/delete** (for probe users). Role `Project Manager`

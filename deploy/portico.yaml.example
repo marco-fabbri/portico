@@ -1,0 +1,54 @@
+# Portico settings. Copy to /etc/portico/portico.yaml (mode 0640, group portico).
+# Secrets are never written here: they are referenced by file path.
+
+public:
+  listen: ":443"                 # tunnel mode: "127.0.0.1:8080" with no tls block
+  tls:                           # both empty = plain HTTP behind cloudflared
+    cert_file: /etc/portico/tls/public.crt
+    key_file: /etc/portico/tls/public.key
+  prism_host: prism.msp.example  # required: public name of Prism Central
+  id_host: id.msp.example        # required: public name of the identity provider
+                                 # (same registrable domain as prism_host)
+
+internal:
+  admin_listen: "127.0.0.1:8443"       # Portico health and, later, the admin UI
+  passthrough_listen: "127.0.0.1:9440" # raw pass-through to Prism Central, local login allowed
+  tls:
+    cert_file: ""
+    key_file: ""
+
+prism_central:
+  url: https://10.0.0.10:9440    # required
+  tls_verify: true               # false only in a lab
+  ca_file: ""                    # CA that signed Prism Central's certificate
+
+keycloak:
+  url: http://127.0.0.1:8080     # backchannel; the browser uses id_host
+
+oidc:
+  # Keycloak client: confidential, standard flow, PKCE S256,
+  # redirect URI https://<prism_host>/.portico/callback and
+  # post-logout redirect URI https://<prism_host>/ (logout fails otherwise).
+  issuer: https://id.msp.example/realms/portico  # required: as it appears in tokens
+  client_id: portico                            # required
+  client_secret_file: /etc/portico/oidc-client-secret  # required, mode 0600
+
+session:
+  max_age: 8h
+  idle: 15m
+
+policy:
+  allow_prefixes:                # measured on pc.7.6; an entry ending in "/" is a prefix
+    - /
+    - /console/
+    - /static/
+    - /ui/iam/
+    - /api/
+    - /dm/
+    - /PrismGateway/services/rest/v1/
+    - /vnc/
+    - /auth_code
+    - /favicon.ico
+
+log:
+  level: info                    # debug, info, warn, error

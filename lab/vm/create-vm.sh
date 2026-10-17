@@ -43,11 +43,12 @@ echo "image: $img"
 # 2. Cluster and subnet
 cluster=$(lab/pc.sh GET /api/clustermgmt/v4.0/config/clusters 2>/dev/null | jq -r '.data[] | select(.config.clusterFunction|index("AOS")) | .extId' | head -1)
 subnet=$(lab/pc.sh GET /api/networking/v4.0/config/subnets 2>/dev/null | jq -r --arg n "$SUBNET_NAME" '.data[] | select(.name==$n) | .extId' | head -1)
+[ -n "$cluster" ] || { echo "no AOS cluster found on $PC_URL" >&2; exit 1; }
+[ -n "$subnet" ] || { echo "no subnet named $SUBNET_NAME on $PC_URL" >&2; exit 1; }
 echo "cluster: $cluster  subnet($SUBNET_NAME): $subnet"
-[ -n "$cluster" ] && [ -n "$subnet" ]
 
 # 3. VM
-sed -e "s|__SSH_KEY__|$(cat "$SSH_KEY_FILE")|" -e "s|__IP__|$LAB_VM_IP|" -e "s|__GW__|$GATEWAY|" lab/vm/cloud-init.yaml > "$tmp/user-data"
+render_cloud_init "$(<"$SSH_KEY_FILE")" "$LAB_VM_IP" "$GATEWAY" > "$tmp/user-data"
 userdata=$(base64 < "$tmp/user-data" | tr -d '\n')
 jq -n --arg n "$VM_NAME" --arg c "$cluster" --arg s "$subnet" --arg i "$img" --arg ud "$userdata" '{
   name: $n, numSockets: 2, numCoresPerSocket: 1, memorySizeBytes: 6442450944,
