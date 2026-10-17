@@ -1,0 +1,34 @@
+# Go
+/bin/
+/dist/
+*.test
+*.out
+coverage.*
+
+# Appliance build artefacts
+*.qcow2
+*.img
+*.iso
+/image/output/
+/image/packer_cache/
+
+# Secrets and local environment: never commit
+*.key
+*.pem
+.env
+*.env
+lab.env
+/secrets/
+/kb/
+
+# Local state
+/var/
+*.db
+*.db-wal
+*.db-shm
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
