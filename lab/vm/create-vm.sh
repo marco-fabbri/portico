@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016  # literal $ in jq/grep patterns is intended
 # Create the lab VM portico-lab on NTNX-01 through the v4 API.
 # Idempotent: exits 0 with "already exists" if the VM is there.
 # Requires `source lab/env.sh`.
@@ -17,6 +18,14 @@ SSH_KEY_FILE="${SSH_KEY_FILE:-$HOME/.ssh/id_rsa.pub}"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
 if [ -n "$(vm_extid "$VM_NAME")" ]; then echo "already exists: $VM_NAME"; exit 0; fi
+
+# 0. The IP must be free: no ping reply, and no VM on this Prism Central has
+#    learned it (covers devices that drop ICMP but live on the cluster).
+#    arping is not possible from the Mac (the VLAN is reached through a VPN).
+if ping -c 2 -W 1 "$LAB_VM_IP" >/dev/null 2>&1; then echo "refusing: $LAB_VM_IP answers ping" >&2; exit 2; fi
+if lab/pc.sh GET '/api/vmm/v4.0/ahv/config/vms?$limit=100' 2>/dev/null | jq -e --arg ip "$LAB_VM_IP" '[.data[]?.nics[]?.networkInfo.ipv4Info.learnedIpAddresses[]?.value] | index($ip)' >/dev/null; then
+  echo "refusing: a VM on Prism Central already uses $LAB_VM_IP" >&2; exit 2
+fi
 
 # 1. Image
 img=$(image_extid "$IMAGE_NAME")

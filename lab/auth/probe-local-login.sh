@@ -15,6 +15,10 @@ host="${base#https://}"; host="${host%%/*}"
 C=(-s --cacert "$S/lab-ca.crt" --resolve "$host:443:$LAB_VM_IP")
 umask 077; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 cj="$tmp/cookies"
+# Credentials go to curl through config files, never on the command line.
+printf 'user = "admin:%s"\n' "$PC_PASS" > "$tmp/basic.cfg"
+printf 'data-urlencode = "j_username=admin"\ndata-urlencode = "j_password=%s"\n' "$PC_PASS" > "$tmp/form.cfg"
+[ -s "$S/portico-sa-key" ] && printf 'header = "X-ntnx-api-key: %s"\n' "$(cut -d= -f2- "$S/portico-sa-key")" > "$tmp/apikey.cfg"
 line() { printf '%-6s %-78s -> %s\n' "$1" "$2" "$3"; }
 
 # 1. Console redirect chain: sets the iam-sessionid cookie (the login request id).
@@ -30,14 +34,14 @@ code=$(curl "${C[@]}" -c "$cj" -b "$cj" -o "$tmp/vb" -w '%{http_code}' -X POST -
 line POST "/api/iam/v4.1.b3/authn/login-requests/<iam-sessionid>/\$actions/validate-credentials" "$code $(jq -r '.data.authCodeUri // empty' "$tmp/vb" 2>/dev/null | cut -c1-60)"
 
 # 3. Legacy form login (pre-IAM).
-code=$(curl "${C[@]}" -o /dev/null -w '%{http_code}' -X POST --data-urlencode "j_username=admin" --data-urlencode "j_password=$PC_PASS" "$base/PrismGateway/j_spring_security_check"); line POST /PrismGateway/j_spring_security_check "$code"
+code=$(curl "${C[@]}" -o /dev/null -w '%{http_code}' -X POST --config "$tmp/form.cfg" "$base/PrismGateway/j_spring_security_check"); line POST /PrismGateway/j_spring_security_check "$code"
 
 # 4. Basic auth on APIs of three generations.
 for p in /api/iam/v4.0/authn/users /api/nutanix/v3/users/me /PrismGateway/services/rest/v1/cluster /api/clustermgmt/v4.0/config/clusters; do
-  code=$(curl "${C[@]}" -o /dev/null -w '%{http_code}' -u "admin:$PC_PASS" "$base$p"); line "GET" "$p (Basic admin)" "$code"
+  code=$(curl "${C[@]}" -o /dev/null -w '%{http_code}' --config "$tmp/basic.cfg" "$base$p"); line "GET" "$p (Basic admin)" "$code"
 done
 
 # 5. API key of the service account (must also be blocked on the public path).
 if [ -s "$S/portico-sa-key" ]; then
-  code=$(curl "${C[@]}" -o /dev/null -w '%{http_code}' -H "X-ntnx-api-key: $(cut -d= -f2- "$S/portico-sa-key")" "$base/api/multidomain/v4.4.b1/config/projects"); line GET "/api/multidomain/v4.4.b1/config/projects (X-ntnx-api-key)" "$code"
+  code=$(curl "${C[@]}" -o /dev/null -w '%{http_code}' --config "$tmp/apikey.cfg" "$base/api/multidomain/v4.4.b1/config/projects"); line GET "/api/multidomain/v4.4.b1/config/projects (X-ntnx-api-key)" "$code"
 fi

@@ -47,6 +47,10 @@ through the API?
   metadata stays on the IP. The Keycloak client must therefore use the
   public entityID as `clientId`, not the one from the global metadata
   (first attempt with the IP entityID was replaced).
+- MEASURED: the Keycloak client has "force POST binding" on (the plan said
+  off): Prism Central only needs the *IdP sign-on URL* to support redirect
+  binding, which Keycloak's descriptor lists; the response is POSTed to the
+  ACS either way. Login works end to end with this setting.
 - MEASURED: `nameIdPolicyFormat` of the created IdP is `emailAddress`;
   `usernameAttribute`/`emailAttribute`/`groupsAttribute` map to the
   Keycloak mappers `email` and `groups` (group membership mapper, single

@@ -11,6 +11,7 @@ WebSocket passes through the proxy.
 - Prism Central: pc.7.6.0.6 through the nginx stand-in; Chrome with the
   Claude in Chrome extension, user alice (Project Admin of one project)
 - Date: 2026-10-17
+- By: Claude (Marco's session), Chrome via the Claude in Chrome extension, curl
 
 ## Method
 

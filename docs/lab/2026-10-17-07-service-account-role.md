@@ -22,6 +22,9 @@ creation with `PC_API_KEY` instead of Basic auth.
 
 ## Result
 
+- NOTE: after the final review the lab key was rotated and the account
+  recreated (`create-service-account.sh delete` then `create`), which also
+  exercised the script's create path end to end.
 - MEASURED: pc.7.6 has first-class service accounts:
   `POST /api/iam/v4.1.b3/authn/users` with `userType:"SERVICE_ACCOUNT"`,
   then `POST /api/iam/v4.1.b3/authn/users/{extId}/keys`

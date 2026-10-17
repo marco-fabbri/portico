@@ -116,8 +116,10 @@ model. Small MSPs have no turnkey answer.
 - Appliance footprint target: 2 vCPU, 6 GiB RAM, 40 GiB disk (Portico +
   Keycloak + PostgreSQL + cloudflared on one VM).
 - Lab: NTNX-01, single node, Prism Central `https://10.23.210.175:9440`,
-  VLAN 210 `10.23.210.0/24`, gateway `.254`, free IPs from `.190` (verify with
-  arping). Credentials are held by Marco and never enter the repository.
+  VLAN 210 `10.23.210.0/24`, gateway `.254`, free IPs from `.190` (arping is
+  not possible from the Mac, which reaches the VLAN through a VPN: verify
+  with ping plus the Prism Central VM NIC list, as `lab/vm/create-vm.sh`
+  does). Credentials are held by Marco and never enter the repository.
 
 ## 4. Architecture
 
@@ -186,10 +188,13 @@ break-glass account stays.
    service once write-up 08 says one is practical; add/strip headers.
    `lab/auth/probe-local-login.sh` must return 403 on every line.
 4. Request is proxied to Prism Central on 9440 with the public host name.
-5. Prism Central's own login page offers SAML; the user picks it (or Portico
-   auto-starts it, to be measured) and is sent to Keycloak, which already has a
-   session → immediate return with the SAML assertion. Prism Central creates
-   its session, scoped by the user's project membership.
+5. Prism Central's own login page offers two buttons, SAML and local account
+   (write-up 04). The user picks SAML (step 2 may send tenants straight to
+   `/api/iam/authn/initiate-login` with the IdP selected; hiding the local
+   link is cosmetic because its POST is denied) and is sent to Keycloak,
+   which already has a session → immediate return with the SAML assertion.
+   Prism Central creates its session, scoped by the user's project
+   membership.
 
 Two protocols (OIDC for Portico, SAML for Prism Central), one user login.
 
@@ -197,9 +202,10 @@ Two protocols (OIDC for Portico, SAML for Prism Central), one user login.
 
 A tenant in Portico is a row that ties together:
 
-- a Projects 2.0 project in a given Prism Central (name, UUID), with the
-  clusters and storage containers allocated to it and its per-cluster quota
-  (step 1 sets a minimal quota; richer quota management is step 2),
+- a Projects 2.0 project in a given Prism Central (`id` slug and `extId`),
+  with a resource group allocating clusters and storage containers to it.
+  Quotas are not part of the project APIs (they live in the Policy Engine,
+  write-up 05): no quota in step 1, quota management is step 2,
 - a group in Keycloak (`tenant-<slug>`), with optional brokered identity
   provider for that customer's directory,
 - a role mapping in Prism Central: group → role within the project (never a
@@ -331,7 +337,7 @@ internal admin UI. Nothing else is configurable from the console.
 Each item below was a hypothesis; the write-ups in `docs/lab/` hold the
 evidence and the re-measure procedure.
 
-1. **SAML behind a different host name** — MEASURED (API side): the global
+1. **SAML behind a different host name** — MEASURED: the global
    SP metadata is pinned to the IP, but a SAML IdP created with
    `redirectURL=https://<public host>` (iam `v4.1.b3`) gets its own
    `.../saml-identity-providers/{id}/sp-metadata` with entityID and ACS on
@@ -345,8 +351,10 @@ evidence and the re-measure procedure.
 3. **Projects 2.0 API** — MEASURED: `multidomain/v4.4.b1` projects (`id`
    slug required) and resource groups; `iam/v4.1.b3` role memberships with
    `scopeTemplateName=ProjectsScopeTemplate`; IdP shared per project; v3 is
-   empty; `_internal` untouched by a full cycle; quotas live in the Policy
-   Engine, not in these APIs (write-up 05).
+   empty; a full create/bind/delete cycle leaves `_internal` unchanged except
+   its `modifiedTimestamp` (the lab VM and the subnet share touched it,
+   write-up 05); quotas live in the Policy Engine, not in these APIs
+   (write-up 05).
 4. **Tenant UI behaviour and WebSockets** — MEASURED: the console uses four
    API generations (`/api/*/v4*`, `/api/nutanix/v3`, `/dm/v3`,
    `/PrismGateway/services/rest/v1`) plus `/console`, `/ui/iam`, `/static`;

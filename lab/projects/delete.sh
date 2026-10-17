@@ -8,7 +8,8 @@ cd "$(dirname "$0")/../.." || exit 1
 # shellcheck source=lab/projects/lib.sh
 source lab/projects/lib.sh
 name="${1:?project name}"
-[ "$name" != "_internal" ] || { echo "refusing to delete _internal" >&2; exit 2; }
+# Lab safety: only projects named portico-lab-* are ever touched.
+[[ "$name" == portico-lab-* ]] || { echo "refusing: project name must start with portico-lab-: $name" >&2; exit 2; }
 pj=$(project_extid "$name"); [ -n "$pj" ] || { echo "no project $name"; exit 0; }
 
 for rm in $(lab/pc.sh GET "$IAM1/authz/role-memberships" 2>/dev/null | jq -r --arg p "$pj" '.data[]? | select(.projectExtId==$p) | .extId'); do
