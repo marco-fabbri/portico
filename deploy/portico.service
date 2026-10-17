@@ -1,0 +1,38 @@
+# Portico: multi-tenant service layer for Nutanix Prism Central.
+# Runs unprivileged; CAP_NET_BIND_SERVICE lets it bind port 443.
+[Unit]
+Description=Portico service layer
+Documentation=https://github.com/marco-fabbri/portico
+After=network-online.target keycloak.service
+Wants=network-online.target
+# No Requires on keycloak: Portico fails closed and keeps serving when the
+# identity provider is down.
+
+[Service]
+Type=simple
+User=portico
+Group=portico
+ExecStart=/usr/local/bin/portico serve -config /etc/portico/portico.yaml
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+StateDirectory=portico
+ConfigurationDirectory=portico
+ConfigurationDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

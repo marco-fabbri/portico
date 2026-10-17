@@ -48,5 +48,16 @@ if grep -Fq -- '- ssh-ed25519 AAAA marco|test&co\x' <<<"$out" && grep -Fq 'addre
 # M0-min-6: the authorization policy payload promised by the Milestone 0 plan exists and is sanitised.
 if [ -s docs/lab/payloads/authorization-policy-update.json ] && ! grep -qE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' docs/lab/payloads/authorization-policy-update.json; then ok "authorization-policy-update.json present and sanitised"; else ko "authorization-policy-update.json missing or carries UUIDs"; fi
 
+# Milestone 1 Task 8: deployment of the Go proxy to the lab VM.
+# M1-1: the lab config file carries no secret value, only file paths.
+if [ -s lab/portico/portico.yaml ] && ! grep -nE 'secret:|password|apiKey' lab/portico/portico.yaml | grep -vq 'client_secret_file'; then ok "portico.yaml references secrets by path only"; else ko "portico.yaml missing or holds a secret value"; fi
+# M1-2: deploy.sh refuses to run without the lab environment.
+out=$(env -i PATH="$PATH" HOME="$HOME" bash lab/portico/deploy.sh 2>&1); rc=$?
+if [ "$rc" -ne 0 ] && grep -q 'source lab/env.sh' <<<"$out"; then ok "deploy.sh needs lab/env.sh"; else ko "deploy.sh ran without env (rc=$rc)"; fi
+# M1-3: the unit runs unprivileged and binds 443 through a capability.
+if grep -q '^User=portico' deploy/portico.service 2>/dev/null && grep -q 'AmbientCapabilities=CAP_NET_BIND_SERVICE' deploy/portico.service && grep -q 'ProtectSystem=strict' deploy/portico.service; then ok "portico.service is unprivileged and hardened"; else ko "portico.service lacks hardening"; fi
+# M1-4: Keycloak publishes backchannel endpoints dynamically (OIDC over loopback).
+if grep -q 'KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true' lab/vm/keycloak.container; then ok "keycloak.container enables dynamic backchannel"; else ko "keycloak.container lacks KC_HOSTNAME_BACKCHANNEL_DYNAMIC"; fi
+
 if shellcheck -x lab/*.sh lab/*/*.sh; then ok "shellcheck"; else ko "shellcheck"; fi
 if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi
