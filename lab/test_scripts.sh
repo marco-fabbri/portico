@@ -59,5 +59,8 @@ if grep -q '^User=portico' deploy/portico.service 2>/dev/null && grep -q 'Ambien
 # M1-4: Keycloak publishes backchannel endpoints dynamically (OIDC over loopback).
 if grep -q 'KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true' lab/vm/keycloak.container; then ok "keycloak.container enables dynamic backchannel"; else ko "keycloak.container lacks KC_HOSTNAME_BACKCHANNEL_DYNAMIC"; fi
 
+# M1-5: the Keycloak admin helper uses the VM loopback over SSH, never the public name (Portico refuses /realms/master).
+if grep -q 'realms/master' lab/saml/kc.sh && ! grep -q 'LAB_ID_HOST' lab/saml/kc.sh && grep -q '127.0.0.1:8080' lab/saml/kc.sh; then ok "kc.sh talks to Keycloak on the VM loopback"; else ko "kc.sh still uses the public identity name"; fi
+
 if shellcheck -x lab/*.sh lab/*/*.sh; then ok "shellcheck"; else ko "shellcheck"; fi
 if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi

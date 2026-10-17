@@ -194,6 +194,15 @@ func (a *Authenticator) Logout() http.Handler {
 			a.store.Delete(c.Value)
 		}
 		ClearSessionCookie(w)
+		// Expire every other cookie the browser holds for this host too, so
+		// the upstream session (Prism Central's cookies, Path=/) does not
+		// outlive the Portico one on a shared workstation.
+		for _, c := range r.Cookies() {
+			if c.Name == SessionCookie || c.Name == OIDCCookie {
+				continue
+			}
+			http.SetCookie(w, &http.Cookie{Name: c.Name, Value: "", Path: "/", MaxAge: -1, Secure: true})
+		}
 		w.Header().Set("Cache-Control", "no-store")
 		home := "/"
 		if ru, err := url.Parse(a.cfg.RedirectURL); err == nil {

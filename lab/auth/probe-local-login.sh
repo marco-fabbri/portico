@@ -48,6 +48,14 @@ if [ -s "$tmp/apikey.cfg" ]; then
 fi
 check POST "/api/nutanix/v3/groups (no session, no credentials)" 401 -- -X POST -H 'Content-Type: application/json' -d '{}' "$base/api/nutanix/v3/groups"
 
+# Logout: Portico sends the browser to Keycloak's end-session endpoint, which
+# must accept the post-logout URI (400 "invalid redirect uri" otherwise).
+logout_loc=$(curl "${C[@]}" -w '%{redirect_url}' "$base/.portico/logout")
+check GET "/.portico/logout" 302 "https://$LAB_ID_HOST/realms/portico-lab/protocol/openid-connect/logout?" -- "$base/.portico/logout"
+# Without a Keycloak session the end-session endpoint goes straight back to
+# the Prism Central host (a browser with a session gets a confirmation page).
+check GET "end-session URL from the logout redirect (through the identity host)" 302 "$base/" -- "$logout_loc"
+
 # Public name of the identity provider
 check GET "https://$LAB_ID_HOST/admin/master/console/" 403 -- "https://$LAB_ID_HOST/admin/master/console/"
 check GET "https://$LAB_ID_HOST/realms/portico-lab/" 200 -- "https://$LAB_ID_HOST/realms/portico-lab/"

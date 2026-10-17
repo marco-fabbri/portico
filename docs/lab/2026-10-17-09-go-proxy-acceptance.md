@@ -11,8 +11,9 @@ provider down.
 ## Measured on
 
 - Prism Central: pc.7.6.0.6; Keycloak 26.3.5 with
-  `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true`; Portico `dev-175e532` built from
-  this branch, running as `portico.service` on the lab VM in place of nginx
+  `KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true`; Portico built from branch
+  `m1-core-binary` (first run `dev-175e532`, re-run after the review fixes),
+  running as `portico.service` on the lab VM in place of nginx
 - Date: 2026-10-17
 - By: Claude (Marco's session): `lab/portico/deploy.sh`,
   `lab/auth/probe-local-login.sh`, Chrome via the Claude in Chrome extension
@@ -76,6 +77,19 @@ provider down.
   (peak 8.6 MiB); VM total used 1.1 GiB. SELinux enforcing, zero AVC
   denials; the unit runs as user `portico` with `ProtectSystem=strict` and
   `CAP_NET_BIND_SERVICE` only.
+- MEASURED, logout (review finding): `/.portico/logout` expires the
+  Portico cookie and every other cookie the browser holds for the Prism
+  Central host (`iam-sessionid` is set with `Path=/`), then sends the
+  browser to Keycloak's end-session endpoint. Keycloak answered 400
+  "invalid redirect uri" until the OIDC client listed
+  `https://prism.lab.portico.test/` among its post-logout redirect URIs;
+  now it answers 302 back to the Prism Central host (no Keycloak session
+  on the curl side; a browser gets a confirmation page). Two probe lines
+  cover it.
+- MEASURED: with nginx gone, the Keycloak admin API is reachable only on
+  the VM loopback: Portico refuses `/realms/master` on the public name
+  (`id-master-realm`), so `lab/saml/kc.sh` now runs curl on the VM over
+  SSH. This is the design working as intended.
 - MEASURED: the binary refuses a secret file readable by group or others
   (first deploy installed it 0640 root:portico and the service failed with
   a clear message; now 0600 portico:portico).
