@@ -40,8 +40,12 @@ model. Small MSPs have no turnkey answer.
 - Richer web UI and MSP features (quotas, networks, image catalog per tenant,
   tenant self-service, usage reporting).
 - Non-interactive API access for tenants (Portico-issued API keys).
-- Brokering each tenant to its own directory (AD, Entra ID, LDAP) via
-  Keycloak.
+- Brokering each tenant to its own directory via Keycloak. Entra ID and
+  other SAML/OIDC providers need no network path. An on-premises Active
+  Directory needs LDAP reachability from Keycloak, typically a site-to-site
+  VPN terminating in a dedicated management network reachable only from
+  Keycloak, never in a tenant network or Portico's own; ADFS or Entra
+  Connect on the customer side are the no-VPN alternatives.
 - Brownfield analysis: inventory of existing projects (including the pc.7.6
   "Default Project" that holds everything migrated at upgrade) with an
   exclusion list so Portico never touches them.
