@@ -26,7 +26,7 @@ for request capture.
 - All text on disk in English (CLAUDE.md).
 - Prism password read only from `~/portico-secrets/prism-pw` (mode 0600),
   user `admin`. Never echoed, logged, or written under the repo.
-- Nutanix documentation read from `~/portico-kb/`; never committed.
+- Nutanix documentation read from `kb/` (gitignored); never committed.
 - Lab: Prism Central `https://10.23.210.175:9440`, Prism Element
   `10.23.210.170`, VLAN 210 `10.23.210.0/24`, gateway `.254`, DNS
   `1.1.1.1`, free IPs from `.190`, verified with `ping`/`arping` before use.
@@ -153,12 +153,12 @@ git commit -m "lab: add Prism Central API helpers and write-up template"
   (gitignored path `docs/lab/raw/`) and prints a summary; a write-up with
   the list of API families available on this PC.
 
-- [ ] **Step 1: Download the public v4 OpenAPI specs into `~/portico-kb/openapi/`**
+- [ ] **Step 1: Download the public v4 OpenAPI specs into `kb/openapi/`**
 
 From `https://developers.nutanix.com/` (v4 API reference, "Download
 OpenAPI"): `iam`, `prism`, `vmm`, `clustermgmt`, `networking`. Record in
 the write-up which exact versions (e.g. `iam 4.0`, `vmm 4.0`) were found.
-If downloads need a login, ask Marco to add them to `~/portico-kb`.
+If downloads need a login, ask Marco to add them to `kb/` (gitignored).
 
 - [ ] **Step 2: Write `lab/inventory.sh`**
 
@@ -418,7 +418,7 @@ git commit -m "lab: measure SAML login through a proxy with a different host nam
 
 **Interfaces:**
 - Consumes: `lab/pc.sh`, endpoints discovered in Task 2 and the Projects
-  Guide pc.7.6 from `~/portico-kb`.
+  Guide pc.7.6 from `kb/` (gitignored).
 - Produces: the exact calls Milestone 2 will wrap: create project with
   cluster allocation and a per-cluster quota (2 vCPU, 4 GiB, 50 GiB), bind
   a SAML group to a role scoped to the project, read back, delete.
