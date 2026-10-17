@@ -89,7 +89,7 @@ type Config struct {
 // other entry matches exactly.
 var DefaultAllowPrefixes = []string{
 	"/", "/console/", "/static/", "/ui/iam/", "/api/", "/dm/",
-	"/PrismGateway/services/rest/v1/", "/vnc/", "/auth_code",
+	"/PrismGateway/services/rest/v1/", "/vnc/", "/auth_code", "/favicon.ico",
 }
 
 // Default returns the settings used when the file leaves a key out.

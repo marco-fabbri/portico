@@ -81,6 +81,7 @@ func TestPrismPolicyAllowed(t *testing.T) {
 		"/PrismGateway/nmb/login":                false,
 		"/.portico/login":                        false,
 		"/index.html":                            false,
+		"/favicon.ico":                           true,
 	}
 	for path, want := range cases {
 		rule, got := p.Allowed(req("GET", path, nil))
