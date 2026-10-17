@@ -33,6 +33,13 @@ The local login flow on pc.7.6 (all through the public name):
 | 4 | **`POST /api/iam/v4.1.b3/authn/login-requests/{iam-sessionid}/$actions/validate-credentials`** body `{"username","password"}` | **200** with `authCodeUri=https://<public host>/auth_code?code=...` on success; the browser then follows it and gets the session |
 | 5 | `POST /PrismGateway/j_spring_security_check` (legacy form) | **302** to `/PrismGateway/nmb/loginfailure?error=6` with wrong credentials: the legacy endpoint still exists |
 
+- MEASURED, confirmed in Chrome with the local user `portico-lab-bob`:
+  clicking "Log in with your Nutanix Local Account" does
+  `GET` then `PUT /api/iam/v4.1.b3/authn/login-requests/{id}` (provider
+  selection), `GET /api/iam/authn/initiate-login`, loads `/ui/iam/login`,
+  and the form submit is `POST .../login-requests/{id}/$actions/validate-credentials`
+  → 200, after which the console loads under `/dm/infrastructure/...`
+  (the same UI; alice's `original_request` was `/console/`).
 - MEASURED: the local-login request is `validate-credentials` under
   `login-requests`; the login request id is the `iam-sessionid` cookie
   value set by the OIDC auth step. Other strings in the bundle:
