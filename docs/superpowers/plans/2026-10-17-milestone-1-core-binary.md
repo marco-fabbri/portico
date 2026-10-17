@@ -83,6 +83,94 @@ has a test in the task named:
 
 ---
 
+### Task 0: Lab script minors deferred by the Milestone 0 review
+
+Small defects the Milestone 0 reviewer listed and the executor deferred.
+They are fixed here because Milestone 1 reuses `provision.sh`, `env.sh`
+and the deploy pattern, and because leaving them unlisted is how they
+get forgotten.
+
+**Files:**
+- Create: `lab/lib.sh` (shared: `wait_task`, `etag_of`, `remote_stage_dir`)
+- Modify: `lab/vm/lib.sh`, `lab/projects/lib.sh`,
+  `lab/auth/create-service-account.sh` (source `lab/lib.sh`, drop their
+  own copies)
+- Modify: `lab/env.sh`, `lab/inventory.sh`, `lab/vm/create-vm.sh`,
+  `lab/vm/provision.sh`, `lab/test_scripts.sh`, `lab/README.md`
+- Create: `docs/lab/payloads/authorization-policy-update.json`
+- Modify: `docs/lab/2026-10-17-07-service-account-role.md` (reference the payload)
+
+**Interfaces:**
+- Produces, in `lab/lib.sh` (sourced after `lab/env.sh`):
+  `wait_task TASK_EXTID [MAX_SECONDS]` (default 600; prints the final
+  status; exit 1 with `task <id> did not finish in <n>s` on timeout),
+  `etag_of PATH`, and `remote_stage_dir USER@HOST` (prints a directory
+  created on the VM with `umask 077; mktemp -d`; the caller removes it
+  with `ssh ... rm -rf`). Task 8's `deploy.sh` consumes `remote_stage_dir`.
+
+- [ ] **Step 1: Write the failing checks in `lab/test_scripts.sh`**
+
+```bash
+# M0-min-1: one definition of wait_task and etag_of, in lab/lib.sh.
+for f in wait_task etag_of; do
+  n=$(grep -l "^$f()" lab/*.sh lab/*/*.sh | wc -l | tr -d ' ')
+  if [ "$n" = 1 ] && grep -q "^$f()" lab/lib.sh; then ok "$f defined once in lab/lib.sh"; else ko "$f defined $n times"; fi
+done
+# M0-min-2: wait_task gives up.
+if grep -q 'did not finish' lab/lib.sh; then ok "wait_task has a timeout"; else ko "wait_task loops forever"; fi
+# M0-min-3: no fixed /tmp paths, on the Mac or on the VM.
+if grep -n '/tmp/' lab/*.sh lab/*/*.sh | grep -q .; then ko "fixed /tmp path in lab scripts"; else ok "no fixed /tmp path"; fi
+# M0-min-4: env.sh restores xtrace when the caller had it on.
+d=$(mktemp -d); printf 'x\n' > "$d/prism-pw"; chmod 600 "$d/prism-pw"
+out=$(PORTICO_SECRETS="$d" bash -c 'set -x; source lab/env.sh 2>/dev/null; case $- in *x*) echo on;; *) echo off;; esac' 2>/dev/null); rm -rf "$d"
+if [ "$out" = on ]; then ok "env.sh restores xtrace"; else ko "env.sh leaves xtrace off"; fi
+# M0-min-5: create-vm.sh names a missing cluster or subnet and does not pass the SSH key through sed.
+if grep -q 'no AOS cluster' lab/vm/create-vm.sh && grep -q 'no subnet named' lab/vm/create-vm.sh && ! grep -q 'sed .*__SSH_KEY__' lab/vm/create-vm.sh; then ok "create-vm.sh fails loudly and renders the template safely"; else ko "create-vm.sh silent exit or sed on the SSH key"; fi
+# M0-min-6: the authorization policy payload promised by the Milestone 0 plan exists and is sanitised.
+if [ -s docs/lab/payloads/authorization-policy-update.json ] && ! grep -qE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' docs/lab/payloads/authorization-policy-update.json; then ok "authorization-policy-update.json present and sanitised"; else ko "authorization-policy-update.json missing or carries UUIDs"; fi
+```
+
+- [ ] **Step 2: Run the checks to verify they fail**
+
+Run: `lab/test_scripts.sh`
+Expected: the six `M0-min-*` lines print `FAIL`, final line `FAIL`
+
+- [ ] **Step 3: Fix each item**
+
+1. `lab/lib.sh` with the three helpers; the two `lib.sh` files and
+   `create-service-account.sh` source it and lose their copies.
+2. `env.sh`: remember whether `$-` contains `x` before `set +x`, read the
+   password, then `set -x` again only if it was on.
+3. `lab/projects/lib.sh` `post()` and `lab/inventory.sh`: `mktemp` instead
+   of `/tmp/post_code` and `/tmp/inv_code`.
+4. `create-vm.sh`: `[ -n "$cluster" ] || { echo "no AOS cluster found" >&2; exit 1; }`,
+   same with `no subnet named $SUBNET_NAME`; render `cloud-init.yaml` with
+   bash replacement (`tpl=$(<lab/vm/cloud-init.yaml); tpl=${tpl//__SSH_KEY__/$key}` ...),
+   which treats `|`, `&` and `\` in the key comment literally.
+5. `provision.sh`: `stage=$(remote_stage_dir "lab@$LAB_VM_IP")`, `scp` into
+   `$stage`, install from there, `rm -rf "$stage"` at the end and on error
+   (`trap`).
+6. `docs/lab/payloads/authorization-policy-update.json`: the PUT body that
+   adds the service account to `Project Manager_acp`, UUIDs replaced by
+   `<policy-extId>` / `<service-account-extId>`; one line in write-up 07
+   pointing to it.
+
+- [ ] **Step 4: Run the checks and the existing suites to verify they pass**
+
+Run: `lab/test_scripts.sh && lab/test_env.sh`
+Expected: every line `ok`, both end with `PASS`. Then
+`source lab/env.sh && lab/inventory.sh` still lists the lab objects (the
+helpers moved, the behaviour did not).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lab docs/lab/payloads/authorization-policy-update.json docs/lab/2026-10-17-07-service-account-role.md
+git commit -m "lab: fix the minors deferred by the Milestone 0 review"
+```
+
+---
+
 ### Task 1: Configuration and binary skeleton
 
 **Files:**
@@ -849,15 +937,16 @@ keycloak.service` so a changed quadlet takes effect.
 1. `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$tmp/portico" ./cmd/portico`
    (the lab VM is x86_64: verified by `ssh lab@$LAB_VM_IP uname -m` at the
    start, abort if not `x86_64`).
-2. `scp` binary, `lab/portico/portico.yaml`, `deploy/portico.service`,
-   `$S/portico-oidc-secret`, `$S/lab-ca.crt`, `$S/lab-ca.key` to `/tmp/` on
-   the VM (umask 077 locally).
+2. `stage=$(remote_stage_dir "lab@$LAB_VM_IP")` (Task 0), then `scp`
+   binary, `lab/portico/portico.yaml`, `deploy/portico.service`,
+   `$S/portico-oidc-secret`, `$S/lab-ca.crt`, `$S/lab-ca.key` into
+   `$stage` (umask 077 locally).
 3. Remote `sudo bash -s`: `useradd -r -s /sbin/nologin portico` if missing;
    `install -d -m 0750 -o root -g portico /etc/portico /etc/portico/tls`;
    `install -m 0640 -g portico` config, secret, cert, key (secret and key
    0640 root:portico so `ProtectSystem=strict` and a non-root user both
    work); `install -m 0755 /tmp/portico /usr/local/bin/portico`; unit to
-   `/etc/systemd/system/`; `rm -f` the temporary secret and key;
+   `/etc/systemd/system/`; `rm -rf "$stage"` (also on error, via `trap`);
    `restorecon -R /etc/portico /usr/local/bin/portico`;
    `firewall-cmd --permanent --add-port={8443,9440}/tcp && firewall-cmd --reload`;
    `systemctl disable --now nginx`; `systemctl daemon-reload`;
