@@ -336,7 +336,8 @@ evidence and the re-measure procedure.
    `redirectURL=https://<public host>` (iam `v4.1.b3`) gets its own
    `.../saml-identity-providers/{id}/sp-metadata` with entityID and ACS on
    the public name; Keycloak's client must use that entityID. Browser
-   round trip: pending (write-up 04).
+   round trip measured end to end: SAML button → Keycloak → callback on
+   the public name → console with only the tenant's VM (write-up 04).
 2. **Local login endpoints** — MEASURED: `POST /api/iam/v4.1.b3/authn/login-requests/{iam-sessionid}/$actions/validate-credentials`,
    legacy `POST /PrismGateway/j_spring_security_check`, `Authorization: Basic`
    on every API generation, and `X-ntnx-api-key`. Deny list in §4.3
@@ -346,7 +347,12 @@ evidence and the re-measure procedure.
    `scopeTemplateName=ProjectsScopeTemplate`; IdP shared per project; v3 is
    empty; `_internal` untouched by a full cycle; quotas live in the Policy
    Engine, not in these APIs (write-up 05).
-4. **Tenant UI behaviour and WebSockets** — pending browser (write-up 08).
+4. **Tenant UI behaviour and WebSockets** — MEASURED: the console uses four
+   API generations (`/api/*/v4*`, `/api/nutanix/v3`, `/dm/v3`,
+   `/PrismGateway/services/rest/v1`) plus `/console`, `/ui/iam`, `/static`;
+   a short prefix allow-list is realistic; the VM console WebSocket is
+   `wss://<page host>/vnc/vm/{uuid}/proxy` and the handshake passes the
+   proxy (101) (write-up 08).
 5. **Fallback to local auth** — MEASURED: local login works with the IdP
    down; nothing "falls back", local auth is always on; the proxy policy is
    the only thing that closes it (write-up 06).
@@ -360,9 +366,9 @@ evidence and the re-measure procedure.
    `iam/v4.1.b3`; `v4.0` rejects `redirectURL`; an existing IdP is detected
    by listing (write-up 04).
 
-Still open after Milestone 0: the browser-side SAML round trip (1), the
-console's call families and WebSockets (4), whether `Project Manager` may
-create the SAML IdP and share subnets (7), quota automation (Policy Engine).
+Still open after Milestone 0: the VM console popup end to end in a browser
+(handshake measured with curl only), whether `Project Manager` may create
+the SAML IdP and share subnets (7), quota automation (Policy Engine).
 
 ## 7. Repository layout (initial)
 
