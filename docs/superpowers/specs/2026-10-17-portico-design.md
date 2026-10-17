@@ -58,6 +58,13 @@ model. Small MSPs have no turnkey answer.
   worker nodes, "real provider" style. To be measured, not designed yet.
 - Cluster-per-customer isolation (the gate must not prevent it; nothing in
   step 1 builds it).
+- Non-Nutanix backends (Proxmox and others). The service interface (public
+  host name, upstream, access policy, tenant provisioning hooks) must not
+  forbid them, but Portico's identity is "the small MSP's path to SP
+  Central": the tenant primitive is a Projects 2.0 project, and that is what
+  keeps tenants compatible. A Proxmox module would map tenants onto pools,
+  users and ACLs with different guarantees and no migration story. Decided
+  with Marco on 2026-10-17: an extension point, not a goal.
 
 ### Anti-goals (failure even if it "works")
 
@@ -281,7 +288,11 @@ internal admin UI. Nothing else is configurable from the console.
 - SELinux enforcing. SSH key-only, internal interface only. firewalld with the
   listeners above and nothing else.
 - Output: `portico-<version>.qcow2` + checksum + OpenSCAP report, importable
-  into the Prism Central image service. Cloud-init accepted for unattended
+  into the Prism Central image service. Built by GitHub Actions and attached
+  to a GitHub release, so an MSP downloads a finished image and never builds
+  one. The repository goes public when this pipeline works (public
+  repositories get Actions minutes for free). CIS hardening reuses the
+  approach already built in Marco's `nkp-preprovisioned-toolkit/cis`. Cloud-init accepted for unattended
   network config; the console wizard covers the attended case.
 - Updates: `dnf` for the OS, a new `portico` rpm for the application,
   container image tags for Keycloak/PostgreSQL. Full image replacement
