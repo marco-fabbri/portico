@@ -1,0 +1,109 @@
+package proxy
+
+import (
+	"encoding/json"
+	"log/slog"
+	"net"
+	"net/http"
+	"strings"
+
+	"github.com/marco-fabbri/portico/internal/auth"
+)
+
+const sessionCookieName = auth.SessionCookie
+
+// PublicOptions wires the public listener.
+type PublicOptions struct {
+	PrismHost string
+	IDHost    string
+	Prism     http.Handler // upstream to Prism Central
+	Keycloak  http.Handler // upstream to Keycloak
+	Auth      *auth.Authenticator
+	Policy    PrismPolicy
+	Log       *slog.Logger
+}
+
+// Refuse writes a JSON error with the rule name in X-Portico-Rule so the
+// probe script and the access log can show why.
+func Refuse(w http.ResponseWriter, status int, rule, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Portico-Rule", rule)
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// NewPublic routes by Host: the Prism Central host runs deny list →
+// session → allow-list → proxy; the identity host runs its allow-list and
+// proxies without a session; any other host gets 421.
+func NewPublic(o PublicOptions) http.Handler {
+	log := o.Log
+	if log == nil {
+		log = slog.Default()
+	}
+	prismHost := strings.ToLower(o.PrismHost)
+	idHost := strings.ToLower(o.IDHost)
+
+	portico := http.NewServeMux()
+	portico.Handle("GET /.portico/login", o.Auth.Login())
+	portico.Handle("GET /.portico/callback", o.Auth.Callback())
+	portico.Handle("GET /.portico/logout", o.Auth.Logout())
+	portico.HandleFunc("/.portico/", func(w http.ResponseWriter, r *http.Request) {
+		setRule(r, "portico-unknown")
+		Refuse(w, http.StatusNotFound, "portico-unknown", "not found")
+	})
+
+	// After the session check: allow-list, then proxy.
+	prismAllowed := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if rule, ok := o.Policy.Allowed(r); !ok {
+			setRule(r, rule)
+			Refuse(w, http.StatusForbidden, rule, "path not allowed on the public listener")
+			return
+		}
+		o.Prism.ServeHTTP(w, r)
+	})
+	prismWithSession := o.Auth.Require(prismAllowed)
+
+	prism := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(strings.ToLower(r.URL.Path), "/.portico/") {
+			portico.ServeHTTP(w, r)
+			return
+		}
+		if rule, denied := o.Policy.Deny(r); denied {
+			setRule(r, rule)
+			Refuse(w, http.StatusForbidden, rule, "refused on the public listener")
+			return
+		}
+		prismWithSession.ServeHTTP(w, r)
+	})
+
+	id := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if rule, ok := (IDPolicy{}).Check(r); !ok {
+			setRule(r, rule)
+			Refuse(w, http.StatusForbidden, rule, "path not allowed on the public listener")
+			return
+		}
+		o.Keycloak.ServeHTTP(w, r)
+	})
+
+	router := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch hostOnly(r.Host) {
+		case prismHost:
+			prism.ServeHTTP(w, r)
+		case idHost:
+			id.ServeHTTP(w, r)
+		default:
+			setRule(r, "unknown-host")
+			Refuse(w, http.StatusMisdirectedRequest, "unknown-host", "unknown host")
+		}
+	})
+	return AccessLog(log, router)
+}
+
+// hostOnly lower-cases the host and drops a port.
+func hostOnly(h string) string {
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		h = host
+	}
+	return strings.ToLower(strings.TrimSuffix(h, "."))
+}
