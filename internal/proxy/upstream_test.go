@@ -218,3 +218,14 @@ func TestPrismTLS(t *testing.T) {
 		t.Error("missing ca file should be an error")
 	}
 }
+
+func TestUpstreamKeepsInboundHostWhenUnset(t *testing.T) {
+	up, got := recordingUpstream(t, false, nil)
+	u, _ := url.Parse(up.URL)
+	h := NewUpstream(UpstreamOptions{Target: u, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "https://10.23.210.190:9440/x", nil))
+	if r := (*got)[0]; r.Host != "10.23.210.190:9440" || r.Header.Get("X-Forwarded-Host") != "10.23.210.190:9440" {
+		t.Errorf("upstream saw host %q forwarded-host %q", r.Host, r.Header.Get("X-Forwarded-Host"))
+	}
+}

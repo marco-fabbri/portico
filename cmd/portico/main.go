@@ -5,9 +5,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 
 	"github.com/marco-fabbri/portico/internal/config"
 )
@@ -40,11 +45,13 @@ func run(args []string, stdout, stderr *os.File) int {
 			fmt.Fprintf(stderr, "portico: %v\n", err)
 			return 1
 		}
-		if _, err := cfg.ClientSecret(); err != nil {
+		log := newLogger(stderr, cfg.Log.Level)
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := runServe(ctx, cfg, log); err != nil {
 			fmt.Fprintf(stderr, "portico: %v\n", err)
 			return 1
 		}
-		fmt.Fprintln(stdout, "portico: configuration ok")
 		return 0
 	default:
 		usage(stderr)
@@ -54,4 +61,20 @@ func run(args []string, stdout, stderr *os.File) int {
 
 func usage(w *os.File) {
 	fmt.Fprintln(w, "usage: portico serve -config PATH | portico version")
+}
+
+// newLogger returns a JSON logger on w at the configured level.
+func newLogger(w *os.File, level string) *slog.Logger {
+	var lv slog.Level
+	switch strings.ToLower(level) {
+	case "debug":
+		lv = slog.LevelDebug
+	case "warn", "warning":
+		lv = slog.LevelWarn
+	case "error":
+		lv = slog.LevelError
+	default:
+		lv = slog.LevelInfo
+	}
+	return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: lv}))
 }
