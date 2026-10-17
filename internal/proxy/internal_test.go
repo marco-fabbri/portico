@@ -1,0 +1,41 @@
+package proxy
+
+import (
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"testing"
+)
+
+func TestPassthroughForwardsBasicAuthUnchanged(t *testing.T) {
+	up, got := recordingUpstream(t, false, nil)
+	u, _ := url.Parse(up.URL)
+	prism := NewUpstream(UpstreamOptions{Target: u, HostHeader: "10.23.210.190:9440", Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	h := NewPassthrough(prism, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	r := httptest.NewRequest("GET", "https://10.23.210.190:9440/PrismGateway/services/rest/v1/cluster", nil)
+	r.Header.Set("Authorization", "Basic YWRtaW46cHc=")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	if rec.Code != 200 || len(*got) != 1 {
+		t.Fatalf("got %d upstream %d", rec.Code, len(*got))
+	}
+	if (*got)[0].Header.Get("Authorization") != "Basic YWRtaW46cHc=" || (*got)[0].Host != "10.23.210.190:9440" {
+		t.Errorf("upstream saw %+v", (*got)[0])
+	}
+}
+
+func TestAdminHealthz(t *testing.T) {
+	h := NewAdmin(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "https://127.0.0.1:8443/healthz", nil))
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/json" || rec.Body.String() != "{\"status\":\"ok\"}\n" {
+		t.Errorf("healthz: %d %q %q", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "https://127.0.0.1:8443/x", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("/x: %d", rec.Code)
+	}
+}
