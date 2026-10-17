@@ -5,7 +5,8 @@
 # Requires `source lab/env.sh` first. The password goes to curl through a
 # temporary config file (mode 0600), never on the command line.
 # For POST/PUT/PATCH on a v4 path it adds NTNX-Request-Id; if IF_MATCH is
-# set it adds If-Match (v4 updates need the ETag).
+# set it adds If-Match (v4 updates need the ETag). If PC_HEADERS_FILE is set,
+# response headers are written there.
 set -euo pipefail
 
 method="${1:?usage: pc.sh METHOD PATH [JSON_FILE]}"
@@ -22,11 +23,13 @@ trap 'rm -f "$cfg"' EXIT
   printf 'header = "Accept: application/json"\n'
   printf 'header = "Content-Type: application/json"\n'
   printf 'write-out = "\\nHTTP %%{http_code}\\n"\n'
+  # Optional: response headers to a file (v4 actions need the ETag).
+  [ -n "${PC_HEADERS_FILE:-}" ] && printf 'dump-header = "%s"\n' "$PC_HEADERS_FILE"
 } > "$cfg"
 
 args=(--config "$cfg" -X "$method")
 case "$method" in
-  POST|PUT|PATCH)
+  POST|PUT|PATCH|DELETE)
     if [[ "$path" == /api/*/v4* ]]; then
       args+=(-H "NTNX-Request-Id: $(uuidgen | tr '[:upper:]' '[:lower:]')")
       [ -n "${IF_MATCH:-}" ] && args+=(-H "If-Match: $IF_MATCH")
