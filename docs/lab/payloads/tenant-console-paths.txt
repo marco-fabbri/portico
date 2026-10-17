@@ -1,0 +1,46 @@
+# Hosts and paths called by the Prism Central console for a tenant user
+# (alice, Project Admin of one project) on pc.7.6.0.6, through the public
+# name, during login and the first minute on the VM list page.
+# Deduplicated; query strings removed; status as observed.
+# SAML login round trip
+id.lab.portico.test GET  /realms/portico-lab/protocol/saml  (SAMLRequest, redirect binding)        200
+prism.lab.portico.test POST /api/iam/authn/callback  (SAML response, HTTP-POST binding)            200
+prism.lab.portico.test GET  /auth_code  (code=...)                                                  302
+prism.lab.portico.test GET  /console/                                                              200
+# Console bootstrap: static assets
+prism.lab.portico.test GET  /console/app-extension/*  /console/app/*  /static/v3/swagger.json     200
+# IAM
+prism.lab.portico.test GET  /api/iam/v4.1.b1/authn/oidc/userinfo                                  200
+prism.lab.portico.test GET  /api/iam/v4.1.b1/authz/user-authorization-policies                    200
+prism.lab.portico.test GET  /api/iam/v4.1.b1/authz/user-roles                                     200
+prism.lab.portico.test GET  /api/iam/authn/.well-known/openid-configuration                       200
+# Prism / domain manager
+prism.lab.portico.test OPTIONS /api/*/unversioned/info  (prism, networking, multidomain, vmm, licensing, monitoring)  200
+prism.lab.portico.test GET  /api/prism/v4.4/config/domain-managers                                200
+prism.lab.portico.test GET  /api/prism/v4.4/resource-manager/products/prismops                    200
+prism.lab.portico.test GET  /api/prism/v4.4/management/domain-managers/{id}/products              200
+prism.lab.portico.test GET  /api/prism/v4.4/management/domain-managers/{id}/products/{id}         403
+prism.lab.portico.test GET  /api/prism/v4.4/mgmt/pc-info                                          200
+prism.lab.portico.test GET  /api/prism/v4.1/config/tasks                                          200
+# Projects 2.0
+prism.lab.portico.test GET  /api/multidomain/v4.4.b1/config/resource-groups                       200
+prism.lab.portico.test GET  /api/multidomain/v4.4.b1/config/projects  (isDefault filter)          200
+prism.lab.portico.test GET  /api/multidomain/v4.3.b1/config/projects  (isDefault filter)          200
+# Networking / VMM / monitoring / licensing
+prism.lab.portico.test GET  /api/networking/v4.3/config/controllers                               200
+prism.lab.portico.test GET  /api/vmm/v4.3/ahv/config/vm-profiles                                  200
+prism.lab.portico.test GET  /api/monitoring/v4.3/serviceability/alerts                            200
+prism.lab.portico.test GET  /api/licensing/v4.3/config/entitlements|compliances|licenses          403
+prism.lab.portico.test GET  /api/ntnxsaas/v4.0.a1/config/events                                   412
+prism.lab.portico.test POST /api/cfs/v2.1.a1/events  (telemetry)                                  202
+# Legacy v3 and v1 (still used by the console)
+prism.lab.portico.test POST /api/nutanix/v3/batch                                                 200
+prism.lab.portico.test POST /api/nutanix/v3/clusters/list                                         200
+prism.lab.portico.test POST /api/nutanix/v3/groups                                                200 (one 403)
+prism.lab.portico.test POST /api/nutanix/v3/search                                                200
+prism.lab.portico.test GET  /api/nutanix/v3/services/domain_manager/status                        200
+prism.lab.portico.test GET  /api/nutanix/v3/user_preference                                       200
+prism.lab.portico.test POST /dm/v3/groups                                                         200
+prism.lab.portico.test GET  /PrismGateway/services/rest/v1/users/session_info                     200
+prism.lab.portico.test GET  /PrismGateway/services/rest/v1/license  /license/allowances           200
+prism.lab.portico.test GET  /PrismGateway/services/rest/v1/progress_monitors                      200
