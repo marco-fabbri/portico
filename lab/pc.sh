@@ -12,13 +12,19 @@ set -euo pipefail
 method="${1:?usage: pc.sh METHOD PATH [JSON_FILE]}"
 path="${2:?usage: pc.sh METHOD PATH [JSON_FILE]}"
 body="${3:-}"
-: "${PC_URL:?source lab/env.sh first}" "${PC_USER:?}" "${PC_PASS:?}"
+: "${PC_URL:?source lab/env.sh first}"
+[ -n "${PC_API_KEY:-}" ] || : "${PC_USER:?}" "${PC_PASS:?}"
 
 umask 077
 cfg="$(mktemp)"
 trap 'rm -f "$cfg"' EXIT
 {
-  printf 'user = "%s:%s"\n' "$PC_USER" "$PC_PASS"
+  # PC_API_KEY (a service-account API key) replaces Basic auth when set.
+  if [ -n "${PC_API_KEY:-}" ]; then
+    printf 'header = "X-ntnx-api-key: %s"\n' "$PC_API_KEY"
+  else
+    printf 'user = "%s:%s"\n' "$PC_USER" "$PC_PASS"
+  fi
   printf 'insecure\nsilent\nshow-error\n'
   printf 'header = "Accept: application/json"\n'
   printf 'header = "Content-Type: application/json"\n'

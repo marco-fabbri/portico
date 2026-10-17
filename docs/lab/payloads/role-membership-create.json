@@ -1,14 +1,14 @@
 {
-  "identityExtId": "3134e460-9622-58cf-84c6-9e8a5336b6a3",
+  "identityExtId": "32a9fedd-6b4a-535a-a3f8-6c6b2aeeb7be",
   "identityType": "GROUP",
   "idpExtId": "247f2c3d-4566-52fe-84ed-48b14799bf05",
-  "projectExtId": "f43ca47e-a07c-5412-9073-d9a2aa63384f",
+  "projectExtId": "7425cc51-be53-5ee1-8053-f3070214b561",
   "roleExtId": "ca386756-e45f-5555-8625-5b68ae17393b",
   "scopeTemplateName": "ProjectsScopeTemplate",
   "scopeTemplateNameValues": [
     {
       "name": "projectExtId",
-      "value": "f43ca47e-a07c-5412-9073-d9a2aa63384f"
+      "value": "7425cc51-be53-5ee1-8053-f3070214b561"
     }
   ]
 }

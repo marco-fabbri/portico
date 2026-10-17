@@ -18,3 +18,4 @@ is left behind without a row here.
 | local user (PC) | `portico-lab-bob` (Project Admin of tenant A; password in `~/portico-secrets/bob-pw`) | Task 6 | `DELETE /api/iam/v4.0/authn/users/{extId}` when the lab ends |
 | SAML IdP (PC) | `portico-lab-keycloak` (extId `247f2c3d-4566-52fe-84ed-48b14799bf05`, redirectURL `https://prism.lab.portico.test`, shared with tenant A) | Task 5 | `lab/saml/pc-idp.sh delete` |
 | Keycloak | realm `portico-lab`, groups `tenant-a`, `tenant-b`, user `alice@lab.portico.test` (password `~/portico-secrets/alice-pw`), SAML client for Prism Central | Task 5/6 | gone with the VM |
+| service account (PC) | `portico` (extId `c22f4a4b-4624-5e84-bff1-ea5e719aa1e5`), API key `portico-lab-key` in `~/portico-secrets/portico-sa-key`, member of `Project Manager_acp` | Task 7 | `lab/auth/create-service-account.sh delete` |

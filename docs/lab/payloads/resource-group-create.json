@@ -1,6 +1,6 @@
 {
-  "name": "portico-lab-tenant-b-rg",
-  "projectExtId": "f43ca47e-a07c-5412-9073-d9a2aa63384f",
+  "name": "portico-lab-tenant-c-rg",
+  "projectExtId": "7425cc51-be53-5ee1-8053-f3070214b561",
   "placementTargets": [
     {
       "clusterExtId": "00065dbb-5b39-35c7-78ee-5254000e0b96",
