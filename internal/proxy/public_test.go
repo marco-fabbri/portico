@@ -25,7 +25,18 @@ type publicHarness struct {
 
 func newPublicHarness(t *testing.T) *publicHarness {
 	t.Helper()
+	return newPublicHarnessWith(t, "", nil)
+}
+
+// newPublicHarnessWith builds the harness; prismURL, when not empty,
+// replaces the recording Prism Central (its requests then go unrecorded
+// here), and mutate edits the options before NewPublic.
+func newPublicHarnessWith(t *testing.T, prismURL string, mutate func(*PublicOptions)) *publicHarness {
+	t.Helper()
 	prismUp, prismGot := recordingUpstream(t, false, nil)
+	if prismURL == "" {
+		prismURL = prismUp.URL
+	}
 	kcUp, kcGot := recordingUpstream(t, false, nil)
 	logBuf := &bytes.Buffer{}
 	log := slog.New(slog.NewJSONHandler(logBuf, nil))
@@ -34,15 +45,19 @@ func newPublicHarness(t *testing.T) *publicHarness {
 		Issuer: "https://id.test/realms/x", DiscoveryURL: "https://127.0.0.1:1/realms/x",
 		ClientID: "portico", ClientSecret: "s", RedirectURL: "https://prism.test/.portico/callback",
 	}, store, nil, log)
-	h := NewPublic(PublicOptions{
+	opts := PublicOptions{
 		PrismHost: "prism.test",
 		IDHost:    "id.test",
-		Prism:     upstreamFor(t, prismUp.URL, "prism.test"),
+		Prism:     upstreamFor(t, prismURL, "prism.test"),
 		Keycloak:  upstreamFor(t, kcUp.URL, "id.test"),
 		Auth:      a,
 		Policy:    PrismPolicy{AllowPrefixes: config.DefaultAllowPrefixes},
 		Log:       log,
-	})
+	}
+	if mutate != nil {
+		mutate(&opts)
+	}
+	h := NewPublic(opts)
 	return &publicHarness{handler: h, prism: prismGot, keycloak: kcGot, store: store, logBuf: logBuf}
 }
 
