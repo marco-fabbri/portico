@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="{{.Delay}};url={{.Next}}">
+<title>{{.B.MSPName}}</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #1d2b36; background: #f4f6f8; }
+  main { text-align: center; padding: 2rem; }
+  img.logo { max-height: 96px; max-width: 320px; margin-bottom: 1rem; }
+  h1 { font-size: 1.6rem; margin: 0 0 .3rem; }
+  p { color: #5f6f7c; margin: .2rem 0; }
+  .spinner { width: 36px; height: 36px; margin: 1.5rem auto; border: 4px solid #d9e0e6; border-top-color: {{.B.AccentColor}}; border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  a { color: {{.B.AccentColor}}; }
+</style>
+</head>
+<body>
+<main>
+  {{if .HasLogo}}<img class="logo" src="/.portico/logo" alt="{{.B.MSPName}}">{{end}}
+  <h1>{{.B.MSPName}}</h1>
+  {{if .B.Tagline}}<p>{{.B.Tagline}}</p>{{end}}
+  <div class="spinner" role="progressbar" aria-label="Signing you in"></div>
+  <p>Signing you in…</p>
+  <p><a href="{{.Next}}">Continue</a> if nothing happens.</p>
+</main>
+</body>
+</html>

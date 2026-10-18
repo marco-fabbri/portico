@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/marco-fabbri/portico/internal/api"
@@ -101,11 +102,6 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	stripped := auth.PorticoCookies()
 	prismUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: pcURL, HostHeader: cfg.Public.PrismHost, TLS: pcTLS, StripCookies: stripped, Log: log})
 	kcUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: kcURL, HostHeader: cfg.Public.IDHost, StripCookies: stripped, Log: log})
-	public := proxy.NewPublic(proxy.PublicOptions{
-		PrismHost: cfg.Public.PrismHost, IDHost: cfg.Public.IDHost,
-		Prism: prismUp, Keycloak: kcUp, Auth: authn,
-		Policy: proxy.PrismPolicy{AllowPrefixes: cfg.Policy.AllowPrefixes}, Log: log,
-	})
 	// The pass-through keeps the caller's Host so Prism Central builds its
 	// redirects for the address the administrator used.
 	passthrough := proxy.NewPassthrough(proxy.NewUpstream(proxy.UpstreamOptions{Target: pcURL, HostHeader: "", TLS: pcTLS, Log: log}), log)
@@ -161,6 +157,32 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	guard := api.RequireAdmin(st, ui, limiter, "portico", log)
 	adminAPI := guard(api.New(tenants, st, brand, log))
 	adminUI := guard(ui)
+	// Tenant-facing pages: the landing page replaces Prism Central's
+	// provider page and starts the SAML login with the browser's own
+	// login-request cookie (write-ups 12 and 13).
+	pages := branding.NewPages(brand.Get)
+	landing := &proxy.LandingOptions{
+		Pages: pages,
+		Logo: func(ctx context.Context) ([]byte, string, bool) {
+			b := brand.Get(ctx)
+			return b.LogoData, b.LogoType, b.HasLogo()
+		},
+		PrismHTTP: &http.Client{
+			Transport:     &http.Transport{TLSClientConfig: pcTLS, ForceAttemptHTTP2: false},
+			Timeout:       30 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
+		PrismBase: &url.URL{Scheme: pcURL.Scheme, Host: pcURL.Host},
+		PrismHost: cfg.Public.PrismHost,
+		IdPExtID:  cachedIdPLookup(pcClient, cfg.PrismCentral.SAMLIdPName, 10*time.Minute),
+		Log:       log,
+	}
+	public := proxy.NewPublic(proxy.PublicOptions{
+		PrismHost: cfg.Public.PrismHost, IDHost: cfg.Public.IDHost,
+		Prism: prismUp, Keycloak: kcUp, Auth: authn,
+		Policy: proxy.PrismPolicy{AllowPrefixes: cfg.Policy.AllowPrefixes}, Log: log,
+		Landing: landing,
+	})
 	newServer := func(addr string, h http.Handler) *http.Server {
 		return &http.Server{
 			Addr:              addr,
@@ -218,6 +240,33 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			tenants.Wait()
 			return nil
 		}
+	}
+}
+
+// cachedIdPLookup resolves the SAML identity provider's extId by name
+// through the service account, caching a hit for ttl; errors are not
+// cached, so an IdP created later is found at the next call.
+func cachedIdPLookup(pc *nutanix.Client, name string, ttl time.Duration) func(ctx context.Context) (string, error) {
+	var mu sync.Mutex
+	var extID string
+	var until time.Time
+	return func(ctx context.Context) (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if extID != "" && time.Now().Before(until) {
+			return extID, nil
+		}
+		idps, err := pc.ListSAMLIdPs(ctx)
+		if err != nil {
+			return "", err
+		}
+		for _, i := range idps {
+			if i.Name == name {
+				extID, until = i.ExtID, time.Now().Add(ttl)
+				return extID, nil
+			}
+		}
+		return "", fmt.Errorf("SAML identity provider %q not found", name)
 	}
 }
 

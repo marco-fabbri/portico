@@ -21,6 +21,9 @@ type PublicOptions struct {
 	Auth      *auth.Authenticator
 	Policy    PrismPolicy
 	Log       *slog.Logger
+	// Landing enables the branded landing page and the SAML start on the
+	// Prism Central host; nil keeps the Milestone 1 behaviour.
+	Landing *LandingOptions
 }
 
 // Refuse writes a JSON error with the rule name in X-Portico-Rule so the
@@ -48,13 +51,25 @@ func NewPublic(o PublicOptions) http.Handler {
 	portico.Handle("GET /.portico/login", o.Auth.Login())
 	portico.Handle("GET /.portico/callback", o.Auth.Callback())
 	portico.Handle("GET /.portico/logout", o.Auth.Logout())
+	if o.Landing != nil {
+		if o.Landing.Log == nil {
+			o.Landing.Log = log
+		}
+		portico.Handle("GET "+samlStartPath, o.Auth.Require(http.HandlerFunc(o.Landing.samlStart)))
+		portico.Handle("GET /.portico/logo", o.Auth.Require(http.HandlerFunc(o.Landing.logo)))
+	}
 	portico.HandleFunc("/.portico/", func(w http.ResponseWriter, r *http.Request) {
 		setRule(r, "portico-unknown")
 		Refuse(w, http.StatusNotFound, "portico-unknown", "not found")
 	})
 
-	// After the session check: allow-list, then proxy.
+	// After the session check: the landing page in place of Prism Central's
+	// provider page (Milestone 2c), then allow-list, then proxy.
 	prismAllowed := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if o.Landing.interceptsProviders(r) {
+			o.Landing.landing(w, r)
+			return
+		}
 		if rule, ok := o.Policy.Allowed(r); !ok {
 			setRule(r, rule)
 			Refuse(w, http.StatusForbidden, rule, "path not allowed on the public listener")
