@@ -7,6 +7,11 @@ After=network-online.target keycloak.service
 Wants=network-online.target
 # No Requires on keycloak: Portico fails closed and keeps serving when the
 # identity provider is down.
+# An appliance recovers by itself: a store that cannot open makes the
+# process exit at once, and the default start limit (5 starts in 10 s)
+# would leave the unit failed until `systemctl reset-failed`. With no
+# limit it retries every RestartSec until the cause is fixed.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
