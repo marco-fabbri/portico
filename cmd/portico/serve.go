@@ -204,7 +204,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	restart := make(chan struct{})
 	var restartOnce sync.Once
 	setup := &api.SettingsOptions{Service: settingsSvc, Checker: settings.NewChecker(log), KeycloakURL: cfg.Keycloak.URL,
-		Restart: func() { restartOnce.Do(func() { close(restart) }) }}
+		Restart: func() { restartOnce.Do(func() { close(restart) }) }, Busy: tenants.Running}
 	if !settingsSvc.Stored(ctx) {
 		fileDoc := settings.FromConfig(cfg, apiKey, kcSecret, secret, string(caPEM))
 		setup.File = &fileDoc

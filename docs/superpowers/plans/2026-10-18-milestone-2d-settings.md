@@ -68,12 +68,14 @@ has a test in the task named:
    expected a refusal naming the command's `-force` flag, no change
    (Task 3).
 4. A connectivity check with a wrong API key or an unreachable Prism
-   Central: expected a 4xx/502 with a readable reason and no change to
+   Central: expected 200 with `ok: false` and a readable reason, and no change to
    the stored settings (Task 4).
-5. Apply while a tenant is provisioning: expected the restart waits for
-   the operation (or `TimeoutStopSec` cuts it and the next start marks it
-   failed, as 2a built), and the health endpoint answers again within a
-   minute (Task 5, measured in Task 6).
+5. Apply while a tenant is provisioning: expected a 409 naming the
+   running operations (the restart closes the listeners before waiting
+   for them, so it must not start), and after the operation Apply brings
+   the health endpoint back within a minute (Task 5, measured in Task 6;
+   wording corrected after the review: `TimeoutStopSec` does not bound a
+   voluntary exit).
 
 ---
 

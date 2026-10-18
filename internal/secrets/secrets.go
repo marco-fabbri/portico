@@ -30,6 +30,15 @@ var (
 	ErrOpen = errors.New("secrets: cannot open the sealed value (wrong master key or damaged data)")
 )
 
+// LoadKey reads an existing key file; a missing file is an error. Read-only
+// commands use it so they never create a key owned by the wrong user.
+func LoadKey(path string) ([]byte, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("secrets: key file %s: %w", path, err)
+	}
+	return LoadOrCreateKey(path)
+}
+
 // LoadOrCreateKey reads the key file, or creates it with 32 random bytes
 // and mode 0600 when it is missing. A file readable by group or others,
 // or of the wrong size, is refused with an error naming the path.

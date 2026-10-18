@@ -149,3 +149,29 @@ func TestSettingsShowWhenNotStored(t *testing.T) {
 		t.Fatalf("show on empty: %d %q", code, errOut.String())
 	}
 }
+
+func TestSettingsShowDoesNotCreateKey(t *testing.T) {
+	cfgPath, _ := writeAdminConfig(t)
+	keyPath := filepath.Join(filepath.Dir(cfgPath), "master.key")
+	var out, errOut strings.Builder
+	if code := run([]string{"settings", "show", "-config", cfgPath}, strings.NewReader(""), &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "no settings stored") {
+		t.Fatalf("show on an empty store: %d %s", code, errOut.String())
+	}
+	if _, err := os.Stat(keyPath); err == nil {
+		t.Fatal("settings show created the master key; a read-only command must not")
+	}
+}
+
+func TestSettingsImportRefusesRoot(t *testing.T) {
+	cfgPath, _ := writeFullConfig(t)
+	old := euid
+	euid = func() int { return 0 }
+	t.Cleanup(func() { euid = old })
+	var out, errOut strings.Builder
+	if code := run([]string{"settings", "import", "-config", cfgPath}, strings.NewReader(""), &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "sudo -u portico") {
+		t.Fatalf("import as root: %d %s", code, errOut.String())
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(cfgPath), "master.key")); err == nil {
+		t.Fatal("import as root created the master key")
+	}
+}

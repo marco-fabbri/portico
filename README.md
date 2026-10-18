@@ -80,8 +80,8 @@ stored in Portico's database, sealed with a master key the service
 creates at its first start; the YAML keeps the process settings only.
 The setup page edits them card by card, checks each connection before a
 save, and "Apply and restart" brings the service back on the new
-document; `portico settings import` moves an existing file-based
-installation over in one command. Bootstrap of the service account and
+document; `sudo -u portico portico settings import` moves an existing
+file-based installation over in one command. Bootstrap of the service account and
 of Keycloak comes next (Milestone 2e), then the appliance image
 (Milestone 3).
 The design document is in
