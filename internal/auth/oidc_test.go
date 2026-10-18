@@ -451,3 +451,33 @@ func TestCallbackWithoutCookiesDoesNotLoop(t *testing.T) {
 		t.Error("a session was created")
 	}
 }
+
+// The logout carries the ID token of the session as id_token_hint, so
+// Keycloak ends the session without its "Do you want to log out?" page
+// (Marco's check in 2f); a session without a token (break-glass style)
+// still logs out.
+func TestLogoutSendsTheIDTokenHint(t *testing.T) {
+	idp := newFakeIDP(t)
+	a, st := newTestAuth(t, idp)
+	client, _ := porticoServer(t, a)
+	resp, err := client.Get("https://prism.test/.portico/login?rd=/console/")
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("login: %v %v", err, resp)
+	}
+	resp.Body.Close()
+	var sid, idToken string
+	for id, s := range st.sessions {
+		sid, idToken = id, s.IDToken
+	}
+	if idToken == "" || strings.Count(idToken, ".") != 2 {
+		t.Fatalf("session holds no ID token: %q", idToken)
+	}
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "https://prism.test/.portico/logout", nil)
+	r.AddCookie(&http.Cookie{Name: SessionCookie, Value: sid})
+	a.Logout().ServeHTTP(rec, r)
+	loc, _ := url.Parse(rec.Header().Get("Location"))
+	if rec.Code != 302 || loc.Query().Get("id_token_hint") != idToken || loc.Query().Get("client_id") != "portico" {
+		t.Fatalf("logout: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+}
