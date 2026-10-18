@@ -28,6 +28,9 @@ type fakePCAdmin struct {
 	idps       []map[string]any
 	idpPost    map[string]any
 	forbidKey  bool // the IdP calls answer 403 to the API key (service account without the right)
+	keyLost    bool // the key POST creates the key but the answer never arrives (502)
+	keys       []map[string]any
+	onPolicies func() // called when the policies are listed (to cancel the caller's context)
 }
 
 // addIdP pre-seeds an identity provider.
@@ -105,7 +108,19 @@ func (f *fakePCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 	case p == nutanix.PathIAM1+"/authn/users" && r.Method == "POST":
 		f.user = map[string]any{"extId": "sa-1", "username": body["username"], "userType": "SERVICE_ACCOUNT"}
 		reply(201, f.user)
+	case p == nutanix.PathIAM1+"/authn/users/sa-1/keys" && r.Method == "GET":
+		out := f.keys
+		if out == nil {
+			out = []map[string]any{}
+		}
+		reply(200, out)
 	case p == nutanix.PathIAM1+"/authn/users/sa-1/keys" && r.Method == "POST":
+		f.keys = append(f.keys, map[string]any{"extId": "key-1", "name": body["name"], "status": "VALID"})
+		if f.keyLost {
+			w.WriteHeader(502)
+			w.Write([]byte(`{"data":{"error":"gateway"}}`))
+			return
+		}
 		reply(201, map[string]any{"extId": "key-1", "name": body["name"], "keyDetails": map[string]any{"apiKey": f.issuedKey}, "expiryTime": "2126-10-18T00:00:00Z"})
 	case p == nutanix.PathIAM1+"/authn/users/sa-1/keys/key-1" && r.Method == "GET":
 		w.Header().Set("ETag", `"k"`)
@@ -114,6 +129,9 @@ func (f *fakePCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 		f.keyDeleted++
 		w.WriteHeader(204)
 	case p == nutanix.PathIAM1+"/authz/authorization-policies":
+		if f.onPolicies != nil {
+			f.onPolicies()
+		}
 		if f.noPolicy {
 			reply(200, []map[string]any{{"extId": "pol-1", "displayName": "Super Admin_acp"}})
 			return
@@ -203,5 +221,40 @@ func TestPrismBootstrapPreconditions(t *testing.T) {
 		if _, _, err := b.PrismCentral(context.Background(), Defaults(), in); !errors.As(err, &se) {
 			t.Fatalf("%s: %v", name, err)
 		}
+	}
+}
+
+// A key created in Prism Central whose answer never reached Portico (a
+// timeout, a gateway error) would stay valid with nobody holding it:
+// the bootstrap looks it up by the name it chose and revokes it.
+func TestPrismBootstrapRevokesAKeyLostInTransit(t *testing.T) {
+	pc := newFakePCAdmin(t)
+	pc.keyLost = true
+	s := Defaults()
+	s.PrismHost = "prism.example.test"
+	res, out, err := NewBootstrapper(nil).PrismCentral(context.Background(), s, prismInput(pc.srv.URL))
+	if err != nil || res.OK || !strings.Contains(res.Message, "Prism Central") {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if out.PrismCentral.APIKey != "" || pc.keyDeleted != 1 {
+		t.Fatalf("key stored=%q deleted=%d", out.PrismCentral.APIKey, pc.keyDeleted)
+	}
+}
+
+// The revocation after a failure runs even when the request's context is
+// already gone (the deadline is what usually ends a bootstrap).
+func TestPrismBootstrapRevokesTheKeyWithACancelledContext(t *testing.T) {
+	pc := newFakePCAdmin(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pc.onPolicies = cancel
+	s := Defaults()
+	s.PrismHost = "prism.example.test"
+	res, _, err := NewBootstrapper(nil).PrismCentral(ctx, s, prismInput(pc.srv.URL))
+	if err != nil || res.OK {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if pc.keyDeleted != 1 {
+		t.Fatalf("key deleted %d times", pc.keyDeleted)
 	}
 }

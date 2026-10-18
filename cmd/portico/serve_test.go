@@ -379,8 +379,14 @@ func TestServeSetupModeWithEmptyStore(t *testing.T) {
 	if _, err := net.DialTimeout("tcp", cfg.Public.Listen, 200*time.Millisecond); err == nil {
 		t.Fatal("the public listener is up in setup mode")
 	}
-	if !strings.Contains(logBuf.String(), "setup mode") {
-		t.Fatalf("log: %s", logBuf.String())
+	var setupLine string
+	for _, l := range strings.Split(logBuf.String(), "\n") {
+		if strings.Contains(l, "setup mode") {
+			setupLine = l
+		}
+	}
+	if setupLine == "" || !strings.Contains(setupLine, "prism_host") || !strings.Contains(setupLine, "keycloak.realm") {
+		t.Fatalf("setup-mode line %q must list the missing keys; log: %s", setupLine, logBuf.String())
 	}
 	client := apiClient()
 	req, _ := http.NewRequest("GET", "http://"+cfg.Internal.AdminListen+"/api/v1/settings", nil)

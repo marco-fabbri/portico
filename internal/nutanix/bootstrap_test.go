@@ -57,6 +57,8 @@ func (f *fakePC) handleIAM(w http.ResponseWriter, r *http.Request, rec recorded,
 	case p == PathIAM1+"/authn/users" && r.Method == "POST":
 		st.saUser = map[string]any{"extId": "sa-1", "username": rec.Body["username"], "userType": rec.Body["userType"]}
 		reply(201, st.saUser)
+	case p == PathIAM1+"/authn/users/sa-1/keys" && r.Method == "GET":
+		reply(200, []map[string]any{{"extId": "key-1", "name": "portico-x", "status": "VALID"}, {"extId": "key-2", "name": "ops", "status": "REVOKED"}})
 	case p == PathIAM1+"/authn/users/sa-1/keys" && r.Method == "POST":
 		reply(201, map[string]any{"extId": "key-1", "name": rec.Body["name"], "keyType": "API_KEY", "keyDetails": map[string]any{"apiKey": "k-new-456"}, "expiryTime": "2126-10-18T00:00:00Z"})
 	case p == PathIAM1+"/authn/users/sa-1/keys/key-1" && r.Method == "GET":
@@ -185,6 +187,15 @@ func TestAddPolicyUserStripsReadOnlyFieldsAndIsIdempotent(t *testing.T) {
 	}
 	if _, err := c.FindAuthorizationPolicy(ctx, "Nope_acp"); !IsNotFound(err) {
 		t.Fatalf("missing policy = %v", err)
+	}
+}
+
+func TestListAPIKeysReturnsNamesAndIDs(t *testing.T) {
+	f := newFakePC(t)
+	c := basicClient(t, f)
+	keys, err := c.ListAPIKeys(context.Background(), "sa-1")
+	if err != nil || len(keys) != 2 || keys[0].ExtID != "key-1" || keys[0].Name != "portico-x" || keys[1].Name != "ops" {
+		t.Fatalf("keys=%+v err=%v", keys, err)
 	}
 }
 

@@ -91,6 +91,28 @@ func (c *Client) CreateAPIKey(ctx context.Context, userExtID, name, description 
 	return k, nil
 }
 
+// ListAPIKeys lists the user's keys (ext id, name, expiry; never the key
+// value, which Prism Central shows once at creation).
+func (c *Client) ListAPIKeys(ctx context.Context, userExtID string) ([]APIKey, error) {
+	var raw []struct {
+		ExtID      string `json:"extId"`
+		Name       string `json:"name"`
+		ExpiryTime string `json:"expiryTime"`
+	}
+	if err := c.listAll(ctx, PathIAM1+"/authn/users/"+userExtID+"/keys", nil, &raw); err != nil {
+		return nil, err
+	}
+	keys := make([]APIKey, 0, len(raw))
+	for _, r := range raw {
+		k := APIKey{ExtID: r.ExtID, Name: r.Name}
+		if r.ExpiryTime != "" {
+			k.ExpiryTime, _ = time.Parse(time.RFC3339, r.ExpiryTime)
+		}
+		keys = append(keys, k)
+	}
+	return keys, nil
+}
+
 // DeleteAPIKey revokes a key (GET for the ETag, DELETE with If-Match).
 func (c *Client) DeleteAPIKey(ctx context.Context, userExtID, keyExtID string) error {
 	return c.deleteSync(ctx, PathIAM1+"/authn/users/"+userExtID+"/keys/"+keyExtID)
