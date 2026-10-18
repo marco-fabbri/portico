@@ -165,6 +165,12 @@ the only way administrators reach Prism Central (design call).
 Internal pass-through detail (design call): it listens on Portico's internal
 IP on port 9440, so Prism Central's absolute paths work unchanged, with
 Portico's internal certificate. The Portico admin UI stays on `:8443`.
+Recommended (2b review): give the admin listener its own host name
+(`portico-admin.<msp>.example`) rather than the Prism Central name on
+another port. Cookies and `SameSite` are port-blind, so a shared name
+makes the admin session same-site with the tenant pages; Portico strips
+its own cookies before forwarding and accepts the UI session on UI paths
+only, but a separate name removes the relation altogether.
 
 Keycloak exposure (design call): Keycloak gets its own public host name
 (`id.<msp>.example`), fronted by Portico like any other service. Policy for
@@ -369,7 +375,21 @@ Portico, and both carry the MSP's identity, not Nutanix's or Portico's.
   with logo and a progress indicator while the SAML round trip runs
   (section 4.3 step 5). One Prism Central: the redirect starts at once, no
   artificial delay; a configurable minimum display time exists with
-  default 0. Several Prism Centrals (deferred, section 2): the page is a
+  default 0. Mechanics (measured in write-up 12): Portico answers
+  `GET /ui/iam/providers` on the public host with the landing page, which
+  sends the browser to `/.portico/saml-start`; that handler reads the
+  login request Prism Central created for this browser
+  (`GET /api/iam/v4.1.b3/authn/login-requests/{iam-sessionid}`, with the
+  browser's cookie), writes it back with `loginProviderId` set to the
+  SAML identity provider, and redirects to `/api/iam/authn/initiate-login`.
+  If any step fails, the browser is sent to the original provider page
+  with a one-shot marker so Portico forwards it unchanged (no loop) and
+  the user clicks as in Milestone 1.
+- **Branding settings** are the first store-held settings (section 4.7):
+  MSP name, tagline, accent colour, logo (PNG, JPEG or SVG, at most
+  256 KiB), minimum landing display time. Edited on the admin UI and the
+  API; applied to Portico's pages at once and to the Keycloak theme on
+  save. Several Prism Centrals (deferred, section 2): the page is a
   selector, one entry per Prism Central the tenant has a project in. An
   optional banner is a link that opens in a new tab and never blocks the
   redirect.
