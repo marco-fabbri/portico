@@ -26,6 +26,13 @@ func (e *OpenError) Error() string {
 
 func (e *OpenError) Unwrap() error { return e.Err }
 
+// ValidationError says the document itself is wrong (format): the
+// caller's input, not the appliance, is at fault.
+type ValidationError struct{ Err error }
+
+func (e *ValidationError) Error() string { return e.Err.Error() }
+func (e *ValidationError) Unwrap() error { return e.Err }
+
 // Service reads and writes the document, sealing the secrets.
 type Service struct {
 	st     store.Store
@@ -96,7 +103,7 @@ func (s *Service) Set(ctx context.Context, in Settings) error {
 
 func (s *Service) set(ctx context.Context, in Settings) error {
 	if err := in.ValidateFormat(); err != nil {
-		return err
+		return &ValidationError{Err: err}
 	}
 	sealed := in
 	for _, f := range secretFields(&sealed) {
