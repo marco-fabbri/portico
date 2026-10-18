@@ -102,13 +102,13 @@
 {{end}}
 
 {{/* The inputs a bootstrap fills, shared by the page and the fragments that swap them out-of-band. */}}
-{{define "input-api_key"}}<input type="password" name="api_key" id="api_key" value="" autocomplete="off" placeholder="{{if .APIKeySet}}unchanged{{else}}required{{end}}"{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
+{{define "input-api_key"}}<input type="password" name="api_key" id="api_key" value="" autocomplete="new-password" placeholder="{{if .APIKeySet}}unchanged{{else}}required{{end}}"{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
 {{define "input-realm"}}<input type="text" name="realm" id="realm" value="{{.S.Keycloak.Realm}}" required{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
 {{define "input-admin_client_id"}}<input type="text" name="admin_client_id" id="admin_client_id" value="{{.S.Keycloak.AdminClientID}}" required{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
-{{define "input-admin_client_secret"}}<input type="password" name="admin_client_secret" id="admin_client_secret" value="" autocomplete="off" placeholder="{{if .AdminSecretSet}}unchanged{{else}}required{{end}}"{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
+{{define "input-admin_client_secret"}}<input type="password" name="admin_client_secret" id="admin_client_secret" value="" autocomplete="new-password" placeholder="{{if .AdminSecretSet}}unchanged{{else}}required{{end}}"{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
 {{define "input-issuer"}}<input type="url" name="issuer" id="issuer" value="{{.S.OIDC.Issuer}}" required{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
 {{define "input-client_id"}}<input type="text" name="client_id" id="client_id" value="{{.S.OIDC.ClientID}}" required{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
-{{define "input-client_secret"}}<input type="password" name="client_secret" id="client_secret" value="" autocomplete="off" placeholder="{{if .ClientSecretSet}}unchanged{{else}}required{{end}}"{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
+{{define "input-client_secret"}}<input type="password" name="client_secret" id="client_secret" value="" autocomplete="new-password" placeholder="{{if .ClientSecretSet}}unchanged{{else}}required{{end}}"{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
 {{define "input-saml_idp_name"}}<input type="text" name="saml_idp_name" id="saml_idp_name" value="{{with .S.PrismCentral.SAMLIdPName}}{{.}}{{else}}portico-keycloak{{end}}" required{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
 
 {{/* Bootstrap forms: one-time credentials, used for the call and not stored. */}}
@@ -116,9 +116,9 @@
 <p>Or let Portico create it: enter once the credentials of an account that can create users and edit authorization policies. They are used for this call and not stored.</p>
 <form hx-post="/setup/bootstrap/prism-central" hx-include="#form-prism_central" hx-target="#boot-prism_central">
   <input type="hidden" name="_csrf" value="{{.CSRF}}">
-  <label>Username <input type="text" name="username" value="" autocomplete="off"></label>
-  <label>Password <input type="password" name="password" value="" autocomplete="off"></label>
-  <label>Service account to create <input type="text" name="service_account" value="portico"></label>
+  <label>Username <input type="text" name="username" value="{{index .Data.Form "username"}}" autocomplete="off"></label>
+  <label>Password <input type="password" name="password" value="" autocomplete="new-password"></label>
+  <label>Service account to create <input type="text" name="service_account" value="{{with index .Data.Form "service_account"}}{{.}}{{else}}portico{{end}}"></label>
   <div class="actions"><button type="submit">Create the service account</button></div>
 </form>
 {{end}}
@@ -126,9 +126,9 @@
 <p>Or let Portico create them: enter once the Keycloak administrator's credentials. They are used for this call and not stored. The realm name comes from the field above.</p>
 <form hx-post="/setup/bootstrap/keycloak" hx-include="#form-keycloak" hx-target="#boot-keycloak">
   <input type="hidden" name="_csrf" value="{{.CSRF}}">
-  <label>Keycloak administrator <input type="text" name="admin_username" value="" autocomplete="off"></label>
-  <label>Password <input type="password" name="admin_password" value="" autocomplete="off"></label>
-  <label>Realm display name (optional) <input type="text" name="display_name" value=""></label>
+  <label>Keycloak administrator <input type="text" name="admin_username" value="{{index .Data.Form "admin_username"}}" autocomplete="off"></label>
+  <label>Password <input type="password" name="admin_password" value="" autocomplete="new-password"></label>
+  <label>Realm display name (optional) <input type="text" name="display_name" value="{{index .Data.Form "display_name"}}"></label>
   <div class="actions"><button type="submit">Create the realm and clients</button></div>
 </form>
 {{end}}
@@ -136,8 +136,8 @@
 <p>Portico uses its service account; the credentials are needed only when Prism Central refuses the service account for this step. They are used for this call and not stored.</p>
 <form hx-post="/setup/bootstrap/saml" hx-include="#form-saml" hx-target="#boot-saml">
   <input type="hidden" name="_csrf" value="{{.CSRF}}">
-  <label>Username (optional) <input type="text" name="username" value="" autocomplete="off"></label>
-  <label>Password (optional) <input type="password" name="password" value="" autocomplete="off"></label>
+  <label>Username (optional) <input type="text" name="username" value="{{index .Data.Form "username"}}" autocomplete="off"></label>
+  <label>Password (optional) <input type="password" name="password" value="" autocomplete="new-password"></label>
   <div class="actions"><button type="submit">Create the SAML trust</button></div>
 </form>
 {{end}}
@@ -146,14 +146,7 @@
 {{define "bootstrap_prism_central"}}
 <div class="banner {{.Status}}">{{.Message}}</div>
 {{template "boot-form-prism_central" .}}
-{{if .OK}}{{template "input-api_key" .Data}}
-<select name="cluster_ext_id" id="cluster_ext_id" hx-swap-oob="true">
-  {{range .Clusters}}<option value="{{.ExtID}}"{{if eq .ExtID $.Data.S.Tenants.ClusterExtID}} selected{{end}}>{{.Name}} ({{.ExtID}})</option>{{end}}
-</select>
-<select name="storage_container_ext_id" id="storage_container_ext_id" hx-swap-oob="true">
-  {{range .Containers}}<option value="{{.ExtID}}"{{if eq .ExtID $.Data.S.Tenants.StorageContainerExtID}} selected{{end}}>{{.Name}} ({{.ExtID}})</option>{{end}}
-</select>
-{{end}}
+{{if .OK}}{{template "input-api_key" .Data}}{{template "pickers" (pickers .Clusters .Containers .Data.S.Tenants.ClusterExtID .Data.S.Tenants.StorageContainerExtID)}}{{end}}
 {{end}}
 {{define "bootstrap_keycloak"}}
 <div class="banner {{.Status}}">{{.Message}}</div>
@@ -168,12 +161,15 @@
 
 {{define "check"}}
 <div class="banner {{if .Res.OK}}notice{{else}}error{{end}}">{{.Res.Message}}</div>
-{{if and .Res.OK (eq .Target "prism_central")}}
-<select name="cluster_ext_id" id="cluster_ext_id" hx-swap-oob="true">
-  {{range .Res.Clusters}}<option value="{{.ExtID}}"{{if eq .ExtID $.ClusterExtID}} selected{{end}}>{{.Name}} ({{.ExtID}})</option>{{end}}
-</select>
-<select name="storage_container_ext_id" id="storage_container_ext_id" hx-swap-oob="true">
-  {{range .Res.Containers}}<option value="{{.ExtID}}"{{if eq .ExtID $.StorageContainer}} selected{{end}}>{{.Name}} ({{.ExtID}})</option>{{end}}
-</select>
+{{if and .Res.OK (eq .Target "prism_central")}}{{template "pickers" (pickers .Res.Clusters .Res.Containers .ClusterExtID .StorageContainer)}}{{end}}
 {{end}}
+
+{{/* Pickers swapped into the tenants card: required, and honest when Prism Central has nothing to offer. */}}
+{{define "pickers"}}
+<select name="cluster_ext_id" id="cluster_ext_id" required hx-swap-oob="true">
+  {{range .Clusters}}<option value="{{.ExtID}}"{{if eq .ExtID $.Cluster}} selected{{end}}>{{.Name}} ({{.ExtID}})</option>{{else}}<option value="" disabled selected>none found</option>{{end}}
+</select>
+<select name="storage_container_ext_id" id="storage_container_ext_id" required hx-swap-oob="true">
+  {{range .Containers}}<option value="{{.ExtID}}"{{if eq .ExtID $.Container}} selected{{end}}>{{.Name}} ({{.ExtID}})</option>{{else}}<option value="" disabled selected>none found</option>{{end}}
+</select>
 {{end}}

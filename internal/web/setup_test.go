@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,6 +32,10 @@ func setupSample(pcURL string) settings.Settings {
 
 // withSetup adds the settings service, a fake Prism Central and a restart
 // counter to the web env.
+// setupPCEmpty makes the fake Prism Central answer no clusters and no
+// containers (a Prism Central with nothing registered yet).
+var setupPCEmpty atomic.Bool
+
 func withSetup(t *testing.T, e *env, stored bool) (*settings.Service, *httptest.Server, *int) {
 	t.Helper()
 	pc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -40,6 +46,8 @@ func withSetup(t *testing.T, e *env, stored bool) (*settings.Service, *httptest.
 			return
 		}
 		switch {
+		case setupPCEmpty.Load() && (strings.HasSuffix(r.URL.Path, "/config/clusters") || strings.HasSuffix(r.URL.Path, "/config/storage-containers")):
+			w.Write([]byte(`{"data":[]}`))
 		case strings.HasSuffix(r.URL.Path, "/config/clusters"):
 			w.Write([]byte(`{"data":[{"extId":"cl-1","name":"NTNX-01","config":{"clusterFunction":["AOS"]}}]}`))
 		case strings.HasSuffix(r.URL.Path, "/config/storage-containers"):
@@ -203,5 +211,35 @@ func TestSetupPageInSetupModeListsMissingAndDisablesApply(t *testing.T) {
 	rec = e.do("POST", "/setup/apply", e.form(), true)
 	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "settings incomplete") {
 		t.Fatalf("apply on a draft: %d", rec.Code)
+	}
+}
+
+// Zero clusters or containers: the pickers stay required and say so,
+// instead of rendering an empty select that submits nothing.
+func TestSetupCheckRendersEmptyPickers(t *testing.T) {
+	e := newEnv(t, true)
+	_, pc, _ := withSetup(t, e, true)
+	e.login(t)
+	setupPCEmpty.Store(true)
+	defer setupPCEmpty.Store(false)
+	rec := e.do("POST", "/setup/check", e.form("target", "prism_central", "url", pc.URL, "tls_verify", ""), true)
+	body := rec.Body.String()
+	if rec.Code != 200 || !strings.Contains(body, "none found") || !regexp.MustCompile(`<select name="cluster_ext_id"[^>]*required`).MatchString(body) || !regexp.MustCompile(`<select name="storage_container_ext_id"[^>]*required`).MatchString(body) {
+		t.Fatalf("empty pickers: %d %s", rec.Code, body)
+	}
+}
+
+// Password inputs say new-password: "off" does not stop password
+// managers from offering and saving them.
+func TestSetupSecretInputsStopPasswordManagers(t *testing.T) {
+	e := newEnv(t, true)
+	withSetup(t, e, true)
+	e.login(t)
+	page := e.do("GET", "/setup", nil, true).Body.String()
+	if regexp.MustCompile(`type="password"[^>]*autocomplete="off"`).MatchString(page) {
+		t.Fatal("a password input still says autocomplete=off")
+	}
+	if n := strings.Count(page, `autocomplete="new-password"`); n < 6 {
+		t.Fatalf("%d new-password inputs, want at least 6:\n%s", n, page)
 	}
 }
