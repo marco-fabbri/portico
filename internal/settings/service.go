@@ -83,9 +83,11 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 	return out, nil
 }
 
-// Set validates and stores the document, sealing every non-empty secret.
+// Set checks the format of the document and stores it, sealing every
+// non-empty secret. The document may be incomplete (a draft): Apply is
+// what demands completeness.
 func (s *Service) Set(ctx context.Context, in Settings) error {
-	if err := in.Validate(); err != nil {
+	if err := in.ValidateFormat(); err != nil {
 		return err
 	}
 	sealed := in

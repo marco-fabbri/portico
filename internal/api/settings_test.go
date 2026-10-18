@@ -28,6 +28,7 @@ type settingsEnv struct {
 	restarted int
 	busy      int
 	pc        *httptest.Server
+	so        *SettingsOptions
 }
 
 func sampleSettings(pcURL string) settings.Settings {
@@ -92,7 +93,15 @@ func newSettingsEnv(t *testing.T, stored bool) *settingsEnv {
 	file := sampleSettings(pc.URL)
 	e.busy = 0
 	so := &SettingsOptions{Service: svc, File: &file, Checker: settings.NewChecker(log), KeycloakURL: "http://127.0.0.1:1", Restart: func() { e.restarted++ }, Busy: func() int { return e.busy }}
+	e.so = so
 	e.h = BasicAuth(st, "portico", log)(New(tsvc, st, branding.NewService(st, log), so, log))
+	return e
+}
+
+// newDraftEnv is a fresh appliance: nothing stored and no file.
+func newDraftEnv(t *testing.T) *settingsEnv {
+	e := newSettingsEnv(t, false)
+	e.so.File, e.so.Mode = nil, "setup"
 	return e
 }
 
@@ -290,5 +299,43 @@ func TestSettingsApplyRefusedWhileTenantOperationRuns(t *testing.T) {
 	rec, _ = e.do("POST", "/api/v1/settings/apply", "")
 	if rec.Code != 202 || e.restarted != 1 {
 		t.Fatalf("apply when idle: %d restarted=%d", rec.Code, e.restarted)
+	}
+}
+
+func TestGetSettingsReportsModeAndMissing(t *testing.T) {
+	e := newDraftEnv(t)
+	rec, out := e.do("GET", "/api/v1/settings", "")
+	if rec.Code != 200 || out["mode"] != "setup" || out["complete"] != false || out["stored"] != false {
+		t.Fatalf("GET: %d %v", rec.Code, out)
+	}
+	missing, _ := out["missing"].([]any)
+	if len(missing) != 11 || missing[0] != "prism_host" {
+		t.Fatalf("missing = %v", missing)
+	}
+	if tenants, _ := out["tenants"].(map[string]any); tenants["project_prefix"] != "portico" || tenants["operation_timeout"] != "10m0s" {
+		t.Fatalf("defaults not offered: %v", out["tenants"])
+	}
+}
+
+func TestPutDraftThenApplyRefusedUntilComplete(t *testing.T) {
+	e := newDraftEnv(t)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
+	if rec.Code != 200 || out["stored"] != true || out["complete"] != false {
+		t.Fatalf("PUT draft: %d %v", rec.Code, out)
+	}
+	rec, out = e.do("POST", "/api/v1/settings/apply", "")
+	if rec.Code != 409 || !strings.Contains(out["error"].(string), "settings incomplete: missing prism_central.url") || e.restarted != 0 {
+		t.Fatalf("apply on a draft: %d %v restarted=%d", rec.Code, out, e.restarted)
+	}
+}
+
+func TestTenantRoutesAnswer503InSetupMode(t *testing.T) {
+	e := newEnv(t)
+	e.h = BasicAuth(e.st, "portico", nil)(New(nil, e.st, e.brand, nil, nil))
+	for _, c := range []struct{ method, path string }{{"GET", "/api/v1/tenants"}, {"POST", "/api/v1/tenants"}, {"GET", "/api/v1/tenants/x/visibility"}} {
+		rec, out := e.do(c.method, c.path, `{"slug":"x"}`, true)
+		if rec.Code != 503 || out["error"] != "Portico is in setup mode: complete the settings and apply them" {
+			t.Fatalf("%s %s: %d %v", c.method, c.path, rec.Code, out)
+		}
 	}
 }

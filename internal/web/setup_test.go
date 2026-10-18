@@ -174,3 +174,29 @@ func TestSetupRequiresCSRF(t *testing.T) {
 		t.Fatal("a form without CSRF changed state")
 	}
 }
+
+func TestSetupPageInSetupModeListsMissingAndDisablesApply(t *testing.T) {
+	e := newEnv(t, true)
+	withSetup(t, e, false)
+	e.web.setup.File, e.web.setup.Mode = nil, "setup"
+	e.login(t)
+	rec := e.do("GET", "/setup", nil, true)
+	body := rec.Body.String()
+	for _, want := range []string{"Setup mode", "Missing: prism_host, id_host", `value="portico"`, `disabled`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("setup page lacks %q: %s", want, body)
+		}
+	}
+	rec = e.do("POST", "/setup/save", e.form("section", "hosts", "prism_host", "prism.example.test", "id_host", "id.example.test"), true)
+	if rec.Code != 303 {
+		t.Fatalf("save hosts on a fresh store: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = e.do("GET", "/setup", nil, true)
+	if body := rec.Body.String(); strings.Contains(body, "Missing: prism_host") || !strings.Contains(body, "Missing: prism_central.url") {
+		t.Fatalf("missing list after save: %s", body)
+	}
+	rec = e.do("POST", "/setup/apply", e.form(), true)
+	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "settings incomplete") {
+		t.Fatalf("apply on a draft: %d", rec.Code)
+	}
+}

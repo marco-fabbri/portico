@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"github.com/marco-fabbri/portico/internal/secrets"
@@ -88,6 +89,14 @@ func testServeConfig(t *testing.T, prismURL string) *config.Config {
 		t.Fatal(err)
 	}
 	return &cfg
+}
+
+// apiClient is a client without keep-alives: the default transport can
+// dial a second connection next to the pooled one and leave it without
+// a request, and net/http's Shutdown waits five seconds before it
+// treats such a connection as idle, which makes a restart test slow.
+func apiClient() *http.Client {
+	return &http.Client{Transport: &http.Transport{DisableKeepAlives: true}, Timeout: 5 * time.Second}
 }
 
 func waitHealthy(t *testing.T, addr string) {
@@ -324,7 +333,7 @@ func TestServeRestartsOnRequest(t *testing.T) {
 	waitHealthy(t, cfg.Internal.AdminListen)
 	req, _ := http.NewRequest("POST", "http://"+cfg.Internal.AdminListen+"/api/v1/settings/apply", nil)
 	req.SetBasicAuth("admin", "restart-pw-1")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := apiClient().Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,5 +356,66 @@ func TestServeRestartsOnRequest(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("runServe did not return within 3 s of the apply")
+	}
+}
+
+func TestServeSetupModeWithEmptyStore(t *testing.T) {
+	cfg := config.Default()
+	cfg.Public.Listen, cfg.Internal.AdminListen, cfg.Internal.PassthroughListen = freeAddr(t), freeAddr(t), freeAddr(t)
+	cfg.Store.Path, cfg.Store.MasterKeyFile = filepath.Join(t.TempDir(), "portico.db"), filepath.Join(t.TempDir(), "master.key")
+	if err := cfg.ValidateProcess(); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := store.OpenSQLite(cfg.Store.Path)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("pw-12345678"), bcrypt.MinCost)
+	st.SetAdminPassword(context.Background(), "admin", string(hash))
+	st.Close()
+	var logBuf bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runServe(ctx, &cfg, slog.New(slog.NewTextHandler(&logBuf, nil))) }()
+	waitHealthy(t, cfg.Internal.AdminListen)
+	if _, err := net.DialTimeout("tcp", cfg.Public.Listen, 200*time.Millisecond); err == nil {
+		t.Fatal("the public listener is up in setup mode")
+	}
+	if !strings.Contains(logBuf.String(), "setup mode") {
+		t.Fatalf("log: %s", logBuf.String())
+	}
+	client := apiClient()
+	req, _ := http.NewRequest("GET", "http://"+cfg.Internal.AdminListen+"/api/v1/settings", nil)
+	req.SetBasicAuth("admin", "pw-12345678")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	json.NewDecoder(resp.Body).Decode(&out)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || out["mode"] != "setup" {
+		t.Fatalf("settings: %d %v", resp.StatusCode, out)
+	}
+	// A complete document stored through the API, then Apply → ErrRestart.
+	body := `{"prism_host":"prism.test","id_host":"id.test","prism_central":{"url":"https://127.0.0.1:1","tls_verify":false,"api_key":"k","saml_idp_name":"idp"},"keycloak":{"realm":"x","admin_client_id":"portico-admin","admin_client_secret":"s"},"oidc":{"issuer":"https://id.test/realms/x","client_id":"portico","client_secret":"s"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl","storage_container_ext_id":"sc","operation_timeout":"10m"}}`
+	req, _ = http.NewRequest("PUT", "http://"+cfg.Internal.AdminListen+"/api/v1/settings", strings.NewReader(body))
+	req.SetBasicAuth("admin", "pw-12345678")
+	req.Header.Set("Content-Type", "application/json")
+	if resp, err = client.Do(req); err != nil || resp.StatusCode != 200 {
+		t.Fatalf("PUT: %v %d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+	req, _ = http.NewRequest("POST", "http://"+cfg.Internal.AdminListen+"/api/v1/settings/apply", nil)
+	req.SetBasicAuth("admin", "pw-12345678")
+	if resp, err = client.Do(req); err != nil || resp.StatusCode != 202 {
+		t.Fatalf("apply: %v %d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrRestart) {
+			t.Fatalf("runServe returned %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("runServe did not restart")
 	}
 }
