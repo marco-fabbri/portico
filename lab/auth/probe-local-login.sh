@@ -43,6 +43,8 @@ check POST "/PrismGateway/j_spring_security_check (admin form)" 403 -- -X POST -
 for p in /api/iam/v4.0/authn/users /api/nutanix/v3/users/me /PrismGateway/services/rest/v1/cluster /api/clustermgmt/v4.0/config/clusters; do
   check GET "$p (Basic admin)" 403 -- --config "$tmp/basic.cfg" "$base$p"
 done
+# Any other Authorization scheme is refused too (write-up 12: the console sends none).
+check GET "/api/nutanix/v3/vms/list (Authorization: Bearer)" 403 -- -H 'Authorization: Bearer not-a-token' "$base/api/nutanix/v3/vms/list"
 if [ -s "$tmp/apikey.cfg" ]; then
   check GET "/api/multidomain/v4.4.b1/config/projects (X-ntnx-api-key)" 403 -- --config "$tmp/apikey.cfg" "$base/api/multidomain/v4.4.b1/config/projects"
 fi

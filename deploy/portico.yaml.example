@@ -51,6 +51,9 @@ session:
   idle: 15m
 
 policy:
+  # Not configurable: on the public name every Authorization header is
+  # refused (the console uses cookies only, measured on pc.7.6), as are
+  # X-ntnx-api-key and the local-login paths.
   allow_prefixes:                # measured on pc.7.6; an entry ending in "/" is a prefix
     - /
     - /console/
@@ -62,6 +65,7 @@ policy:
     - /vnc/
     - /auth_code
     - /favicon.ico
+    - /redirect                  # Prism Central's own Sign Out
 
 log:
   level: info                    # debug, info, warn, error

@@ -48,7 +48,10 @@ func TestPrismPolicyDeny(t *testing.T) {
 		{"basic", req("GET", "/api/x", map[string]string{"Authorization": "Basic abc"}), "deny-basic-auth", true},
 		{"basic lower", req("GET", "/api/x", map[string]string{"Authorization": "basic abc"}), "deny-basic-auth", true},
 		{"basic padded", req("GET", "/api/x", map[string]string{"Authorization": " BASIC abc"}), "deny-basic-auth", true},
-		{"bearer passes", req("GET", "/api/x", map[string]string{"Authorization": "Bearer abc"}), "", false},
+		{"bearer", req("GET", "/api/x", map[string]string{"Authorization": "Bearer abc"}), "deny-authorization", true},
+		{"digest", req("GET", "/api/x", map[string]string{"Authorization": "Digest abc"}), "deny-authorization", true},
+		{"unknown scheme", req("GET", "/api/x", map[string]string{"Authorization": "X-Token abc"}), "deny-authorization", true},
+		{"empty authorization", req("GET", "/api/x", map[string]string{"Authorization": ""}), "", false},
 		{"basic tab", req("GET", "/api/x", map[string]string{"Authorization": "Basic\tabc"}), "deny-basic-auth", true},
 		{"basic second value", withSecondAuth(req("GET", "/api/x", map[string]string{"Authorization": "Bearer abc"}), "Basic abc"), "deny-basic-auth", true},
 		{"api key empty", req("GET", "/api/x", map[string]string{"X-ntnx-api-key": ""}), "deny-api-key", true},
@@ -89,6 +92,8 @@ func TestPrismPolicyAllowed(t *testing.T) {
 		"/.portico/login":                        false,
 		"/index.html":                            false,
 		"/favicon.ico":                           true,
+		"/redirect":                              true, // Prism Central's own Sign Out goes through /redirect?logout=...
+		"/redirect/x":                            false,
 	}
 	for path, want := range cases {
 		rule, got := p.Allowed(req("GET", path, nil))
