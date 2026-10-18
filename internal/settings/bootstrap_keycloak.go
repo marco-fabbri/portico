@@ -48,6 +48,13 @@ var adminClientRoles = []string{"manage-users", "view-users", "query-users", "qu
 // settings with the realm, the issuer and both secrets filled in. A
 // refusal or an unreachable Keycloak is a result with OK false, not an
 // error; a precondition on the settings or the input is a *StateError.
+// RealmPasswordPolicy is set on the realm the bootstrap creates: a
+// tenant user cannot pick a short password or one made of their own
+// name at the first login. The temporary passwords Portico generates
+// (20 characters, letters and digits) satisfy it; a realm that already
+// exists keeps its own policy (adoption is step 2).
+const RealmPasswordPolicy = "length(12) and notUsername and notEmail"
+
 func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Settings, in KeycloakInput) (KeycloakResult, Settings, error) {
 	if strings.TrimSpace(s.PrismHost) == "" || strings.TrimSpace(s.IDHost) == "" {
 		return KeycloakResult{}, s, &StateError{Msg: "save the public names first: the clients need them"}
@@ -88,7 +95,7 @@ func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Setti
 	_, err := kc.Realm(ctx)
 	switch {
 	case errors.Is(err, keycloak.ErrNotFound):
-		rep := map[string]any{"realm": in.Realm, "enabled": true, "displayName": display, "loginWithEmailAllowed": true, "registrationEmailAsUsername": true}
+		rep := map[string]any{"realm": in.Realm, "enabled": true, "displayName": display, "loginWithEmailAllowed": true, "registrationEmailAsUsername": true, "passwordPolicy": RealmPasswordPolicy}
 		if err := kc.CreateRealm(ctx, rep); err != nil {
 			return remote(err)
 		}
