@@ -484,7 +484,7 @@ func (h *handler) bootstrapSAML(w http.ResponseWriter, r *http.Request) {
 	}
 	res, _, err := h.so.Bootstrapper.SAML(r.Context(), h.so.KeycloakURL, cur, settings.SAMLInput{Name: in.Name, Username: in.Username, Password: in.Password})
 	if err == nil {
-		h.log.Info("bootstrap saml", "name", in.Name, "ok", res.OK, "used_credentials", res.UsedCredentials, "created", res.Created)
+		h.log.Info("bootstrap saml", "name", res.Name, "ok", res.OK, "used_credentials", res.UsedCredentials, "created", res.Created)
 	}
 	h.bootstrapAnswer(w, r, res, err)
 }
