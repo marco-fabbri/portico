@@ -127,7 +127,12 @@ and what a reset of the lab to that fresh state involves.
   visibility `ok`, carol created, disabled and enabled.
 - MEASURED, browser: `https://prism.lab.portico.test/` with no session
   lands on the Keycloak login page of the new realm, branded (name,
-  colour, logo, tagline). The setup page in setup mode (same commit,
+  colour, logo, tagline). Marco's observation on that page: the realm
+  display name "Portico Lab MSP" is drawn across the logo instead of
+  under it (the theme CSS in `internal/branding/theme.go` puts the logo
+  as a background of `#kc-header-wrapper` with a top padding, which
+  Keycloak 26.3's own header rules do not honour). Deferred: a theme
+  fix, to re-check in Chrome. The setup page in setup mode (same commit,
   local instance with an empty store) shows the banner "Setup mode: the
   public listener is off until every card is saved and applied", the
   notice "No settings yet", the defaults prefilled (`portico-admin`,
