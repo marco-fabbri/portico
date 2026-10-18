@@ -134,10 +134,27 @@ func TestServiceSetCallsHookAndKeepsSaveOnHookError(t *testing.T) {
 	}
 }
 
-func TestLogoSVGWithScriptIsStoredAsIs(t *testing.T) {
+// Review fix 2: Keycloak serves the theme's logo.svg from the login
+// origin without a script-forbidding CSP, so an SVG with active content
+// is refused at validation, not only neutralised by Portico's headers.
+func TestLogoSVGWithActiveContentIsRejected(t *testing.T) {
+	for _, bad := range []string{
+		`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`,
+		`<svg xmlns="http://www.w3.org/2000/svg"><SCRIPT href="x"/></svg>`,
+		`<svg xmlns="http://www.w3.org/2000/svg"><a href="javascript:alert(1)"><rect/></a></svg>`,
+		`<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><body onload="x"/></foreignObject></svg>`,
+		`<svg xmlns="http://www.w3.org/2000/svg"><rect onclick="alert(1)"/></svg>`,
+		`<svg xmlns="http://www.w3.org/2000/svg"><rect ONMOUSEOVER = "alert(1)"/></svg>`,
+	} {
+		b := Default()
+		b.LogoType, b.LogoData = "image/svg+xml", []byte(bad)
+		if err := b.Validate(); err == nil || !strings.Contains(err.Error(), "logo") {
+			t.Errorf("Validate accepted active SVG %q: %v", bad, err)
+		}
+	}
 	b := Default()
-	b.LogoType, b.LogoData = "image/svg+xml", []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`)
+	b.LogoType, b.LogoData = "image/svg+xml", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#8b1f5f"/><text x="1" y="8">on</text></svg>`)
 	if err := b.Validate(); err != nil {
-		t.Fatalf("Validate SVG = %v", err)
+		t.Fatalf("Validate rejected an inert SVG: %v", err)
 	}
 }
