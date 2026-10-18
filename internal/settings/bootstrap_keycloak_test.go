@@ -30,6 +30,7 @@ type fakeKCAdmin struct {
 	// endpoint accepts.
 	descriptorEntityID, adminSecret string
 	onClients                       func() // called when the clients are listed (a save made meanwhile)
+	masterTokenStatus               int    // when set, the master token endpoint answers this status
 }
 
 func newFakeKCAdmin(t *testing.T) *fakeKCAdmin {
@@ -73,6 +74,10 @@ func (f *fakeKCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if r.URL.Path == "/realms/master/protocol/openid-connect/token" {
+		if f.masterTokenStatus != 0 {
+			w.WriteHeader(f.masterTokenStatus)
+			return
+		}
 		r.ParseForm()
 		if r.Form.Get("grant_type") != "password" || r.Form.Get("client_id") != "admin-cli" || r.Form.Get("username") != "kcadmin" || r.Form.Get("password") != "adm-pw-1" {
 			w.WriteHeader(401)
@@ -271,5 +276,18 @@ func TestKeycloakBootstrapKeepsASaveMadeMeanwhile(t *testing.T) {
 	got, err := svc.Get(ctx)
 	if err != nil || got.Keycloak.Realm != "msp" || got.Tenants.ClusterExtID != "cl-9" || got.OIDC.ClientSecret == "" {
 		t.Fatalf("got=%+v err=%v", got, err)
+	}
+}
+
+// A token endpoint answering something other than 401 is reported with
+// its status, not as refused credentials.
+func TestKeycloakBootstrapNamesTheTokenStatus(t *testing.T) {
+	kc := newFakeKCAdmin(t)
+	kc.masterTokenStatus = 503
+	s := Defaults()
+	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	res, _, err := NewBootstrapper(nil, nil).Keycloak(context.Background(), kc.srv.URL, s, KeycloakInput{AdminUsername: "kcadmin", AdminPassword: "x", Realm: "msp"})
+	if err != nil || res.OK || res.Message != "Keycloak answered status 503 at the token endpoint" {
+		t.Fatalf("token 503: %+v %v", res, err)
 	}
 }

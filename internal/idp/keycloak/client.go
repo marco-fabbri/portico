@@ -26,6 +26,17 @@ import (
 // ErrNotFound is returned when a lookup finds nothing.
 var ErrNotFound = errors.New("keycloak: not found")
 
+// StatusError is a non-2xx answer from Keycloak: Op is "token" for the
+// token endpoint and "<METHOD> <path>" for an admin call. A 404 on an
+// admin call is ErrNotFound instead. Callers classify by Status; the
+// body is never part of the error (it may echo request fields).
+type StatusError struct {
+	Op     string
+	Status int
+}
+
+func (e *StatusError) Error() string { return fmt.Sprintf("keycloak: %s: status %d", e.Op, e.Status) }
+
 // Group is a realm group.
 type Group struct {
 	ID   string `json:"id"`
@@ -105,7 +116,7 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 		// The body may echo the request; only the status is reported.
 		io.Copy(io.Discard, resp.Body)
 		c.log.Warn("keycloak token request refused", "status", resp.StatusCode)
-		return "", fmt.Errorf("keycloak: token: status %d", resp.StatusCode)
+		return "", &StatusError{Op: "token", Status: resp.StatusCode}
 	}
 	var tok struct {
 		AccessToken string `json:"access_token"`
@@ -180,7 +191,7 @@ func (c *Client) doOnce(ctx context.Context, method, path string, query url.Valu
 		// Error bodies are not logged or returned: Keycloak may echo request
 		// fields (passwords included) in them.
 		c.log.Warn("keycloak error", "method", method, "path", path, "status", resp.StatusCode)
-		return "", resp.StatusCode, fmt.Errorf("keycloak: %s %s: status %d", method, path, resp.StatusCode)
+		return "", resp.StatusCode, &StatusError{Op: method + " " + path, Status: resp.StatusCode}
 	}
 	if out != nil && len(raw) > 0 {
 		if err := json.Unmarshal(raw, out); err != nil {
