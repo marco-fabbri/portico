@@ -231,3 +231,31 @@ func TestValidateIsBoth(t *testing.T) {
 		t.Fatalf("Validate = %v, want both kinds of errors", err)
 	}
 }
+
+func TestMasterKeyFileDefaultAndRequired(t *testing.T) {
+	cfg, err := Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Store.MasterKeyFile != "/var/lib/portico/master.key" {
+		t.Errorf("Store.MasterKeyFile = %q", cfg.Store.MasterKeyFile)
+	}
+	cfg.Store.MasterKeyFile = ""
+	if err := cfg.ValidateProcess(); err == nil || !strings.Contains(err.Error(), "store.master_key_file") {
+		t.Errorf("want a master_key_file error, got %v", err)
+	}
+}
+
+// Milestone 2d: a YAML without the runtime sections loads (they may be
+// in the store); the runtime checks run in serve after the overlay.
+func TestLoadAcceptsProcessOnlyYAML(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "p.yaml")
+	os.WriteFile(p, []byte("public:\n  listen: \":443\"\nstore:\n  path: /tmp/x.db\n"), 0o600)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load process-only YAML: %v", err)
+	}
+	if err := cfg.ValidateRuntime(); err == nil {
+		t.Fatal("ValidateRuntime should still fail on a process-only YAML")
+	}
+}
