@@ -25,7 +25,7 @@ func sampleTenant() *Tenant {
 		ID: "acme", DisplayName: "ACME", Contacts: "ops@acme.test", Status: StatusCreating,
 		ProjectID: "portico-acme", ProjectExtID: "p-1", ResourceGroupExtID: "rg-1",
 		SAMLGroupExtID: "g-1", KeycloakGroupID: "kc-1", RoleMembershipExtID: "rm-1",
-		IdPShared: true, LastError: "",
+		IdPShared: true, LastError: "", LastOp: OpProvision,
 	}
 }
 

@@ -8,7 +8,8 @@ SAML group, the identity provider shared, a project-scoped role
 membership and a Keycloak group, idempotently and with every step
 recorded; its first user logs in through the public URL and sees only
 that project; disabling the tenant locks its users out; deleting the
-tenant leaves nothing behind and never touches `_internal`.
+tenant removes every object Portico created (its users in Keycloak stay,
+without access) and never touches `_internal`.
 
 ## Measured on
 
@@ -57,8 +58,14 @@ tenant leaves nothing behind and never touches `_internal`.
   `_internal` identical before and after.
 - MEASURED: what deletion leaves behind, by design: carol's user in
   Keycloak (without a group, so without access) and the SAML user Prism
-  Central created for her at first login. Both are listed in
-  `lab-inventory.md`.
+  Central created for her at first login. The acceptance script removes
+  the Keycloak test user on `--delete` so a re-run starts clean (a second
+  run against an existing user gets 409 from `POST /users`, and that user
+  is not in the new group, so `/disable` does not touch her: measured on
+  the second run of 2026-10-18).
+- MEASURED after the review fixes (build with migration 0002, `last_op`
+  column): the store on the VM migrated in place, the probe and the full
+  acceptance passed again (provisioning 87 s, deletion clean).
 - NOT MEASURED: whether the console sends an `Authorization` header (the
   Chrome extension's network view shows URLs and statuses, not headers).
   Still open for Milestone 2b (write-up 10).

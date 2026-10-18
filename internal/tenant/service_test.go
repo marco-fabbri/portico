@@ -392,3 +392,87 @@ func TestVisibilityFindings(t *testing.T) {
 		t.Fatalf("findings = %v", v.Findings)
 	}
 }
+
+// Review fix 1: the lock is taken before the row is inserted, so a Create
+// racing the tail of a deletion leaves no orphan row in "creating".
+func TestCreateLocksBeforeInsert(t *testing.T) {
+	e := newEnv(t)
+	if !e.svc.acquire("acme") {
+		t.Fatal("could not take the lock")
+	}
+	_, err := e.svc.Create(context.Background(), CreateRequest{Slug: "acme", DisplayName: "ACME"})
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("Create while busy = %v, want ErrBusy", err)
+	}
+	if _, err := e.st.GetTenant(context.Background(), "acme"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a row was left behind: %v", err)
+	}
+	e.svc.release("acme")
+}
+
+// Review fix 2: rows left in creating/deleting by a crash are marked failed
+// at start, and a retry then works.
+func TestRecoverInterruptedMarksFailedAndRetryWorks(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	for _, row := range []*store.Tenant{
+		{ID: "a", Status: store.StatusCreating, ProjectID: "portico-a", LastOp: store.OpProvision},
+		{ID: "b", Status: store.StatusDeleting, ProjectID: "portico-b", LastOp: store.OpDelete},
+		{ID: "c", Status: store.StatusActive, ProjectID: "portico-c", LastOp: store.OpProvision},
+	} {
+		if err := e.st.CreateTenant(ctx, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := e.svc.RecoverInterrupted(ctx)
+	if err != nil || n != 2 {
+		t.Fatalf("RecoverInterrupted = %d, %v; want 2", n, err)
+	}
+	for id, want := range map[string]store.Status{"a": store.StatusFailed, "b": store.StatusFailed, "c": store.StatusActive} {
+		tn := e.get(t, id)
+		if tn.Status != want {
+			t.Fatalf("tenant %s status %q, want %q", id, tn.Status, want)
+		}
+		if want == store.StatusFailed && !strings.Contains(tn.LastError, "interrupted") {
+			t.Fatalf("tenant %s LastError %q", id, tn.LastError)
+		}
+	}
+	if err := e.svc.Retry(ctx, "a"); err != nil {
+		t.Fatalf("Retry after recovery: %v", err)
+	}
+	e.svc.Wait()
+	if tn := e.get(t, "a"); tn.Status != store.StatusActive {
+		t.Fatalf("after retry: %q (%s)", tn.Status, tn.LastError)
+	}
+}
+
+// Review fix 3: a retry after a failed deletion must not re-provision.
+func TestRetryRefusedAfterFailedDelete(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.create(t, "acme")
+	e.svc.Wait()
+	e.pc.FailOnce["DeleteUserGroup"] = &nutanix.APIError{Status: 500, Message: "group busy"}
+	if err := e.svc.Delete(ctx, "acme", false); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	tn := e.get(t, "acme")
+	if tn.Status != store.StatusFailed || tn.LastOp != store.OpDelete {
+		t.Fatalf("after failed delete: status %q op %q", tn.Status, tn.LastOp)
+	}
+	err := e.svc.Retry(ctx, "acme")
+	if !errors.Is(err, ErrState) || !strings.Contains(err.Error(), "delet") {
+		t.Fatalf("Retry after failed delete = %v, want ErrState mentioning deletion", err)
+	}
+	if e.pc.Creates["CreateRoleMembership"] != 1 {
+		t.Fatalf("re-provisioned: CreateRoleMembership called %d times", e.pc.Creates["CreateRoleMembership"])
+	}
+	if err := e.svc.Delete(ctx, "acme", false); err != nil {
+		t.Fatalf("second Delete: %v", err)
+	}
+	e.svc.Wait()
+	if _, err := e.st.GetTenant(ctx, "acme"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("row after second delete: %v", err)
+	}
+}

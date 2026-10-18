@@ -161,14 +161,17 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*store.Tenant,
 	if !ValidSlug(req.Slug) {
 		return nil, ErrInvalidSlug
 	}
-	t := &store.Tenant{ID: req.Slug, DisplayName: req.DisplayName, Contacts: req.Contacts, Status: store.StatusCreating, ProjectID: s.projectName(req.Slug)}
-	if err := s.st.CreateTenant(ctx, t); err != nil {
-		return nil, err
-	}
+	t := &store.Tenant{ID: req.Slug, DisplayName: req.DisplayName, Contacts: req.Contacts, Status: store.StatusCreating, ProjectID: s.projectName(req.Slug), LastOp: store.OpProvision}
+	// The lock comes first: a deletion releases it only after the row is
+	// gone, so a Create in that window must not insert an orphan row.
 	if !s.acquire(t.ID) {
 		return nil, ErrBusy
 	}
-	s.background(t.ID, "provision", func(ctx context.Context) error { return s.provision(ctx, t.ID) })
+	if err := s.st.CreateTenant(ctx, t); err != nil {
+		s.release(t.ID)
+		return nil, err
+	}
+	s.background(t.ID, store.OpProvision, func(ctx context.Context) error { return s.provision(ctx, t.ID) })
 	out := *t
 	return &out, nil
 }
@@ -192,16 +195,54 @@ func (s *Service) Retry(ctx context.Context, id string) error {
 	if t.Status != store.StatusFailed {
 		return fmt.Errorf("%w: %s", ErrState, t.Status)
 	}
+	if t.LastOp == store.OpDelete {
+		return fmt.Errorf("%w: the last operation was a deletion that failed; delete the tenant again", ErrState)
+	}
 	if !s.acquire(id) {
 		return ErrBusy
 	}
-	t.Status = store.StatusCreating
+	t.Status, t.LastOp = store.StatusCreating, store.OpProvision
 	if err := s.st.UpdateTenant(ctx, t); err != nil {
 		s.release(id)
 		return err
 	}
-	s.background(id, "provision", func(ctx context.Context) error { return s.provision(ctx, id) })
+	s.background(id, store.OpProvision, func(ctx context.Context) error { return s.provision(ctx, id) })
 	return nil
+}
+
+// RecoverInterrupted marks every tenant left in creating or deleting by a
+// previous process (a crash, a kill at shutdown) as failed, so the
+// operator sees it and can retry or delete. Called once at start, before
+// any operation runs. It returns the number of rows changed.
+func (s *Service) RecoverInterrupted(ctx context.Context) (int, error) {
+	ts, err := s.st.ListTenants(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for i := range ts {
+		t := &ts[i]
+		if t.Status != store.StatusCreating && t.Status != store.StatusDeleting {
+			continue
+		}
+		if s.isRunning(t.ID) {
+			continue
+		}
+		t.Status = store.StatusFailed
+		t.LastError = fmt.Sprintf("%s interrupted by a restart; retry (provision) or delete", t.LastOp)
+		if err := s.st.UpdateTenant(ctx, t); err != nil {
+			return n, err
+		}
+		s.log.Warn("tenant operation interrupted by a restart", "tenant", t.ID, "op", t.LastOp)
+		n++
+	}
+	return n, nil
+}
+
+func (s *Service) isRunning(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running[id]
 }
 
 // Delete removes the tenant's access objects in the background, the
@@ -214,12 +255,12 @@ func (s *Service) Delete(ctx context.Context, id string, deleteProject bool) err
 	if !s.acquire(id) {
 		return ErrBusy
 	}
-	t.Status = store.StatusDeleting
+	t.Status, t.LastOp = store.StatusDeleting, store.OpDelete
 	if err := s.st.UpdateTenant(ctx, t); err != nil {
 		s.release(id)
 		return err
 	}
-	s.background(id, "delete", func(ctx context.Context) error { return s.remove(ctx, id, deleteProject) })
+	s.background(id, store.OpDelete, func(ctx context.Context) error { return s.remove(ctx, id, deleteProject) })
 	return nil
 }
 

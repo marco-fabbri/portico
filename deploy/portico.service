@@ -15,6 +15,9 @@ Group=portico
 ExecStart=/usr/local/bin/portico serve -config /etc/portico/portico.yaml
 Restart=on-failure
 RestartSec=5
+# A tenant operation still running at stop is marked failed at the next
+# start (operator retries or deletes); no need to wait for it.
+TimeoutStopSec=30
 LimitNOFILE=65536
 
 AmbientCapabilities=CAP_NET_BIND_SERVICE
