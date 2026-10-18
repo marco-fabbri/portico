@@ -106,6 +106,10 @@ it; the Milestone 2f sweep closed the 2d and 2e items listed at the end.
   duplicated in three files; fixed `/tmp/inv_code` and `/tmp/post_code`
   names; `create-service-account.sh` create path is only exercised by the
   rotation and `authorization-policy-create.json` is never produced.
+- `lab/tenants/acceptance.sh --delete` checks that the `_internal`
+  project is unchanged by diffing two snapshots it then discards: one
+  run on 2026-10-18 failed that line with no way to see the field; print
+  the diff on failure.
 
 ## Closed in Milestone 2f (write-up 16)
 
