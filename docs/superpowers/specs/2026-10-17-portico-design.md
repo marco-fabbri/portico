@@ -285,6 +285,9 @@ Step 1 scope decisions (design calls):
 - **First user**: the MSP admin creates it from the tenant page; Keycloak
   issues a temporary password shown once, with "update password" required at
   first login. Email delivery is optional (SMTP configured in Keycloak).
+  The realm Portico creates carries the password policy `length(12) and
+  notUsername and notEmail` (Milestone 2f); MFA is a realm setting the MSP
+  turns on in Keycloak.
 - **Visibility check** has two levels. Static (always, step 1): read back the
   project, the group→role mapping, and assert the group holds no global role
   and no mapping outside its project. Live (step 1 if lab item 6.4 confirms

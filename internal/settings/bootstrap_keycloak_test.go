@@ -291,3 +291,21 @@ func TestKeycloakBootstrapNamesTheTokenStatus(t *testing.T) {
 		t.Fatalf("token 503: %+v %v", res, err)
 	}
 }
+
+// The realm the bootstrap creates carries the password policy; a realm
+// that already exists is left as it is (adoption is step 2).
+func TestKeycloakBootstrapSetsAPasswordPolicy(t *testing.T) {
+	kc := newFakeKCAdmin(t)
+	s := Defaults()
+	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	res, _, err := NewBootstrapper(nil, nil).Keycloak(context.Background(), kc.srv.URL, s, KeycloakInput{AdminUsername: "kcadmin", AdminPassword: "adm-pw-1", Realm: "msp"})
+	if err != nil || !res.OK {
+		t.Fatalf("bootstrap: %+v %v", res, err)
+	}
+	kc.mu.Lock()
+	got := kc.realmReps["msp"]["passwordPolicy"]
+	kc.mu.Unlock()
+	if got != RealmPasswordPolicy || RealmPasswordPolicy != "length(12) and notUsername and notEmail" {
+		t.Fatalf("passwordPolicy = %v", got)
+	}
+}
