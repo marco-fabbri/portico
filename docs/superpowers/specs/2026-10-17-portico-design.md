@@ -393,7 +393,11 @@ internal admin UI. Nothing else is configurable from the console.
 
 Direction agreed with Marco on 2026-10-18; step 1 builds and tests the
 single node, the pair is planned after Milestone 2b. The point of the
-section is that nothing built now may forbid the pair.
+section is that nothing built now may forbid the pair. High availability
+is optional: the topology is chosen at installation time, "install single"
+or "install pair". Turning a running single node into a pair ("add a
+node") is a separate piece of work, planned on its own after the pair
+install exists.
 
 **Single node** (step 1): one appliance VM with Portico, Keycloak,
 PostgreSQL (Keycloak's) and SQLite (Portico's). Availability comes from
