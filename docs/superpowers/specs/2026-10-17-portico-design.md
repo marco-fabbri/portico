@@ -385,6 +385,13 @@ internal admin UI. Nothing else is configurable from the console.
   repositories get Actions minutes for free). CIS hardening reuses the
   approach already built in Marco's `nkp-preprovisioned-toolkit/cis`. Cloud-init accepted for unattended
   network config; the console wizard covers the attended case.
+- Second delivery form (agreed with Marco on 2026-10-18): the same
+  components installed on any Rocky Linux 9 host the MSP already runs,
+  on Proxmox or in a public cloud, with an rpm or an install script (the
+  systemd unit and the quadlets are host-agnostic; the lab VM is exactly
+  that since Milestone 1). Only network reachability matters: port 9440
+  of every Prism Central from Portico's address, never from the Internet,
+  and the public names towards the tenants.
 - Updates: `dnf` for the OS, a new `portico` rpm for the application,
   container image tags for Keycloak/PostgreSQL. Full image replacement
   documented as the clean path.
@@ -545,7 +552,8 @@ portico/
 |---|---|---|
 | 0 | Lab measurements (section 6) | done 2026-10-17: write-ups in `docs/lab/`, design updated |
 | 1 | Core binary: proxy + OIDC session + policy + internal listener | done 2026-10-17 (write-up 09): a browser through Portico reaches Prism Central only after Keycloak login; `curl -u admin:…` through the public path gets 403 from Portico |
-| 2 | Tenant arrival | `portico provision` / UI creates project + group + mapping, visibility check passes on NTNX-01; a tenant user goes from the public URL to the console with one Keycloak login and no Nutanix login page (landing page, Keycloak theme) |
+| 2a | Tenant arrival, API | done 2026-10-18 (write-up 11): `POST /api/v1/tenants` creates project + resource group + SAML group + IdP sharing + role membership + Keycloak group, records every step, visibility check passes on NTNX-01; first user, disable/enable, clean deletion |
+| 2b | Tenant arrival, UI and branding | admin UI over the API with the break-glass login, landing page that starts SAML itself, Keycloak theme, setup wizard with secrets at rest; a tenant user goes from the public URL to the console with one Keycloak login and no Nutanix login page |
 | 3 | Appliance image | Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
 | 4 | First release (step 1 complete) | README, install guide, release artefacts, known limits documented |
 
