@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -105,8 +106,20 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 
 // do performs one admin call on a path relative to /admin/realms/<realm>.
 // out (nil to discard) receives the JSON body. The Location header is
-// returned for creates.
+// returned for creates. A 401 (token invalidated server-side, for example
+// after a Keycloak restart) drops the cached token and retries once.
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body any, out any) (string, int, error) {
+	loc, status, err := c.doOnce(ctx, method, path, query, body, out)
+	if status == http.StatusUnauthorized {
+		c.mu.Lock()
+		c.token, c.expiry = "", time.Time{}
+		c.mu.Unlock()
+		return c.doOnce(ctx, method, path, query, body, out)
+	}
+	return loc, status, err
+}
+
+func (c *Client) doOnce(ctx context.Context, method, path string, query url.Values, body any, out any) (string, int, error) {
 	tok, err := c.accessToken(ctx)
 	if err != nil {
 		return "", 0, err
@@ -235,11 +248,21 @@ func (c *Client) AddUserToGroup(ctx context.Context, userID, groupID string) err
 	return err
 }
 
-// GroupMembers lists the members of a group (up to 1000).
+// GroupMembers lists every member of a group, paging with first/max.
 func (c *Client) GroupMembers(ctx context.Context, groupID string) ([]User, error) {
-	var users []User
-	_, _, err := c.do(ctx, http.MethodGet, "/groups/"+url.PathEscape(groupID)+"/members", url.Values{"max": {"1000"}}, nil, &users)
-	return users, err
+	const page = 100
+	var all []User
+	for first := 0; ; first += page {
+		var users []User
+		q := url.Values{"first": {strconv.Itoa(first)}, "max": {strconv.Itoa(page)}}
+		if _, _, err := c.do(ctx, http.MethodGet, "/groups/"+url.PathEscape(groupID)+"/members", q, nil, &users); err != nil {
+			return nil, err
+		}
+		all = append(all, users...)
+		if len(users) < page {
+			return all, nil
+		}
+	}
 }
 
 // SetUserEnabled enables or disables a user.

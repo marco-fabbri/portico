@@ -60,6 +60,7 @@ type PC struct {
 	Calls       int
 	FailOnce    map[string]error // method → error returned once
 	GateCreate  *Gate            // held by CreateProject when set
+	GateDelete  *Gate            // held by DeleteUserGroup when set
 	seq         int
 }
 
@@ -269,6 +270,9 @@ func (p *PC) CreateUserGroup(ctx context.Context, name, idpExtID string) (*nutan
 
 func (p *PC) DeleteUserGroup(ctx context.Context, extID string) error {
 	if err := p.call("DeleteUserGroup"); err != nil {
+		return err
+	}
+	if err := p.GateDelete.pass(ctx); err != nil {
 		return err
 	}
 	p.mu.Lock()

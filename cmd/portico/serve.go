@@ -84,7 +84,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		}
 	}
 
-	store := auth.NewMemoryStore(cfg.Session.MaxAge, cfg.Session.Idle)
+	sessions := auth.NewMemoryStore(cfg.Session.MaxAge, cfg.Session.Idle)
 	authn := auth.NewAuthenticator(auth.OIDCConfig{
 		Issuer: cfg.OIDC.Issuer,
 		// The issuer's path is the realm path; the loopback base plus that
@@ -94,7 +94,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		ClientSecret: secret,
 		RedirectURL:  "https://" + cfg.Public.PrismHost + "/.portico/callback",
 		CookieMaxAge: cfg.Session.MaxAge,
-	}, store, &http.Client{Timeout: 15 * time.Second}, log)
+	}, sessions, &http.Client{Timeout: 15 * time.Second}, log)
 
 	stripped := []string{auth.SessionCookie, auth.OIDCCookie}
 	prismUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: pcURL, HostHeader: cfg.Public.PrismHost, TLS: pcTLS, StripCookies: stripped, Log: log})
@@ -176,7 +176,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	for {
 		select {
 		case <-sweep.C:
-			if n := store.Sweep(time.Now()); n > 0 {
+			if n := sessions.Sweep(time.Now()); n > 0 {
 				log.Debug("sessions swept", "count", n)
 			}
 		case err := <-errs:

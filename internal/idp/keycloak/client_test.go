@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +25,8 @@ type fakeKC struct {
 	groups    []map[string]any
 	users     map[string]map[string]any // id → representation
 	fail      map[string]int
+	revoked   map[string]bool // tokens that no longer work
+	members   int             // number of members GroupMembers pages through
 }
 
 type recorded struct {
@@ -36,7 +40,7 @@ const (
 )
 
 func newFakeKC(t *testing.T) *fakeKC {
-	f := &fakeKC{users: map[string]map[string]any{}, fail: map[string]int{}}
+	f := &fakeKC{users: map[string]map[string]any{}, fail: map[string]int{}, revoked: map[string]bool{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -55,7 +59,7 @@ func (f *fakeKC) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"access_token":"tok-1","expires_in":300,"token_type":"Bearer"}`))
+		w.Write([]byte(fmt.Sprintf(`{"access_token":"tok-%d","expires_in":300,"token_type":"Bearer"}`, f.tokenReqs)))
 		return
 	}
 	if r.Body != nil {
@@ -65,7 +69,10 @@ func (f *fakeKC) handle(w http.ResponseWriter, r *http.Request) {
 	f.reqs = append(f.reqs, rec)
 	status, failing := f.fail[r.Method+" "+r.URL.Path]
 	f.mu.Unlock()
-	if rec.Auth != "Bearer tok-1" {
+	f.mu.Lock()
+	tokenOK := strings.HasPrefix(rec.Auth, "Bearer tok-") && !f.revoked[strings.TrimPrefix(rec.Auth, "Bearer ")]
+	f.mu.Unlock()
+	if !tokenOK {
 		w.WriteHeader(401)
 		return
 	}
@@ -94,8 +101,19 @@ func (f *fakeKC) handle(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(201)
 	case strings.HasPrefix(p, "/groups/") && strings.HasSuffix(p, "/members"):
 		out := []map[string]any{}
-		for _, u := range f.users {
-			out = append(out, u)
+		if f.members > 0 {
+			first, _ := strconv.Atoi(r.URL.Query().Get("first"))
+			max, _ := strconv.Atoi(r.URL.Query().Get("max"))
+			if max <= 0 || max > 100 {
+				max = 100 // Keycloak caps a page; the client must page
+			}
+			for i := first; i < f.members && i < first+max; i++ {
+				out = append(out, map[string]any{"id": fmt.Sprintf("m-%d", i), "email": fmt.Sprintf("m%d@lab.test", i), "enabled": true})
+			}
+		} else {
+			for _, u := range f.users {
+				out = append(out, u)
+			}
 		}
 		json.NewEncoder(w).Encode(out)
 	case strings.HasPrefix(p, "/groups/") && r.Method == "DELETE":
@@ -237,5 +255,39 @@ func TestSecretAndPasswordNeverLogged(t *testing.T) {
 	out := buf.String() + err.Error()
 	if strings.Contains(out, testSecret) || strings.Contains(out, testPassword) || strings.Contains(out, "tok-1") {
 		t.Fatalf("secret material reached the log or the error: %s", out)
+	}
+}
+
+// 2a review minor: a token invalidated server-side is refreshed once.
+func TestTokenRefreshedOnceOn401(t *testing.T) {
+	f := newFakeKC(t)
+	f.groups = []map[string]any{{"id": "grp-a", "name": "tenant-a"}}
+	c := newClient(f, nil)
+	ctx := context.Background()
+	if _, err := c.FindGroup(ctx, "tenant-a"); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.revoked["tok-1"] = true
+	f.mu.Unlock()
+	if _, err := c.FindGroup(ctx, "tenant-a"); err != nil {
+		t.Fatalf("FindGroup after revocation: %v", err)
+	}
+	if f.tokenReqs != 2 {
+		t.Fatalf("token requested %d times, want 2", f.tokenReqs)
+	}
+}
+
+// 2a review minor: GroupMembers pages through large groups.
+func TestGroupMembersPages(t *testing.T) {
+	f := newFakeKC(t)
+	f.members = 103
+	c := newClient(f, nil)
+	users, err := c.GroupMembers(context.Background(), "grp-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(users) != 103 {
+		t.Fatalf("got %d members, want 103", len(users))
 	}
 }

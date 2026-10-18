@@ -15,12 +15,14 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite" // pure Go driver: the binary is built with CGO_ENABLED=0
+	"modernc.org/sqlite" // pure Go driver: the binary is built with CGO_ENABLED=0
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 var (
@@ -86,7 +88,8 @@ var migrations embed.FS
 
 // SQLite implements Store on one SQLite file in WAL mode.
 type SQLite struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 }
 
 var _ Store = (*SQLite)(nil)
@@ -102,12 +105,35 @@ func OpenSQLite(path string) (*SQLite, error) {
 	// One connection: SQLite serialises writers anyway, and a single
 	// connection keeps the pragmas and transactions simple.
 	db.SetMaxOpenConns(1)
-	s := &SQLite{db: db}
+	s := &SQLite{db: db, path: path}
 	if err := s.migrate(context.Background()); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("store: open %s: %w", path, err)
 	}
+	s.chmodFiles()
 	return s, nil
+}
+
+// chmodFiles keeps the database and its WAL sidecars at mode 0600: the
+// store holds the break-glass hash and, later, encrypted secrets. Missing
+// sidecars are skipped; the mode is reapplied after writes because SQLite
+// creates the sidecars with the process umask.
+func (s *SQLite) chmodFiles() {
+	for _, f := range []string{s.path, s.path + "-wal", s.path + "-shm"} {
+		if _, err := os.Stat(f); err == nil {
+			os.Chmod(f, 0o600)
+		}
+	}
+}
+
+// isUniqueViolation reports a primary-key or unique-constraint failure
+// by the driver's error code, not by its text.
+func isUniqueViolation(err error) bool {
+	var se *sqlite.Error
+	if errors.As(err, &se) {
+		return se.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY || se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE
+	}
+	return false
 }
 
 // Close closes the database.

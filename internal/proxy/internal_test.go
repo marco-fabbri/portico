@@ -57,3 +57,15 @@ func TestAdminMountsAPIUnderV1(t *testing.T) {
 		t.Fatalf("healthz with api mounted: %d", rec.Code)
 	}
 }
+
+// Review Focus 5 of Milestone 2a: /healthz stays open even with a Basic header.
+func TestAdminHealthzIgnoresBasicHeader(t *testing.T) {
+	h := NewAdmin(slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	r := httptest.NewRequest("GET", "https://127.0.0.1:8443/healthz", nil)
+	r.Header.Set("Authorization", "Basic eDp5")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	if rec.Code != 200 {
+		t.Fatalf("healthz with Basic: %d", rec.Code)
+	}
+}
