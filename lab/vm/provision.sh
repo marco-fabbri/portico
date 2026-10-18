@@ -41,6 +41,9 @@ scp -q -o BatchMode=yes lab/vm/postgres.container lab/vm/keycloak.container lab/
 set -euo pipefail
 st="$1"
 install -d -m 0750 /etc/portico-lab /etc/portico-lab/tls /etc/containers/systemd
+# The Keycloak theme directory is written by Portico (Milestone 2c).
+id -u portico >/dev/null 2>&1 || useradd -r -s /sbin/nologin -d /var/lib/portico portico
+install -d -m 0755 -o portico -g portico /var/lib/portico /var/lib/portico/keycloak-theme
 install -m 0600 "$st/keycloak.env" /etc/portico-lab/keycloak.env
 install -m 0644 "$st/lab-ca.crt" /etc/portico-lab/tls/lab.crt
 install -m 0600 "$st/lab-ca.key" /etc/portico-lab/tls/lab.key
@@ -57,7 +60,12 @@ systemctl daemon-reload
 # restart, not start: a changed quadlet must take effect.
 systemctl start postgres.service
 systemctl restart keycloak.service
-nginx -t && systemctl enable --now nginx && systemctl reload nginx
+# nginx is the Milestone 0 stand-in; once portico.service exists it owns 443.
+if systemctl is-enabled portico.service >/dev/null 2>&1; then
+  echo "portico.service installed: nginx left disabled"
+else
+  nginx -t && systemctl enable --now nginx && systemctl reload nginx
+fi
 REMOTE
 
 # 5. Wait for Keycloak
