@@ -89,6 +89,8 @@ type Store interface {
 	ListSteps(ctx context.Context, tenantID string) ([]Step, error)
 	SetAdminPassword(ctx context.Context, name, bcryptHash string) error
 	AdminPasswordHash(ctx context.Context, name string) (string, error)
+	GetSetting(ctx context.Context, key string) ([]byte, error)
+	SetSetting(ctx context.Context, key string, value []byte) error
 }
 
 //go:embed migrations/*.sql
