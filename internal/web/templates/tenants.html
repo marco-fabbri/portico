@@ -1,0 +1,22 @@
+{{define "content"}}
+<section class="card">
+  <div class="actions" style="justify-content: space-between; margin: 0 0 .8rem">
+    <h1>Tenants</h1>
+    <a class="button" href="/tenants/new">New tenant</a>
+  </div>
+  <table>
+    <thead><tr><th>Slug</th><th>Display name</th><th>Status</th><th>Project</th><th>Updated</th></tr></thead>
+    <tbody id="rows"{{if .Data.Polling}} hx-get="/?partial=rows" hx-trigger="every 10s" hx-swap="outerHTML"{{end}}>
+      {{template "rows" .}}
+    </tbody>
+  </table>
+  {{if not .Data.Tenants}}<p class="muted">No tenants yet.</p>{{end}}
+</section>
+{{end}}
+{{define "rows"}}{{range .Data.Tenants}}<tr>
+  <td><a href="/tenants/{{.ID}}">{{.ID}}</a></td>
+  <td>{{.DisplayName}}</td>
+  <td><span class="status status-{{.Status}}">{{.Status}}</span></td>
+  <td><code>{{.ProjectID}}</code></td>
+  <td>{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
+</tr>{{end}}{{end}}

@@ -1,0 +1,10 @@
+{{define "content"}}
+<section class="card narrow" style="margin-top:1rem">
+  <h1>User created</h1>
+  <p><strong>{{.Data.Email}}</strong> can now sign in to tenant <strong>{{.Data.Tenant.DisplayNameOr}}</strong>.</p>
+  <p>Temporary password, shown only once:</p>
+  <div class="password-box">{{.Data.Password}}</div>
+  <p class="muted">Hand it over through a channel you trust. Keycloak forces a new password at the first login.</p>
+  <div class="actions"><a class="button primary" href="/tenants/{{.Data.Tenant.ID}}">Copied, continue</a></div>
+</section>
+{{end}}
