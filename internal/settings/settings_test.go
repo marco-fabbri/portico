@@ -246,3 +246,12 @@ func TestServicePatchMergesIntoTheStoredDocument(t *testing.T) {
 		t.Fatalf("got=%+v", got)
 	}
 }
+
+func TestValidateFormatRefusesUserinfoURL(t *testing.T) {
+	s := Defaults()
+	s.PrismCentral.URL = "https://admin:pw-in-url@10.0.0.10:9440"
+	err := s.ValidateFormat()
+	if err == nil || !strings.Contains(err.Error(), "prism_central.url must not carry credentials") || strings.Contains(err.Error(), "pw-in-url") {
+		t.Fatalf("err = %v", err)
+	}
+}

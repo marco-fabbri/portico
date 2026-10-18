@@ -35,7 +35,7 @@ type PrismResult struct {
 	ServiceAccount      string    `json:"service_account,omitempty"`
 	ServiceAccountExtID string    `json:"service_account_ext_id,omitempty"`
 	KeyName             string    `json:"key_name,omitempty"`
-	KeyExpires          time.Time `json:"key_expires,omitempty"`
+	KeyExpires          time.Time `json:"key_expires,omitzero"`
 	Created             []string  `json:"created"`
 	Stored              bool      `json:"stored"`
 }
@@ -63,6 +63,9 @@ func (b *Bootstrapper) PrismCentral(ctx context.Context, s Settings, in PrismInp
 	u, err := url.Parse(in.URL)
 	if in.URL == "" || err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
 		return PrismResult{}, s, &StateError{Msg: fmt.Sprintf("the Prism Central URL %q is not valid", in.URL)}
+	}
+	if u.User != nil {
+		return PrismResult{}, s, &StateError{Msg: "the Prism Central URL must not carry credentials"}
 	}
 	if !reServiceAccount.MatchString(name) {
 		return PrismResult{}, s, &StateError{Msg: "the service account name must be lower-case letters, digits, dots, dashes and underscores"}
@@ -138,6 +141,15 @@ func (b *Bootstrapper) PrismCentral(ctx context.Context, s Settings, in PrismInp
 	}
 	failed := func(msg string) (PrismResult, Settings, error) {
 		revoke()
+		// The revoked key is nobody's: the result does not name it.
+		res.KeyName, res.KeyExpires = "", time.Time{}
+		kept := res.Created[:0]
+		for _, c := range res.Created {
+			if !strings.HasPrefix(c, "api key") {
+				kept = append(kept, c)
+			}
+		}
+		res.Created = kept
 		res.OK, res.Message = false, msg
 		return res, s, nil
 	}

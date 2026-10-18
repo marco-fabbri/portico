@@ -171,8 +171,13 @@ func (s Settings) ValidateFormat() error {
 		if r.value == "" {
 			continue
 		}
-		if u, err := url.Parse(r.value); err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		u, err := url.Parse(r.value)
+		switch {
+		case err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http"):
 			errs = append(errs, fmt.Errorf("settings: %s %q is not an http(s) URL", r.key, r.value))
+		case u.User != nil:
+			// Not echoed: the userinfo is a password in clear.
+			errs = append(errs, fmt.Errorf("settings: %s must not carry credentials", r.key))
 		}
 	}
 	if p := s.Tenants.ProjectPrefix; p != "" && !rePrefix.MatchString(p) {
