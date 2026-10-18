@@ -18,6 +18,15 @@ internal:
     cert_file: ""
     key_file: ""
 
+# The sections below (public names, prism_central, keycloak realm and
+# client, oidc, tenants) are read from this file only until the settings
+# have been stored: `sudo -u portico portico settings import -config <this file>`
+# moves them (and the secret files' contents) into the store, sealed with
+# the master key; run it as the service user (the command refuses root),
+# so the key it creates belongs to the user that runs `portico serve`.
+# From then on the store wins and these sections, together with the
+# secret files, can be removed. The setup pages of the admin UI edit the
+# stored settings.
 prism_central:
   url: https://10.0.0.10:9440    # required
   tls_verify: true               # false only in a lab
@@ -80,7 +89,15 @@ log:
   level: info                    # debug, info, warn, error
 
 store:
-  path: /var/lib/portico/portico.db  # SQLite, WAL; backup = copy of /var/lib/portico
+  path: /var/lib/portico/portico.db  # SQLite, WAL
+  # Master key that seals the secrets in the store: created by the
+  # service at first start (32 random bytes, mode 0600, owned by portico).
+  # A backup is a copy of /var/lib/portico INCLUDING this file, kept
+  # apart from the database copy; without the key the stored secrets
+  # cannot be opened and the service refuses to start (the error names
+  # the field; after systemd's start limit run `systemctl reset-failed
+  # portico` once the key is back).
+  master_key_file: /var/lib/portico/master.key
 
 tenants:
   project_prefix: portico        # project name and id = <prefix>-<slug>; SP Central uses "sp"

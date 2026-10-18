@@ -2,6 +2,11 @@
 # Build the Portico binary for the lab VM and run it as a systemd service in
 # place of the nginx stand-in. Idempotent. Lab only.
 #   source lab/env.sh && lab/portico/deploy.sh
+# Since Milestone 2d the VM runs from the store: the first deploy imports
+# lab/portico/portico.yaml (runtime sections plus the three secret files)
+# with `portico settings import`, then installs lab/portico/portico.store.yaml
+# as /etc/portico/portico.yaml and removes the secret files. Later deploys
+# find the settings stored and skip the import.
 # Needs ~/portico-secrets/portico-oidc-secret (lab/saml/keycloak-realm.sh oidc-client),
 # portico-kc-admin-secret (keycloak-realm.sh admin-client) and portico-sa-key
 # (lab/auth/create-service-account.sh). Generates portico-admin-pw (the
@@ -33,7 +38,7 @@ echo "built portico $version"
 # 2. Stage files in a private directory on the VM. The service-account
 #    file is "NAME=key": only the key travels.
 cut -d= -f2- "$S/portico-sa-key" | tr -d '\r\n' > "$tmp/prism-api-key"
-scp -q -o BatchMode=yes "$tmp/portico" lab/portico/portico.yaml deploy/portico.service \
+scp -q -o BatchMode=yes "$tmp/portico" lab/portico/portico.yaml lab/portico/portico.store.yaml deploy/portico.service \
   "$S/portico-oidc-secret" "$S/portico-kc-admin-secret" "$tmp/prism-api-key" "$S/portico-admin-pw" \
   "$S/lab-ca.crt" "$S/lab-ca.key" "lab@$LAB_VM_IP:$stage/"
 
@@ -45,18 +50,30 @@ id -u portico >/dev/null 2>&1 || useradd -r -s /sbin/nologin -d /var/lib/portico
 install -d -m 0750 -o root -g portico /etc/portico /etc/portico/tls
 # Keycloak login theme written by Portico, mounted read-only in the container.
 install -d -m 0755 -o portico -g portico /var/lib/portico/keycloak-theme
-install -m 0640 -o root -g portico "$st/portico.yaml" /etc/portico/portico.yaml
-# Secrets and keys: owned by the service user, mode 0600 (the binary refuses wider modes).
-install -m 0600 -o portico -g portico "$st/portico-oidc-secret" /etc/portico/oidc-client-secret
-install -m 0600 -o portico -g portico "$st/portico-kc-admin-secret" /etc/portico/keycloak-admin-secret
-install -m 0600 -o portico -g portico "$st/prism-api-key" /etc/portico/prism-api-key
 install -m 0640 -o root -g portico "$st/lab-ca.crt" /etc/portico/tls/lab.crt
 install -m 0600 -o portico -g portico "$st/lab-ca.key" /etc/portico/tls/lab.key
 install -m 0755 -o root -g root "$st/portico" /usr/local/bin/portico
 install -m 0644 -o root -g root "$st/portico.service" /etc/systemd/system/portico.service
+install -d -m 0750 -o portico -g portico /var/lib/portico
+# The YAML in place holds the process settings only; the runtime sections
+# and the secrets are in the store (sealed with the master key, created by
+# the binary at its first run as the service user).
+install -m 0640 -o root -g portico "$st/portico.store.yaml" /etc/portico/portico.yaml
+if sudo -u portico /usr/local/bin/portico settings show -config /etc/portico/portico.yaml >/dev/null 2>&1; then
+  echo "settings already in the store; import skipped"
+else
+  # First deploy: the full YAML and the secret files exist only for the
+  # import, mode 0600 (the binary refuses wider modes), then go away.
+  install -m 0640 -o root -g portico "$st/portico.yaml" /etc/portico/portico.import.yaml
+  install -m 0600 -o portico -g portico "$st/portico-oidc-secret" /etc/portico/oidc-client-secret
+  install -m 0600 -o portico -g portico "$st/portico-kc-admin-secret" /etc/portico/keycloak-admin-secret
+  install -m 0600 -o portico -g portico "$st/prism-api-key" /etc/portico/prism-api-key
+  sudo -u portico /usr/local/bin/portico settings import -config /etc/portico/portico.import.yaml
+  rm -f /etc/portico/portico.import.yaml
+fi
+rm -f /etc/portico/oidc-client-secret /etc/portico/keycloak-admin-secret /etc/portico/prism-api-key
 # Break-glass password of the admin API: from the staged file on stdin,
 # hashed by the binary into the store (owned by the service user).
-install -d -m 0750 -o portico -g portico /var/lib/portico
 sudo -u portico /usr/local/bin/portico admin set-password -config /etc/portico/portico.yaml < "$st/portico-admin-pw"
 rm -rf "$st"
 restorecon -R /etc/portico /usr/local/bin/portico /etc/systemd/system/portico.service

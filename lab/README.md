@@ -18,8 +18,13 @@ here runs on the appliance.
 
 - `portico/` — `deploy.sh` builds the Go binary, installs it on the lab VM
   as `portico.service` in place of nginx, waits for the health endpoint and
-  prints the admin UI URL;
-  `undeploy.sh` restores nginx; `portico.yaml` is the lab configuration.
+  prints the admin UI URL. Since Milestone 2d the VM runs from the store:
+  `portico.store.yaml` (process settings only) is the live
+  `/etc/portico/portico.yaml`; `portico.yaml` (runtime sections and secret
+  file paths) is used once by `portico settings import` on the first
+  deploy, after which the secret files are removed (write-up 14).
+  `undeploy.sh` restores nginx; `portico-lab-logo.svg` is the lab MSP's
+  branding logo.
 - `saml/keycloak-realm.sh oidc-client` registers Portico's OIDC client.
 - `saml/theme-probe.sh [reset]` writes a probe login theme and sets it on the realm (write-up 13); `auth/probe-login-request.sh` prints the login-request shape, the provider-selection PUT and `initiate-login`.
 - `tenants/api.sh METHOD PATH [JSON]` calls Portico's admin API on the lab VM with the break-glass password from `~/portico-secrets/portico-admin-pw`; `tenants/acceptance.sh [--delete]` is the Milestone 2a acceptance (write-up 11).

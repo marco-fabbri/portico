@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -9,6 +10,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
+	"github.com/marco-fabbri/portico/internal/secrets"
+	"github.com/marco-fabbri/portico/internal/settings"
+	"github.com/marco-fabbri/portico/internal/store"
+	"golang.org/x/crypto/bcrypt"
 	"io"
 	"log/slog"
 	"math/big"
@@ -76,6 +82,7 @@ func testServeConfig(t *testing.T, prismURL string) *config.Config {
 	cfg.Keycloak.Realm = "x"
 	cfg.Keycloak.AdminClientSecretFile = secret
 	cfg.Store.Path = filepath.Join(t.TempDir(), "portico.db")
+	cfg.Store.MasterKeyFile = filepath.Join(t.TempDir(), "master.key")
 	cfg.Tenants.ClusterExtID, cfg.Tenants.StorageContainerExtID = "cl-1", "sc-1"
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
@@ -212,5 +219,133 @@ func TestServeServesLoginPage(t *testing.T) {
 	resp = get(t, cfg.Internal.AdminListen, "127.0.0.1", "/static/portico.css", nil)
 	if resp.StatusCode != 200 {
 		t.Errorf("static asset: %d", resp.StatusCode)
+	}
+}
+
+// Milestone 2d: the runtime settings may come from the store, sealed with
+// the master key; a YAML with only process settings is enough then.
+func storeServeConfig(t *testing.T, prismURL string, seed byte) (*config.Config, *bytes.Buffer) {
+	t.Helper()
+	cfg := testServeConfig(t, prismURL)
+	// Seed the store through the settings service with a key file.
+	keyPath := filepath.Join(t.TempDir(), "master.key")
+	key := bytes.Repeat([]byte{seed}, secrets.KeySize)
+	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sealer, _ := secrets.NewSealer(key)
+	st, err := store.OpenSQLite(cfg.Store.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := settings.FromConfig(cfg, "api-key-from-store", "admin-secret-from-store", "client-secret-from-store", "")
+	if err := settings.NewService(st, sealer).Set(context.Background(), doc); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	// Now strip the runtime sections from the config: the store must carry them.
+	stripped := config.Default()
+	stripped.Public.Listen, stripped.Internal.AdminListen, stripped.Internal.PassthroughListen = cfg.Public.Listen, cfg.Internal.AdminListen, cfg.Internal.PassthroughListen
+	stripped.Store.Path = cfg.Store.Path
+	stripped.Store.MasterKeyFile = keyPath
+	stripped.Keycloak.ThemeDir = t.TempDir()
+	if err := stripped.ValidateProcess(); err != nil {
+		t.Fatal(err)
+	}
+	var logBuf bytes.Buffer
+	return &stripped, &logBuf
+}
+
+func TestServeStartsFromStoreSettings(t *testing.T) {
+	prism := httptest.NewServer(http.NotFoundHandler())
+	defer prism.Close()
+	cfg, logBuf := storeServeConfig(t, prism.URL, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runServe(ctx, cfg, slog.New(slog.NewJSONHandler(logBuf, nil))) }()
+	waitHealthy(t, cfg.Internal.AdminListen)
+	if !strings.Contains(logBuf.String(), `"source":"store"`) {
+		t.Errorf("log lacks the settings source: %s", logBuf.String())
+	}
+	for _, secret := range []string{"api-key-from-store", "admin-secret-from-store", "client-secret-from-store"} {
+		if strings.Contains(logBuf.String(), secret) {
+			t.Errorf("a secret reached the log: %s", logBuf.String())
+		}
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("runServe returned %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runServe did not stop within 2s")
+	}
+}
+
+func TestServeRefusesUnopenableSettings(t *testing.T) {
+	prism := httptest.NewServer(http.NotFoundHandler())
+	defer prism.Close()
+	cfg, logBuf := storeServeConfig(t, prism.URL, 1)
+	// Replace the key: the stored secrets no longer open.
+	if err := os.WriteFile(cfg.Store.MasterKeyFile, bytes.Repeat([]byte{2}, secrets.KeySize), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err := runServe(ctx, cfg, slog.New(slog.NewJSONHandler(logBuf, nil)))
+	if err == nil || !strings.Contains(err.Error(), "prism_central.api_key") {
+		t.Fatalf("runServe with another key = %v, want an error naming prism_central.api_key", err)
+	}
+	if resp, err := http.Get("http://" + cfg.Internal.AdminListen + "/healthz"); err == nil {
+		resp.Body.Close()
+		t.Fatal("a listener was bound although the settings could not be opened")
+	}
+}
+
+func TestServeRestartsOnRequest(t *testing.T) {
+	prism := httptest.NewServer(http.NotFoundHandler())
+	defer prism.Close()
+	cfg, logBuf := storeServeConfig(t, prism.URL, 1)
+	st, err := store.OpenSQLite(cfg.Store.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, _ := bcrypt.GenerateFromPassword([]byte("restart-pw-1"), bcrypt.MinCost)
+	if err := st.SetAdminPassword(context.Background(), "admin", string(hash)); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	log := slog.New(slog.NewJSONHandler(logBuf, nil))
+	go func() { done <- runServe(ctx, cfg, log) }()
+	waitHealthy(t, cfg.Internal.AdminListen)
+	req, _ := http.NewRequest("POST", "http://"+cfg.Internal.AdminListen+"/api/v1/settings/apply", nil)
+	req.SetBasicAuth("admin", "restart-pw-1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 202 || !strings.Contains(string(body), `"restarting":true`) {
+		t.Fatalf("apply: %d %s", resp.StatusCode, body)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrRestart) {
+			t.Fatalf("runServe returned %v, want ErrRestart", err)
+		}
+		var stderr bytes.Buffer
+		if code := serveExitCode(err, &stderr, log); code != 0 || stderr.Len() != 0 {
+			t.Fatalf("exit code %d, stderr %q; a requested restart must exit 0 quietly", code, stderr.String())
+		}
+		if !strings.Contains(logBuf.String(), "restarting on request") {
+			t.Fatalf("log lacks the restart line: %s", logBuf.String())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("runServe did not return within 3 s of the apply")
 	}
 }

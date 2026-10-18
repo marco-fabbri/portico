@@ -94,9 +94,11 @@ type Log struct {
 	Level string `yaml:"level"`
 }
 
-// Store locates Portico's own database (design §4.6).
+// Store locates Portico's own database and the master key that seals
+// the secrets in it (design §4.6).
 type Store struct {
-	Path string `yaml:"path"`
+	Path          string `yaml:"path"`
+	MasterKeyFile string `yaml:"master_key_file"`
 }
 
 // Config is the whole settings file.
@@ -135,7 +137,7 @@ func Default() Config {
 		Session:      Session{MaxAge: 8 * time.Hour, Idle: 15 * time.Minute},
 		Policy:       Policy{AllowPrefixes: append([]string(nil), DefaultAllowPrefixes...)},
 		Log:          Log{Level: "info"},
-		Store:        Store{Path: "/var/lib/portico/portico.db"},
+		Store:        Store{Path: "/var/lib/portico/portico.db", MasterKeyFile: "/var/lib/portico/master.key"},
 		Tenants:      Tenants{ProjectPrefix: "portico", GroupPrefix: "tenant-", Role: "Project Admin", OperationTimeout: 10 * time.Minute},
 	}
 }
@@ -150,34 +152,30 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("config: parse %s: %w", path, err)
 	}
-	if err := cfg.Validate(); err != nil {
+	// Only the process checks here: the runtime sections may live in the
+	// store (design §4.7); serve validates them after the overlay.
+	if err := cfg.ValidateProcess(); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
 }
 
-// Validate reports every missing or inconsistent field in one error.
+// Validate runs the process checks and the runtime checks.
 func (c *Config) Validate() error {
+	return errors.Join(c.ValidateProcess(), c.ValidateRuntime())
+}
+
+// ValidateProcess checks what the process needs before it can open its
+// store: listeners and their TLS, session lifetimes, store and key
+// paths, the Keycloak theme fields.
+func (c *Config) ValidateProcess() error {
 	var errs []error
-	required := []struct{ key, value string }{
-		{"public.prism_host", c.Public.PrismHost},
-		{"public.id_host", c.Public.IDHost},
-		{"prism_central.url", c.PrismCentral.URL},
-		{"oidc.issuer", c.OIDC.Issuer},
-		{"oidc.client_id", c.OIDC.ClientID},
-		{"oidc.client_secret_file", c.OIDC.ClientSecretFile},
-		{"prism_central.api_key_file", c.PrismCentral.APIKeyFile},
-		{"prism_central.saml_idp_name", c.PrismCentral.SAMLIdPName},
-		{"keycloak.realm", c.Keycloak.Realm},
-		{"keycloak.admin_client_id", c.Keycloak.AdminClientID},
-		{"keycloak.admin_client_secret_file", c.Keycloak.AdminClientSecretFile},
+	for _, r := range []struct{ key, value string }{
+		{"store.path", c.Store.Path},
+		{"store.master_key_file", c.Store.MasterKeyFile},
 		{"keycloak.theme_dir", c.Keycloak.ThemeDir},
 		{"keycloak.theme_name", c.Keycloak.ThemeName},
-		{"store.path", c.Store.Path},
-		{"tenants.cluster_ext_id", c.Tenants.ClusterExtID},
-		{"tenants.storage_container_ext_id", c.Tenants.StorageContainerExtID},
-	}
-	for _, r := range required {
+	} {
 		if strings.TrimSpace(r.value) == "" {
 			errs = append(errs, fmt.Errorf("config: %s is required", r.key))
 		}
@@ -193,19 +191,9 @@ func (c *Config) Validate() error {
 	if c.Session.MaxAge <= 0 || c.Session.Idle <= 0 {
 		errs = append(errs, errors.New("config: session.max_age and session.idle must be positive"))
 	}
-	// The prefix becomes part of a project id and a group name.
-	if !rePrefix.MatchString(c.Tenants.ProjectPrefix) {
-		errs = append(errs, fmt.Errorf("config: tenants.project_prefix %q must be lower-case letters, digits and dashes", c.Tenants.ProjectPrefix))
-	}
 	// The theme name is a directory name inside the container.
 	if !rePrefix.MatchString(c.Keycloak.ThemeName) {
 		errs = append(errs, fmt.Errorf("config: keycloak.theme_name %q must be lower-case letters, digits and dashes", c.Keycloak.ThemeName))
-	}
-	if !rePrefix.MatchString(strings.TrimSuffix(c.Tenants.GroupPrefix, "-")) {
-		errs = append(errs, fmt.Errorf("config: tenants.group_prefix %q must be lower-case letters, digits and dashes", c.Tenants.GroupPrefix))
-	}
-	if c.Tenants.OperationTimeout <= 0 {
-		errs = append(errs, errors.New("config: tenants.operation_timeout must be positive"))
 	}
 	// The admin API authenticates with HTTP Basic (the break-glass
 	// password) and the pass-through carries local Prism Central
@@ -216,6 +204,44 @@ func (c *Config) Validate() error {
 				errs = append(errs, fmt.Errorf("config: %s %q is not a loopback address and internal.tls is empty; credentials would travel in clear", l.key, l.addr))
 			}
 		}
+	}
+	return errors.Join(errs...)
+}
+
+// ValidateRuntime checks the sections that may come from the YAML or
+// from the store (design §4.7): public names, Prism Central, Keycloak
+// realm and client, OIDC client, tenant naming and placement.
+func (c *Config) ValidateRuntime() error {
+	var errs []error
+	required := []struct{ key, value string }{
+		{"public.prism_host", c.Public.PrismHost},
+		{"public.id_host", c.Public.IDHost},
+		{"prism_central.url", c.PrismCentral.URL},
+		{"oidc.issuer", c.OIDC.Issuer},
+		{"oidc.client_id", c.OIDC.ClientID},
+		{"oidc.client_secret_file", c.OIDC.ClientSecretFile},
+		{"prism_central.api_key_file", c.PrismCentral.APIKeyFile},
+		{"prism_central.saml_idp_name", c.PrismCentral.SAMLIdPName},
+		{"keycloak.realm", c.Keycloak.Realm},
+		{"keycloak.admin_client_id", c.Keycloak.AdminClientID},
+		{"keycloak.admin_client_secret_file", c.Keycloak.AdminClientSecretFile},
+		{"tenants.cluster_ext_id", c.Tenants.ClusterExtID},
+		{"tenants.storage_container_ext_id", c.Tenants.StorageContainerExtID},
+	}
+	for _, r := range required {
+		if strings.TrimSpace(r.value) == "" {
+			errs = append(errs, fmt.Errorf("config: %s is required", r.key))
+		}
+	}
+	// The prefix becomes part of a project id and a group name.
+	if !rePrefix.MatchString(c.Tenants.ProjectPrefix) {
+		errs = append(errs, fmt.Errorf("config: tenants.project_prefix %q must be lower-case letters, digits and dashes", c.Tenants.ProjectPrefix))
+	}
+	if !rePrefix.MatchString(strings.TrimSuffix(c.Tenants.GroupPrefix, "-")) {
+		errs = append(errs, fmt.Errorf("config: tenants.group_prefix %q must be lower-case letters, digits and dashes", c.Tenants.GroupPrefix))
+	}
+	if c.Tenants.OperationTimeout <= 0 {
+		errs = append(errs, errors.New("config: tenants.operation_timeout must be positive"))
 	}
 	return errors.Join(errs...)
 }

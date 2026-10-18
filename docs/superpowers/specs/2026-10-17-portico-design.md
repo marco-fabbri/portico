@@ -327,8 +327,21 @@ create users and edit authorization policies", not "the admin account".
 
 - SQLite with WAL, single file, backup = copy of `/var/lib/portico`.
 - Prism Central service account credentials and Keycloak client secrets encrypted at rest
-  (AES-GCM) with a key in `/etc/portico/master.key` created at first boot,
-  mode 0600, owned by the `portico` user.
+  (AES-GCM) with a key in `/var/lib/portico/master.key` created at first
+  boot, mode 0600, owned by the `portico` user (`/etc/portico` is
+  root-owned and read-only for the service, so the key lives next to the
+  store; a backup must copy the key separately). Details (Milestone 2d): the
+  key is 32 random bytes; each secret is sealed on its own with
+  AES-256-GCM and a fresh nonce, stored as `v1:<base64 nonce+ciphertext>`
+  inside the JSON settings document; the key file is created by `portico
+  serve` when missing and refused when readable by group or others. A
+  store whose secrets cannot be opened with the key stops the service
+  with a clear error: no fallback to plain text, no silent defaults.
+  Backup = copy of `/var/lib/portico` plus the key file, kept apart.
+  Measured in write-up 14: the error names the field; since the unit
+  restarts always, systemd's start limit leaves it `failed` after ten
+  seconds of retries, and recovery is "key back, `systemctl reset-failed
+  portico`, `systemctl start portico`".
 - TLS: direct mode uses either an uploaded certificate or ACME (HTTP-01 on
   443/80 or DNS-01 via Cloudflare API). Tunnel mode terminates TLS at
   Cloudflare; Portico listens on loopback plain HTTP for `cloudflared`.
@@ -348,9 +361,24 @@ decides after installation lives in the store and is entered through the
 UI and API: public host names, Prism Central connection and service
 account key, Keycloak realm and admin client, OIDC client, tenant naming
 and placement, branding. Secrets in the store are encrypted with the
-master key (section 4.6). Until the setup wizard exists (Milestone 2d) the
-YAML carries those values too, as it does since Milestone 1; branding is
-the first store-held setting (Milestone 2c).
+master key (section 4.6). Branding was the first store-held setting
+(Milestone 2c); Milestone 2d moves the rest. Precedence: when the store
+holds settings they win and the YAML's runtime sections are ignored
+(logged once at start); when it holds none, the YAML's runtime sections
+apply as since Milestone 1, so an installation upgrades without a
+flag day, and `portico settings import` copies the YAML and its secret
+files into the store once. Changing settings needs a restart of the
+process (listeners, TLS, clients): the wizard's "Apply" asks `serve` to
+stop cleanly and systemd restarts it (`Restart=always`); the page says
+so and polls a readiness fragment until Portico is back. Apply is
+refused (409) while a tenant operation runs, because the restart closes
+the listeners before waiting for the operation and the service would
+stay dark until it ended (write-up 14). A connectivity check sends the
+stored service-account key only to the stored Prism Central host: a
+check against another URL must carry its own key. The bootstrap
+paths (service account created by Portico, Keycloak realm and clients
+registered by Portico, SAML identity provider created by Portico) are
+Milestone 2e: in 2d the wizard takes the values the MSP already has.
 
 **The API is the boundary** (decided with Marco on 2026-10-18, ADR 0003).
 Every action the admin UI performs is a documented REST call on the
@@ -600,7 +628,8 @@ portico/
 | 2a | Tenant arrival, API | done 2026-10-18 (write-up 11): `POST /api/v1/tenants` creates project + resource group + SAML group + IdP sharing + role membership + Keycloak group, records every step, visibility check passes on NTNX-01; first user, disable/enable, clean deletion |
 | 2b | Tenant arrival, admin UI | done 2026-10-18 (write-up 12): admin UI over the API with the break-glass login (tenant list, create, detail with steps and visibility, users, disable/enable, delete), the 2a review minors absorbed, every `Authorization` scheme refused on the public name after measuring the console, Prism Central's Sign Out path allowed |
 | 2c | Tenant arrival, tenant-facing pages | done 2026-10-18 (write-up 13): branding settings in the store, landing page that starts SAML itself, Keycloak theme, branded identity-provider-down page; a tenant user goes from the public URL to the console with one Keycloak login and no Nutanix login page |
-| 2d | Setup wizard | settings move to the store with secrets at rest (master key), service-account bootstrap path, SAML identity provider created by Portico, Keycloak clients registered by Portico |
+| 2d | Setup wizard, settings and secrets at rest | done 2026-10-18 (write-up 14): settings in the store sealed with the master key; `portico settings import` and `settings show`; setup page with connectivity checks and pickers; Apply = controlled restart; the lab runs from the store with no secret file on the VM |
+| 2e | Bootstrap | service-account bootstrap path in Prism Central, Keycloak realm and clients registered by Portico, SAML identity provider created by Portico |
 | 3 | Appliance image | Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
 | 4 | First release (step 1 complete) | README, install guide, release artefacts, known limits documented |
 
