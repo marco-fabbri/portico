@@ -60,30 +60,29 @@ different project model and are out of scope.
 
 ## Status
 
-**Milestone 2d: settings live in the appliance, sealed.** `portico
-serve` fronts Prism Central and Keycloak on two public names, requires a
-Keycloak login before any request reaches Prism Central, refuses every
-local-login path and every `Authorization` header measured on pc.7.6, and
-offers an internal pass-through for administrators. A tenant user signs
-in once on a Keycloak page carrying the MSP's name, colour and logo,
-passes through Portico's landing page and lands in the console: Portico
-starts the SAML login itself. When the identity provider is down the
-browser gets a branded page. On the internal listener an administrator
-signs in with the break-glass account, sets the branding, and creates a
-tenant end to end (Keycloak group, Projects 2.0 project with resource
-group, SAML group, identity provider sharing, project-scoped role
+**Milestone 2e: a fresh appliance configures itself from the setup
+page.** `portico serve` fronts Prism Central and Keycloak on two public
+names, requires a Keycloak login before any request reaches Prism Central,
+refuses every local-login path and every `Authorization` header measured
+on pc.7.6, and offers an internal pass-through for administrators. A
+tenant user signs in once on a Keycloak page carrying the MSP's name,
+colour and logo, passes through Portico's landing page and lands in the
+console: Portico starts the SAML login itself. When the identity provider
+is down the browser gets a branded page. On the internal listener an
+administrator signs in with the break-glass account, sets the branding,
+and creates a tenant end to end (Keycloak group, Projects 2.0 project with
+resource group, SAML group, identity provider sharing, project-scoped role
 membership, visibility check), follows the steps, creates its first user,
 disables, enables and deletes it; the same actions are a JSON API for
-scripts. The runtime settings (public names, Prism Central connection and
-service-account key, Keycloak and OIDC clients, tenant placement) are
-stored in Portico's database, sealed with a master key the service
-creates at its first start; the YAML keeps the process settings only.
-The setup page edits them card by card, checks each connection before a
-save, and "Apply and restart" brings the service back on the new
-document; `sudo -u portico portico settings import` moves an existing
-file-based installation over in one command. Bootstrap of the service account and
-of Keycloak comes next (Milestone 2e), then the appliance image
-(Milestone 3).
+scripts. The runtime settings are stored in Portico's database, sealed
+with a master key the service creates at its first start; the YAML keeps
+the process settings only. A fresh appliance starts in setup mode (admin
+listener only) and is configured card by card: Portico creates the
+`portico` service account and its key in Prism Central, the Keycloak realm
+with its two clients, and the SAML trust between the two, each from
+one-time credentials it never stores; then "Apply and restart" opens the
+public path. Measured on the lab: 41 s from empty store to running.
+Next: the appliance image (Milestone 3).
 The design document is in
 [`docs/superpowers/specs/2026-10-17-portico-design.md`](docs/superpowers/specs/2026-10-17-portico-design.md),
 lab measurements in `docs/lab/`, decisions in `docs/adr/`.
