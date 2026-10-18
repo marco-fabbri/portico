@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,8 @@ import (
 	"github.com/marco-fabbri/portico/internal/idp/keycloak"
 	"github.com/marco-fabbri/portico/internal/nutanix"
 	"github.com/marco-fabbri/portico/internal/proxy"
+	"github.com/marco-fabbri/portico/internal/secrets"
+	"github.com/marco-fabbri/portico/internal/settings"
 	"github.com/marco-fabbri/portico/internal/store"
 	"github.com/marco-fabbri/portico/internal/tenant"
 	"github.com/marco-fabbri/portico/internal/web"
@@ -47,23 +50,57 @@ type listener struct {
 // runServe builds the three listeners from cfg and runs them until ctx is
 // done, then shuts them down with a 10 s grace period.
 func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
-	secret, err := cfg.ClientSecret()
-	if err != nil {
-		return err
-	}
-	apiKey, err := cfg.PrismAPIKey()
-	if err != nil {
-		return err
-	}
-	kcSecret, err := cfg.KeycloakAdminSecret()
-	if err != nil {
-		return err
-	}
 	st, err := store.OpenSQLite(cfg.Store.Path)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+	// Runtime settings: the store wins when it holds a document (design
+	// §4.7); otherwise the YAML's runtime sections and secret files apply.
+	masterKey, err := secrets.LoadOrCreateKey(cfg.Store.MasterKeyFile)
+	if err != nil {
+		return err
+	}
+	sealer, err := secrets.NewSealer(masterKey)
+	if err != nil {
+		return err
+	}
+	settingsSvc := settings.NewService(st, sealer)
+	var secret, apiKey, kcSecret string
+	var caPEM []byte
+	if settingsSvc.Stored(ctx) {
+		doc, err := settingsSvc.Get(ctx)
+		if err != nil {
+			return err
+		}
+		rt, err := doc.Overlay(cfg)
+		if err != nil {
+			return err
+		}
+		secret, apiKey, kcSecret, caPEM = rt.ClientSecret, rt.APIKey, rt.AdminSecret, []byte(rt.CAPEM)
+		log.Info("settings source", "source", "store")
+	} else {
+		log.Info("settings source", "source", "file")
+	}
+	if err := cfg.ValidateRuntime(); err != nil {
+		return err
+	}
+	if !settingsSvc.Stored(ctx) {
+		if secret, err = cfg.ClientSecret(); err != nil {
+			return err
+		}
+		if apiKey, err = cfg.PrismAPIKey(); err != nil {
+			return err
+		}
+		if kcSecret, err = cfg.KeycloakAdminSecret(); err != nil {
+			return err
+		}
+		if cfg.PrismCentral.CAFile != "" && cfg.PrismCentral.TLSVerify {
+			if caPEM, err = os.ReadFile(cfg.PrismCentral.CAFile); err != nil {
+				return fmt.Errorf("prism_central.ca_file: %w", err)
+			}
+		}
+	}
 	// Branding: read by every tenant-facing page and error page.
 	brand := branding.NewService(st, log)
 	pages := branding.NewPages(brand.Get)
@@ -84,9 +121,9 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		if !cfg.PrismCentral.TLSVerify {
 			log.Warn("prism_central.tls_verify is false: the certificate of Prism Central is not checked")
 		}
-		pcTLS, err = proxy.PrismTLS(pcURL.Hostname(), cfg.PrismCentral.CAFile, cfg.PrismCentral.TLSVerify)
+		pcTLS, err = proxy.PrismTLSPEM(pcURL.Hostname(), caPEM, cfg.PrismCentral.TLSVerify)
 		if err != nil {
-			return err
+			return fmt.Errorf("prism_central ca: %w", err)
 		}
 	}
 

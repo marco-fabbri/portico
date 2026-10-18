@@ -94,9 +94,11 @@ type Log struct {
 	Level string `yaml:"level"`
 }
 
-// Store locates Portico's own database (design §4.6).
+// Store locates Portico's own database and the master key that seals
+// the secrets in it (design §4.6).
 type Store struct {
-	Path string `yaml:"path"`
+	Path          string `yaml:"path"`
+	MasterKeyFile string `yaml:"master_key_file"`
 }
 
 // Config is the whole settings file.
@@ -135,7 +137,7 @@ func Default() Config {
 		Session:      Session{MaxAge: 8 * time.Hour, Idle: 15 * time.Minute},
 		Policy:       Policy{AllowPrefixes: append([]string(nil), DefaultAllowPrefixes...)},
 		Log:          Log{Level: "info"},
-		Store:        Store{Path: "/var/lib/portico/portico.db"},
+		Store:        Store{Path: "/var/lib/portico/portico.db", MasterKeyFile: "/var/lib/portico/master.key"},
 		Tenants:      Tenants{ProjectPrefix: "portico", GroupPrefix: "tenant-", Role: "Project Admin", OperationTimeout: 10 * time.Minute},
 	}
 }
@@ -150,7 +152,9 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("config: parse %s: %w", path, err)
 	}
-	if err := cfg.Validate(); err != nil {
+	// Only the process checks here: the runtime sections may live in the
+	// store (design §4.7); serve validates them after the overlay.
+	if err := cfg.ValidateProcess(); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
@@ -168,6 +172,7 @@ func (c *Config) ValidateProcess() error {
 	var errs []error
 	for _, r := range []struct{ key, value string }{
 		{"store.path", c.Store.Path},
+		{"store.master_key_file", c.Store.MasterKeyFile},
 		{"keycloak.theme_dir", c.Keycloak.ThemeDir},
 		{"keycloak.theme_name", c.Keycloak.ThemeName},
 	} {

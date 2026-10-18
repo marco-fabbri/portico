@@ -133,19 +133,33 @@ func errorClass(err error) string {
 
 // PrismTLS builds the client TLS configuration for Prism Central.
 func PrismTLS(targetHost, caFile string, verify bool) (*tls.Config, error) {
+	var pemData []byte
+	if verify && caFile != "" {
+		var err error
+		pemData, err = os.ReadFile(caFile)
+		if err != nil {
+			return nil, fmt.Errorf("prism_central.ca_file: %w", err)
+		}
+	}
+	cfg, err := PrismTLSPEM(targetHost, pemData, verify)
+	if err != nil {
+		return nil, fmt.Errorf("prism_central.ca_file: %w", err)
+	}
+	return cfg, nil
+}
+
+// PrismTLSPEM is PrismTLS with the CA certificate given as PEM bytes
+// (the settings store holds it that way); empty means the system roots.
+func PrismTLSPEM(targetHost string, caPEM []byte, verify bool) (*tls.Config, error) {
 	cfg := &tls.Config{ServerName: targetHost, MinVersion: tls.VersionTLS12}
 	if !verify {
 		cfg.InsecureSkipVerify = true
 		return cfg, nil
 	}
-	if caFile != "" {
-		pemData, err := os.ReadFile(caFile)
-		if err != nil {
-			return nil, fmt.Errorf("prism_central.ca_file: %w", err)
-		}
+	if len(caPEM) > 0 {
 		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pemData) {
-			return nil, fmt.Errorf("prism_central.ca_file: no certificate found in %s", caFile)
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, errors.New("no certificate found in the CA PEM")
 		}
 		cfg.RootCAs = pool
 	}
