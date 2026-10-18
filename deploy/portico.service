@@ -13,8 +13,11 @@ Type=simple
 User=portico
 Group=portico
 ExecStart=/usr/local/bin/portico serve -config /etc/portico/portico.yaml
-Restart=on-failure
-RestartSec=5
+# Restart=always: "Apply and restart" in the setup page makes the service
+# exit 0 on purpose, and systemd must start it again with the stored
+# settings.
+Restart=always
+RestartSec=2
 # A tenant operation still running at stop is marked failed at the next
 # start (operator retries or deletes); no need to wait for it.
 TimeoutStopSec=30
