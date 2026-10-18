@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -19,8 +21,9 @@ type SettingsOptions struct {
 	// its files, when the process runs from the file; nil otherwise.
 	File        *settings.Settings
 	Checker     *settings.Checker
-	KeycloakURL string // backchannel URL for the Keycloak and OIDC checks
-	Restart     func() // asks serve to restart; nil when not available
+	KeycloakURL string     // backchannel URL for the Keycloak and OIDC checks
+	Restart     func()     // asks serve to restart; nil when not available
+	Busy        func() int // tenant operations in progress; apply is refused while any runs
 
 	restarting atomic.Bool
 }
@@ -39,13 +42,27 @@ func (o *SettingsOptions) Current(ctx context.Context) (settings.Settings, strin
 	return settings.Settings{}, "none", nil
 }
 
-// Apply triggers the restart once settings are stored.
+// BusyError says how many tenant operations stop an apply.
+type BusyError struct{ N int }
+
+func (e *BusyError) Error() string {
+	return fmt.Sprintf("%d tenant operation(s) running: retry when they finish", e.N)
+}
+
+// Apply triggers the restart once settings are stored and no tenant
+// operation is running: the restart closes the listeners first, so an
+// operation in flight would leave the service dark until it ends.
 func (o *SettingsOptions) Apply(ctx context.Context) error {
 	if o.Service == nil || !o.Service.Stored(ctx) {
 		return settings.ErrNotStored
 	}
 	if o.Restart == nil {
 		return errRestartUnavailable
+	}
+	if o.Busy != nil {
+		if n := o.Busy(); n > 0 {
+			return &BusyError{N: n}
+		}
 	}
 	o.restarting.Store(true)
 	o.Restart()
@@ -57,10 +74,16 @@ func (o *SettingsOptions) Restarting() bool { return o.restarting.Load() }
 
 var errRestartUnavailable = errors.New("restart is not available in this process")
 
-// Check runs the named check against the candidate document.
-func (o *SettingsOptions) Check(ctx context.Context, target string, s settings.Settings) (settings.CheckResult, bool) {
+// Check runs the named check with the candidate document. The stored
+// Prism Central key is used only against the stored host: a check that
+// names another host must bring its own key, or the stored
+// service-account key would be sent wherever the caller points.
+func (o *SettingsOptions) Check(ctx context.Context, target string, cur, s settings.Settings, keyGiven bool) (settings.CheckResult, bool) {
 	switch target {
 	case "prism_central":
+		if !keyGiven && !sameHost(cur.PrismCentral.URL, s.PrismCentral.URL) {
+			return settings.CheckResult{Message: "the API key must be given when the Prism Central URL changes: the stored key is only sent to the stored host"}, true
+		}
 		return o.Checker.PrismCentral(ctx, s, string(s.PrismCentral.APIKey)), true
 	case "keycloak":
 		return o.Checker.Keycloak(ctx, o.KeycloakURL, s, string(s.Keycloak.AdminClientSecret)), true
@@ -68,6 +91,13 @@ func (o *SettingsOptions) Check(ctx context.Context, target string, s settings.S
 		return o.Checker.OIDC(ctx, o.KeycloakURL, s), true
 	}
 	return settings.CheckResult{}, false
+}
+
+// sameHost reports whether two URLs name the same host and port.
+func sameHost(a, b string) bool {
+	ua, err1 := url.Parse(a)
+	ub, err2 := url.Parse(b)
+	return err1 == nil && err2 == nil && ua.Host != "" && strings.EqualFold(ua.Host, ub.Host)
 }
 
 // settingsJSON is the wire shape of the document. Secrets are accepted
@@ -80,7 +110,7 @@ type settingsJSON struct {
 	IDHost       string `json:"id_host"`
 	PrismCentral struct {
 		URL         string `json:"url"`
-		TLSVerify   bool   `json:"tls_verify"`
+		TLSVerify   *bool  `json:"tls_verify"` // absent keeps the current value
 		CAPEM       string `json:"ca_pem"`
 		APIKey      string `json:"api_key,omitempty"`
 		APIKeySet   bool   `json:"api_key_set"`
@@ -112,7 +142,8 @@ func toSettingsJSON(s settings.Settings, source string) settingsJSON {
 	var j settingsJSON
 	j.Stored, j.Source = source == "store", source
 	j.PrismHost, j.IDHost = s.PrismHost, s.IDHost
-	j.PrismCentral.URL, j.PrismCentral.TLSVerify, j.PrismCentral.CAPEM = s.PrismCentral.URL, s.PrismCentral.TLSVerify, s.PrismCentral.CAPEM
+	tlsVerify := s.PrismCentral.TLSVerify
+	j.PrismCentral.URL, j.PrismCentral.TLSVerify, j.PrismCentral.CAPEM = s.PrismCentral.URL, &tlsVerify, s.PrismCentral.CAPEM
 	j.PrismCentral.APIKeySet, j.PrismCentral.SAMLIdPName = s.PrismCentral.APIKey != "", s.PrismCentral.SAMLIdPName
 	j.Keycloak.Realm, j.Keycloak.AdminClientID, j.Keycloak.AdminClientSecretSet = s.Keycloak.Realm, s.Keycloak.AdminClientID, s.Keycloak.AdminClientSecret != ""
 	j.OIDC.Issuer, j.OIDC.ClientID, j.OIDC.ClientSecretSet = s.OIDC.Issuer, s.OIDC.ClientID, s.OIDC.ClientSecret != ""
@@ -122,15 +153,30 @@ func toSettingsJSON(s settings.Settings, source string) settingsJSON {
 	return j
 }
 
-// fromSettingsJSON builds the document; empty secrets stay empty so the
-// service keeps the stored ones.
-func fromSettingsJSON(j settingsJSON) (settings.Settings, error) {
+// fromSettingsJSON builds the document from the body on top of base: an
+// empty secret and an absent tls_verify keep base's value (the stored
+// document, or the file's when nothing is stored yet), so a body
+// without secrets never erases them and a file-based installation is
+// adopted by its first PUT.
+func fromSettingsJSON(j settingsJSON, base settings.Settings) (settings.Settings, error) {
 	var s settings.Settings
 	s.PrismHost, s.IDHost = j.PrismHost, j.IDHost
-	s.PrismCentral.URL, s.PrismCentral.TLSVerify, s.PrismCentral.CAPEM = j.PrismCentral.URL, j.PrismCentral.TLSVerify, j.PrismCentral.CAPEM
+	s.PrismCentral.URL, s.PrismCentral.TLSVerify, s.PrismCentral.CAPEM = j.PrismCentral.URL, base.PrismCentral.TLSVerify, j.PrismCentral.CAPEM
+	if j.PrismCentral.TLSVerify != nil {
+		s.PrismCentral.TLSVerify = *j.PrismCentral.TLSVerify
+	}
 	s.PrismCentral.APIKey, s.PrismCentral.SAMLIdPName = settings.Secret(j.PrismCentral.APIKey), j.PrismCentral.SAMLIdPName
 	s.Keycloak.Realm, s.Keycloak.AdminClientID, s.Keycloak.AdminClientSecret = j.Keycloak.Realm, j.Keycloak.AdminClientID, settings.Secret(j.Keycloak.AdminClientSecret)
 	s.OIDC.Issuer, s.OIDC.ClientID, s.OIDC.ClientSecret = j.OIDC.Issuer, j.OIDC.ClientID, settings.Secret(j.OIDC.ClientSecret)
+	if s.PrismCentral.APIKey == "" {
+		s.PrismCentral.APIKey = base.PrismCentral.APIKey
+	}
+	if s.Keycloak.AdminClientSecret == "" {
+		s.Keycloak.AdminClientSecret = base.Keycloak.AdminClientSecret
+	}
+	if s.OIDC.ClientSecret == "" {
+		s.OIDC.ClientSecret = base.OIDC.ClientSecret
+	}
 	s.Tenants.ProjectPrefix, s.Tenants.GroupPrefix, s.Tenants.Role = j.Tenants.ProjectPrefix, j.Tenants.GroupPrefix, j.Tenants.Role
 	s.Tenants.ClusterExtID, s.Tenants.StorageContainerExtID = j.Tenants.ClusterExtID, j.Tenants.StorageContainerExtID
 	if v := strings.TrimSpace(j.Tenants.OperationTimeout); v != "" {
@@ -141,6 +187,12 @@ func fromSettingsJSON(j settingsJSON) (settings.Settings, error) {
 		s.Tenants.OperationTimeout = d
 	}
 	return s, nil
+}
+
+// fromBody is the document as the body gave it, without any base.
+func fromBody(j settingsJSON) settings.Settings {
+	s, _ := fromSettingsJSON(j, settings.Settings{})
+	return s
 }
 
 // secretsIn names the secret fields a request carries, for the log.
@@ -188,7 +240,13 @@ func (h *handler) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
-	s, err := fromSettingsJSON(in)
+	base, _, err := h.so.Current(r.Context())
+	if err != nil {
+		h.log.Error("settings unreadable", "err", err.Error())
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s, err := fromSettingsJSON(in, base)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -203,7 +261,7 @@ func (h *handler) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	h.log.Info("settings saved", "via", "api", "secrets_updated", secretsIn(s))
+	h.log.Info("settings saved", "via", "api", "secrets_given", secretsIn(fromBody(in)))
 	cur, source, err := h.so.Current(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -219,9 +277,9 @@ type checkJSON struct {
 }
 
 // candidate overlays the target section of the request on the current
-// document: an empty field (a secret above all) means the current value,
-// so a body with the target alone checks what is stored. The TLS flag
-// and the CA travel with the URL, since a boolean has no "absent".
+// document: an empty field means the current value, so a body with the
+// target alone checks what is stored. in comes from fromSettingsJSON
+// with cur as base, so its secrets and TLS flag already fall back.
 func candidate(cur settings.Settings, target string, in settings.Settings) settings.Settings {
 	out := cur
 	pick := func(dst *string, v string) {
@@ -232,18 +290,15 @@ func candidate(cur settings.Settings, target string, in settings.Settings) setti
 	switch target {
 	case "prism_central":
 		if in.PrismCentral.URL != "" {
-			out.PrismCentral.URL, out.PrismCentral.TLSVerify, out.PrismCentral.CAPEM = in.PrismCentral.URL, in.PrismCentral.TLSVerify, in.PrismCentral.CAPEM
+			out.PrismCentral.URL, out.PrismCentral.CAPEM = in.PrismCentral.URL, in.PrismCentral.CAPEM
 		}
+		out.PrismCentral.TLSVerify = in.PrismCentral.TLSVerify
 		pick(&out.PrismCentral.SAMLIdPName, in.PrismCentral.SAMLIdPName)
-		if in.PrismCentral.APIKey != "" {
-			out.PrismCentral.APIKey = in.PrismCentral.APIKey
-		}
+		out.PrismCentral.APIKey = in.PrismCentral.APIKey
 	case "keycloak":
 		pick(&out.Keycloak.Realm, in.Keycloak.Realm)
 		pick(&out.Keycloak.AdminClientID, in.Keycloak.AdminClientID)
-		if in.Keycloak.AdminClientSecret != "" {
-			out.Keycloak.AdminClientSecret = in.Keycloak.AdminClientSecret
-		}
+		out.Keycloak.AdminClientSecret = in.Keycloak.AdminClientSecret
 	case "oidc":
 		pick(&out.OIDC.Issuer, in.OIDC.Issuer)
 		pick(&out.OIDC.ClientID, in.OIDC.ClientID)
@@ -260,17 +315,17 @@ func (h *handler) checkSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
-	cand, err := fromSettingsJSON(in.settingsJSON)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
 	cur, _, err := h.so.Current(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	res, ok := h.so.Check(r.Context(), in.Target, candidate(cur, in.Target, cand))
+	cand, err := fromSettingsJSON(in.settingsJSON, cur)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	res, ok := h.so.Check(r.Context(), in.Target, cur, candidate(cur, in.Target, cand), in.PrismCentral.APIKey != "")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "target must be prism_central, keycloak or oidc")
 		return
@@ -283,9 +338,12 @@ func (h *handler) applySettings(w http.ResponseWriter, r *http.Request) {
 	if h.settingsUnavailable(w) {
 		return
 	}
+	var busy *BusyError
 	switch err := h.so.Apply(r.Context()); {
 	case errors.Is(err, settings.ErrNotStored):
 		writeError(w, http.StatusConflict, "no settings are stored: save them first")
+	case errors.As(err, &busy):
+		writeError(w, http.StatusConflict, err.Error())
 	case err != nil:
 		writeError(w, http.StatusNotImplemented, err.Error())
 	default:

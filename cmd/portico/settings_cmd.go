@@ -15,13 +15,23 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// openSettings opens the store and the master key for the settings commands.
-func openSettings(cfg *config.Config) (*store.SQLite, *settings.Service, error) {
+// euid is overridable in tests.
+var euid = os.Geteuid
+
+// openSettings opens the store and the master key for the settings
+// commands. create says whether a missing key may be created: only the
+// import does, and only when not running as root, so the key belongs to
+// the user who runs the service.
+func openSettings(cfg *config.Config, create bool) (*store.SQLite, *settings.Service, error) {
 	st, err := store.OpenSQLite(cfg.Store.Path)
 	if err != nil {
 		return nil, nil, err
 	}
-	key, err := secrets.LoadOrCreateKey(cfg.Store.MasterKeyFile)
+	load := secrets.LoadKey
+	if create {
+		load = secrets.LoadOrCreateKey
+	}
+	key, err := load(cfg.Store.MasterKeyFile)
 	if err != nil {
 		st.Close()
 		return nil, nil, err
@@ -77,7 +87,11 @@ func settingsImport(args []string, stdout, stderr io.Writer) int {
 		}
 		caPEM = string(b)
 	}
-	st, svc, err := openSettings(cfg)
+	if euid() == 0 {
+		fmt.Fprintln(stderr, "portico: settings import must run as the service user, not root: `sudo -u portico portico settings import ...`, so the master key it creates belongs to the user that runs `portico serve`")
+		return 1
+	}
+	st, svc, err := openSettings(cfg, true)
 	if err != nil {
 		fmt.Fprintf(stderr, "portico: %v\n", err)
 		return 1
@@ -114,7 +128,19 @@ func settingsShow(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "portico: %v\n", err)
 		return 1
 	}
-	st, svc, err := openSettings(cfg)
+	// Nothing stored: say so before touching the key (show never creates one).
+	st, err := store.OpenSQLite(cfg.Store.Path)
+	if err != nil {
+		fmt.Fprintf(stderr, "portico: %v\n", err)
+		return 1
+	}
+	if _, err := st.GetSetting(context.Background(), settings.SettingKey); errors.Is(err, store.ErrNotFound) {
+		st.Close()
+		fmt.Fprintln(stderr, "portico: no settings stored (the runtime sections come from the file)")
+		return 1
+	}
+	st.Close()
+	st, svc, err := openSettings(cfg, false)
 	if err != nil {
 		fmt.Fprintf(stderr, "portico: %v\n", err)
 		return 1
