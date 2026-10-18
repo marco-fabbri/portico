@@ -1,6 +1,6 @@
 # Portico
 
-**Multi-tenant service layer for Nutanix Prism Central.**
+**Multi-tenant service layer for Nutanix Prism Central**
 
 Portico is a virtual appliance that runs inside a Nutanix cluster and acts as
 the single, authenticated entry point through which a managed service
