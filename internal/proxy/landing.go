@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -37,6 +38,10 @@ const (
 	initiateLogin    = "/api/iam/authn/initiate-login"
 	loginRequestPath = "/api/iam/v4.1.b3/authn/login-requests/"
 	iamCookie        = "iam-sessionid"
+	// signOutPath is where the console's own Sign Out ends (write-up 12):
+	// with the landing page that would sign the tenant straight back in.
+	signOutPath   = "/redirect"
+	porticoLogout = "/.portico/logout"
 )
 
 var reLoginRequestID = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
@@ -46,6 +51,18 @@ var reLoginRequestID = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
 // marker that the fallback sets.
 func (l *LandingOptions) interceptsProviders(r *http.Request) bool {
 	return l != nil && r.Method == http.MethodGet && NormalizePath(r.URL.Path) == providersPath && r.URL.Query().Get("portico") != manualMarker
+}
+
+// interceptsSignOut reports whether this is the tail of the console's
+// Sign Out, which Portico turns into its own logout (Prism Central
+// cookies expired, Keycloak session ended).
+func (l *LandingOptions) interceptsSignOut(r *http.Request) bool {
+	return l != nil && r.Method == http.MethodGet && NormalizePath(r.URL.Path) == signOutPath && r.URL.Query().Has("logout")
+}
+
+func (l *LandingOptions) signOut(w http.ResponseWriter, r *http.Request) {
+	setRule(r, "sign-out")
+	http.Redirect(w, r, porticoLogout, http.StatusFound)
 }
 
 func (l *LandingOptions) landing(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +142,9 @@ func (l *LandingOptions) loginRequest(ctx context.Context, method, id string, bo
 	}
 	resp, err := l.PrismHTTP.Do(req)
 	if err != nil {
-		return 0, err
+		// A *url.Error embeds the request URL, which carries the
+		// login-request id: report the class of the failure only.
+		return 0, fmt.Errorf("prism central %s login-request: %s", method, errorClass(err))
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

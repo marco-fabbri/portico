@@ -244,3 +244,55 @@ func TestLogoIsPublicOnBothHosts(t *testing.T) {
 		t.Fatal("the logo request reached Keycloak")
 	}
 }
+
+// Review fix 1: a transport error embeds the request URL, which carries
+// the login-request id (the cookie value); it must not reach the log.
+func TestSAMLStartTransportErrorDoesNotLogCookie(t *testing.T) {
+	lh := newLandingHarness(t)
+	dead, _ := recordingUpstream(t, false, nil)
+	dead.Close()
+	base, _ := url.Parse(dead.URL)
+	lh.publicHarness = newPublicHarnessWith(t, "", func(o *PublicOptions) {
+		o.Landing = &LandingOptions{
+			Pages:     branding.NewPages(func(ctx context.Context) branding.Branding { return branding.Default() }),
+			Logo:      func(ctx context.Context) ([]byte, string, bool) { return nil, "", false },
+			PrismHTTP: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+			PrismBase: base, PrismHost: "prism.test",
+			IdPExtID: func(ctx context.Context) (string, error) { return "idp-1", nil },
+			Log:      o.Log,
+		}
+	})
+	rec := lh.do("GET", "https://prism.test/.portico/saml-start", map[string]string{"Cookie": "iam-sessionid=secret-cookie-id-9f3a"}, true)
+	if rec.Code != 302 || rec.Header().Get("Location") != "/ui/iam/providers?portico=manual" {
+		t.Fatalf("transport error: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if strings.Contains(lh.logBuf.String(), "secret-cookie-id-9f3a") {
+		t.Fatalf("the login-request id reached the log: %s", lh.logBuf.String())
+	}
+	if !strings.Contains(lh.logBuf.String(), "falling back") {
+		t.Fatalf("no fallback warning: %s", lh.logBuf.String())
+	}
+}
+
+// Review fix 3: the console's Sign Out ends on /redirect?logout=…; with
+// the landing page that would sign the tenant straight back in, so
+// Portico turns it into its own logout, which ends the Keycloak session.
+func TestConsoleSignOutGoesToPorticoLogout(t *testing.T) {
+	lh := newLandingHarness(t)
+	rec := lh.do("GET", "https://prism.test/redirect?logout=https%3A%2F%2Fprism.test%2F", nil, true)
+	if rec.Code != 302 || rec.Header().Get("Location") != "/.portico/logout" {
+		t.Fatalf("sign out with a session: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if len(*lh.pc) != 0 {
+		t.Fatal("the sign-out redirect reached Prism Central")
+	}
+	rec = lh.do("GET", "https://prism.test/redirect?logout=x", map[string]string{"Accept": "text/html"}, false)
+	if rec.Code != 302 || !strings.HasPrefix(rec.Header().Get("Location"), "/.portico/login") {
+		t.Fatalf("sign out without a session: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	h := newPublicHarness(t)
+	rec = h.do("GET", "https://prism.test/redirect?logout=x", nil, true)
+	if rec.Code != 200 || len(*h.prism) != 1 {
+		t.Fatalf("without LandingOptions /redirect must be proxied as before: %d upstream %d", rec.Code, len(*h.prism))
+	}
+}

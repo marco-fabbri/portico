@@ -72,6 +72,10 @@ func NewPublic(o PublicOptions) http.Handler {
 			o.Landing.landing(w, r)
 			return
 		}
+		if o.Landing.interceptsSignOut(r) {
+			o.Landing.signOut(w, r)
+			return
+		}
 		if rule, ok := o.Policy.Allowed(r); !ok {
 			setRule(r, rule)
 			Refuse(w, http.StatusForbidden, rule, "path not allowed on the public listener")

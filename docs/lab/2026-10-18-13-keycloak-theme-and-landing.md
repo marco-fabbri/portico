@@ -131,6 +131,24 @@ deployed by `lab/portico/deploy.sh`, branding set through the API (name
 - MEASURED: `lab/auth/probe-local-login.sh` has two new lines, the
   provider page and `/.portico/saml-start` without a session both go to
   `/.portico/login`; PASS.
+- MEASURED after the review (Sign Out): with the landing page, the
+  console's own Sign Out (`#logout` → `v3/logout` → OIDC logout →
+  `/redirect?logout=…`, write-up 12) would have landed on the landing
+  page and signed the tenant straight back in, because the Keycloak
+  session outlives Prism Central's. Portico now turns `/redirect?logout=`
+  into its own `/.portico/logout` (access-log rule `sign-out`): the
+  browser reaches Keycloak's "Do you want to log out?" page on the
+  identity host (themed: accent button, logo) and, after confirming,
+  Prism Central's public name shows the Keycloak login page again.
+  Journal: `302 sign-out GET /redirect` → `302 GET /.portico/logout` →
+  `200 GET /realms/portico-lab/protocol/openid-connect/logout`.
+- MEASURED after the review (branding form): the logo was uploaded from
+  `https://prism.lab.portico.test:8443/settings/branding` in Chrome (a
+  240×60 PNG): preview on the page, `logo.png` (247 bytes) in the theme
+  directory, no warning. An SVG logo with scripts, event handlers,
+  `javascript:` links or `foreignObject` is now refused at validation,
+  because Keycloak serves the theme's copy from the login origin with
+  its own headers (review finding).
 
 Re-measure: `source lab/env.sh && lab/portico/deploy.sh`, set the branding
 from `https://prism.lab.portico.test:8443/settings/branding`, log in as

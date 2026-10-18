@@ -317,8 +317,13 @@ func TestBrandingPutValidatesAndStores(t *testing.T) {
 
 func TestBrandingLogoSVGHeaders(t *testing.T) {
 	e := newEnv(t)
-	svg := base64.StdEncoding.EncodeToString([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`))
-	rec, _ := e.do("PUT", "/api/v1/settings/branding", `{"msp_name":"ACME","accent_color":"#000000","logo_type":"image/svg+xml","logo_data":"`+svg+`"}`, true)
+	active := base64.StdEncoding.EncodeToString([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`))
+	rec, out := e.do("PUT", "/api/v1/settings/branding", `{"msp_name":"ACME","accent_color":"#000000","logo_type":"image/svg+xml","logo_data":"`+active+`"}`, true)
+	if rec.Code != 400 || !strings.Contains(out["error"].(string), "logo") {
+		t.Fatalf("PUT active svg: %d %v", rec.Code, out)
+	}
+	svg := base64.StdEncoding.EncodeToString([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>`))
+	rec, _ = e.do("PUT", "/api/v1/settings/branding", `{"msp_name":"ACME","accent_color":"#000000","logo_type":"image/svg+xml","logo_data":"`+svg+`"}`, true)
 	if rec.Code != 200 {
 		t.Fatalf("PUT svg: %d %s", rec.Code, rec.Body.String())
 	}
