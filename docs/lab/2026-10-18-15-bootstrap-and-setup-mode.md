@@ -138,8 +138,20 @@ and what a reset of the lab to that fresh state involves.
   notice "No settings yet", the defaults prefilled (`portico-admin`,
   `portico`, service account `portico`), the three bootstrap forms under
   their cards, and any tenant page answers the "Setup mode" page with a
-  link to the setup. Carol's full login through the public path is
-  Marco's check, as in write-up 11.
+  link to the setup. Carol's full login through the public path was
+  Marco's check, as in write-up 11: user name `carol@lab.portico.test`
+  (the user name is the email, so a login typed as `carol` answers
+  "invalid username or password": Keycloak's `user_not_found`), password
+  change required at first login, then the landing page and the Prism
+  Central console with the empty `portico-lab-tenant-b` project and no
+  VM (tenant A's VM is out of scope). Two observations, deferred: the
+  realm created by the bootstrap has no password policy, so a weak
+  password was accepted (the Milestone 0 lab realm had none either);
+  and a login that takes longer than the 10-minute login-state cookie
+  (the page had been open for a while) answers a bare `login state
+  missing or expired, start again` on `/.portico/callback`, and the
+  user has to open the public URL again, which then goes straight
+  through on the Keycloak session. `acceptance.sh --delete` PASS.
 
 ## Implications for the design
 
