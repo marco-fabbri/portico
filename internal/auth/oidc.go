@@ -29,6 +29,9 @@ type OIDCConfig struct {
 	RedirectURL string
 	// Scopes defaults to openid and email.
 	Scopes []string
+	// ErrorPage, when set, renders a branded page for browser navigations
+	// (Accept text/html) instead of the plain text answer.
+	ErrorPage func(w http.ResponseWriter, r *http.Request, status int, title, text, retry string)
 	// CookieMaxAge is the lifetime of the session cookie, matching the
 	// store's absolute lifetime.
 	CookieMaxAge time.Duration

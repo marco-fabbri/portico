@@ -64,6 +64,9 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		return err
 	}
 	defer st.Close()
+	// Branding: read by every tenant-facing page and error page.
+	brand := branding.NewService(st, log)
+	pages := branding.NewPages(brand.Get)
 	pcURL, err := url.Parse(cfg.PrismCentral.URL)
 	if err != nil {
 		return fmt.Errorf("prism_central.url: %w", err)
@@ -97,11 +100,12 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		ClientSecret: secret,
 		RedirectURL:  "https://" + cfg.Public.PrismHost + "/.portico/callback",
 		CookieMaxAge: cfg.Session.MaxAge,
+		ErrorPage:    pages.Error,
 	}, sessions, &http.Client{Timeout: 15 * time.Second}, log)
 
 	stripped := auth.PorticoCookies()
-	prismUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: pcURL, HostHeader: cfg.Public.PrismHost, TLS: pcTLS, StripCookies: stripped, Log: log})
-	kcUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: kcURL, HostHeader: cfg.Public.IDHost, StripCookies: stripped, Log: log})
+	prismUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: pcURL, HostHeader: cfg.Public.PrismHost, TLS: pcTLS, StripCookies: stripped, Log: log, ErrorPage: pages.Error})
+	kcUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: kcURL, HostHeader: cfg.Public.IDHost, StripCookies: stripped, Log: log, ErrorPage: pages.Error})
 	// The pass-through keeps the caller's Host so Prism Central builds its
 	// redirects for the address the administrator used.
 	passthrough := proxy.NewPassthrough(proxy.NewUpstream(proxy.UpstreamOptions{Target: pcURL, HostHeader: "", TLS: pcTLS, Log: log}), log)
@@ -136,7 +140,6 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// account, one failure limiter and one authentication middleware.
 	limiter := api.NewLimiter()
 	adminSessions := auth.NewMemoryStore(8*time.Hour, 15*time.Minute)
-	brand := branding.NewService(st, log)
 	// Saving the branding regenerates the Keycloak login theme and sets it
 	// on the realm; a failure is reported to the admin, the save stands.
 	brand.OnChange(func(ctx context.Context, b branding.Branding) error {
@@ -160,7 +163,6 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// Tenant-facing pages: the landing page replaces Prism Central's
 	// provider page and starts the SAML login with the browser's own
 	// login-request cookie (write-ups 12 and 13).
-	pages := branding.NewPages(brand.Get)
 	landing := &proxy.LandingOptions{
 		Pages: pages,
 		Logo: func(ctx context.Context) ([]byte, string, bool) {

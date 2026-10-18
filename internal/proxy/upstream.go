@@ -32,6 +32,9 @@ type UpstreamOptions struct {
 	// Portico's own cookies never reach the backend.
 	StripCookies []string
 	Log          *slog.Logger
+	// ErrorPage, when set, renders a branded page instead of the JSON
+	// answer for browser navigations (GET with Accept text/html).
+	ErrorPage func(w http.ResponseWriter, r *http.Request, status int, title, text, retry string)
 }
 
 // NewUpstream returns a reverse proxy that rewrites requests to the target,
@@ -82,6 +85,10 @@ func NewUpstream(o UpstreamOptions) *httputil.ReverseProxy {
 				return
 			}
 			log.Error("upstream error", "host", o.HostHeader, "method", r.Method, "path", r.URL.Path, "class", errorClass(err))
+			if o.ErrorPage != nil && r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
+				o.ErrorPage(w, r, http.StatusBadGateway, "Service unavailable", "The service behind this page did not answer. Please try again in a moment.", r.URL.RequestURI())
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Cache-Control", "no-store")
 			w.WriteHeader(http.StatusBadGateway)
