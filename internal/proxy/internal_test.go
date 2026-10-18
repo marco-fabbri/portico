@@ -27,7 +27,7 @@ func TestPassthroughForwardsBasicAuthUnchanged(t *testing.T) {
 }
 
 func TestAdminHealthz(t *testing.T) {
-	h := NewAdmin(slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdmin(slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "https://127.0.0.1:8443/healthz", nil))
 	if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/json" || rec.Body.String() != "{\"status\":\"ok\"}\n" {
@@ -45,7 +45,7 @@ func TestAdminMountsAPIUnderV1(t *testing.T) {
 		w.WriteHeader(http.StatusTeapot)
 		io.WriteString(w, r.URL.Path)
 	})
-	h := NewAdmin(slog.New(slog.NewTextHandler(io.Discard, nil)), api)
+	h := NewAdmin(slog.New(slog.NewTextHandler(io.Discard, nil)), api, nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "https://127.0.0.1:8443/api/v1/tenants", nil))
 	if rec.Code != http.StatusTeapot || rec.Body.String() != "/api/v1/tenants" {
@@ -60,12 +60,28 @@ func TestAdminMountsAPIUnderV1(t *testing.T) {
 
 // Review Focus 5 of Milestone 2a: /healthz stays open even with a Basic header.
 func TestAdminHealthzIgnoresBasicHeader(t *testing.T) {
-	h := NewAdmin(slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	h := NewAdmin(slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	r := httptest.NewRequest("GET", "https://127.0.0.1:8443/healthz", nil)
 	r.Header.Set("Authorization", "Basic eDp5")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, r)
 	if rec.Code != 200 {
 		t.Fatalf("healthz with Basic: %d", rec.Code)
+	}
+}
+
+func TestAdminMountsUIAtRoot(t *testing.T) {
+	api := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) })
+	ui := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		io.WriteString(w, "ui:"+r.URL.Path)
+	})
+	h := NewAdmin(slog.New(slog.NewTextHandler(io.Discard, nil)), api, ui)
+	for path, want := range map[string]int{"/": 202, "/login": 202, "/tenants/x": 202, "/api/v1/tenants": 418, "/healthz": 200} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", "https://127.0.0.1:8443"+path, nil))
+		if rec.Code != want {
+			t.Errorf("%s: %d, want %d", path, rec.Code, want)
+		}
 	}
 }
