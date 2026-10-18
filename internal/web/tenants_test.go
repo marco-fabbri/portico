@@ -188,3 +188,17 @@ func TestAllPostsRequireCSRF(t *testing.T) {
 		t.Fatal("a tenant was created without CSRF")
 	}
 }
+
+func TestTenantPagesInSetupModePointToSetup(t *testing.T) {
+	e := newEnv(t, true)
+	e.web.svc = nil
+	e.login(t)
+	rec := e.do("GET", "/", nil, true)
+	if rec.Code != 303 || rec.Header().Get("Location") != "/setup" {
+		t.Fatalf("home: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	rec = e.do("GET", "/tenants/new", nil, true)
+	if rec.Code != 503 || !strings.Contains(rec.Body.String(), "setup mode") || !strings.Contains(rec.Body.String(), `href="/setup"`) {
+		t.Fatalf("tenants/new: %d %s", rec.Code, rec.Body.String())
+	}
+}

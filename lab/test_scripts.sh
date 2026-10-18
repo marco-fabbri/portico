@@ -80,5 +80,16 @@ if grep -q 'portico settings import -config /etc/portico/portico.import.yaml' la
 # M2d-3: the unit restarts after the exit 0 of "Apply and restart".
 if grep -q '^Restart=always' deploy/portico.service && grep -q '^RestartSec=2' deploy/portico.service; then ok "portico.service restarts always"; else ko "portico.service lacks Restart=always"; fi
 
+# Milestone 2e Task 6: fresh-appliance bootstrap.
+# M2e-1: the bootstrap acceptance builds credential bodies in private files, never on a command line.
+if grep -q 'umask 077' lab/portico/bootstrap-acceptance.sh && grep -q -- '--rawfile' lab/portico/bootstrap-acceptance.sh && ! grep -nE 'password=\$|--arg (p|pw|password) "\$\(cat' lab/portico/bootstrap-acceptance.sh | grep -q .; then ok "bootstrap-acceptance.sh keeps credentials in files"; else ko "bootstrap-acceptance.sh exposes a credential"; fi
+# M2e-2: the reset refuses to run without --yes.
+out=$(LAB_VM_IP=x PC_URL=https://invalid.test PC_USER=x PC_PASS=x bash lab/portico/reset-for-bootstrap.sh 2>&1); rc=$?
+if [ "$rc" -eq 2 ] && grep -q -- '--yes' <<<"$out"; then ok "reset-for-bootstrap.sh needs --yes"; else ko "reset-for-bootstrap.sh ran without --yes (rc=$rc)"; fi
+# M2e-3: deploy.sh --fresh skips the import and needs no secret file.
+if grep -q 'fresh' lab/portico/deploy.sh && grep -q 'import skipped' lab/portico/deploy.sh; then ok "deploy.sh has a --fresh path"; else ko "deploy.sh lacks --fresh"; fi
+# M2e-4: the lab admin client has the client-management roles the SAML bootstrap needs.
+if grep -q 'manage-clients' lab/saml/keycloak-realm.sh && grep -q 'manage-clients' deploy/portico.yaml.example; then ok "admin-client roles include manage-clients"; else ko "manage-clients missing from the lab script or the example"; fi
+
 if shellcheck -x lab/*.sh lab/*/*.sh; then ok "shellcheck"; else ko "shellcheck"; fi
 if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi

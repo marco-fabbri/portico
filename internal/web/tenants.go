@@ -13,18 +13,30 @@ import (
 // routes registers the tenant pages. Every page action has an API twin
 // under /api/v1/ (ADR 0003); both call the same service.
 func (h *Handler) routes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /tenants/new", h.tenantNew)
-	mux.HandleFunc("POST /tenants", h.tenantCreate)
-	mux.HandleFunc("GET /tenants/{id}", h.tenantDetail)
-	mux.HandleFunc("GET /tenants/{id}/steps", h.tenantSteps)
-	mux.HandleFunc("POST /tenants/{id}/users", h.tenantCreateUser)
-	mux.HandleFunc("POST /tenants/{id}/disable", h.tenantAction("disable"))
-	mux.HandleFunc("POST /tenants/{id}/enable", h.tenantAction("enable"))
-	mux.HandleFunc("POST /tenants/{id}/provision", h.tenantAction("provision"))
-	mux.HandleFunc("POST /tenants/{id}/delete", h.tenantDelete)
+	mux.HandleFunc("GET /tenants/new", h.running(h.tenantNew))
+	mux.HandleFunc("POST /tenants", h.running(h.tenantCreate))
+	mux.HandleFunc("GET /tenants/{id}", h.running(h.tenantDetail))
+	mux.HandleFunc("GET /tenants/{id}/steps", h.running(h.tenantSteps))
+	mux.HandleFunc("POST /tenants/{id}/users", h.running(h.tenantCreateUser))
+	mux.HandleFunc("POST /tenants/{id}/disable", h.running(h.tenantAction("disable")))
+	mux.HandleFunc("POST /tenants/{id}/enable", h.running(h.tenantAction("enable")))
+	mux.HandleFunc("POST /tenants/{id}/provision", h.running(h.tenantAction("provision")))
+	mux.HandleFunc("POST /tenants/{id}/delete", h.running(h.tenantDelete))
 	mux.HandleFunc("GET /settings/branding", h.brandingPage)
 	mux.HandleFunc("POST /settings/branding", h.brandingSave)
 	mux.HandleFunc("GET /settings/branding/logo", h.brandingLogo)
+}
+
+// running renders the setup-mode page with 503 while the tenant service
+// is nil (design §4.7): the tenant pages have nothing to act on yet.
+func (h *Handler) running(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.svc == nil {
+			h.render(w, r, http.StatusServiceUnavailable, "setupmode", "Setup mode", nil, "")
+			return
+		}
+		next(w, r)
+	}
 }
 
 // inProgress reports whether a status still changes on its own.
@@ -40,6 +52,10 @@ type listData struct {
 // home is the tenant list; ?partial=rows (or an HTMX request) returns the
 // table body only, polled every 10 s while a tenant is in progress.
 func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
+	if h.svc == nil {
+		http.Redirect(w, r, "/setup", http.StatusSeeOther)
+		return
+	}
 	ts, err := h.st.ListTenants(r.Context())
 	if err != nil {
 		h.render(w, r, http.StatusInternalServerError, "tenants", "Tenants", listData{}, err.Error())

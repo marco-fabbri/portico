@@ -83,7 +83,8 @@ func TestSetupSaveSectionAndSecretsStayHidden(t *testing.T) {
 	// Save the four sections one by one, as the page does.
 	for _, f := range []url.Values{
 		e.form("section", "hosts", "prism_host", "prism.example.test", "id_host", "id.example.test"),
-		e.form("section", "prism_central", "url", pc.URL, "tls_verify", "", "api_key", "key-secret-2", "saml_idp_name", "lab-idp"),
+		e.form("section", "prism_central", "url", pc.URL, "tls_verify", "", "api_key", "key-secret-2"),
+		e.form("section", "saml", "saml_idp_name", "lab-idp"),
 		e.form("section", "keycloak", "realm", "portico", "admin_client_id", "portico-admin", "admin_client_secret", "admin-secret-1", "issuer", "https://id.example.test/realms/portico", "client_id", "portico", "client_secret", "client-secret-1"),
 		e.form("section", "tenants", "project_prefix", "portico", "group_prefix", "tenant-", "role", "Project Admin", "cluster_ext_id", "cl-1", "storage_container_ext_id", "sc-1", "operation_timeout", "10m"),
 	} {
@@ -102,9 +103,13 @@ func TestSetupSaveSectionAndSecretsStayHidden(t *testing.T) {
 		t.Fatalf("page after save: %s", body)
 	}
 	// Saving a section without the secret keeps it.
-	rec = e.do("POST", "/setup/save", e.form("section", "prism_central", "url", pc.URL, "tls_verify", "", "saml_idp_name", "lab-idp-2"), true)
+	rec = e.do("POST", "/setup/save", e.form("section", "prism_central", "url", pc.URL, "tls_verify", ""), true)
 	if rec.Code != 303 {
 		t.Fatalf("second save: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = e.do("POST", "/setup/save", e.form("section", "saml", "saml_idp_name", "lab-idp-2"), true)
+	if rec.Code != 303 {
+		t.Fatalf("saml save: %d %s", rec.Code, rec.Body.String())
 	}
 	got, _ = svc.Get(context.Background())
 	if got.PrismCentral.APIKey != "key-secret-2" || got.PrismCentral.SAMLIdPName != "lab-idp-2" {
@@ -172,5 +177,31 @@ func TestSetupRequiresCSRF(t *testing.T) {
 	after, _ := svc.Get(context.Background())
 	if after.PrismHost != before.PrismHost || *restarted != 0 {
 		t.Fatal("a form without CSRF changed state")
+	}
+}
+
+func TestSetupPageInSetupModeListsMissingAndDisablesApply(t *testing.T) {
+	e := newEnv(t, true)
+	withSetup(t, e, false)
+	e.web.setup.File, e.web.setup.Mode = nil, "setup"
+	e.login(t)
+	rec := e.do("GET", "/setup", nil, true)
+	body := rec.Body.String()
+	for _, want := range []string{"Setup mode", "Missing: prism_host, id_host", `value="portico"`, `disabled`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("setup page lacks %q: %s", want, body)
+		}
+	}
+	rec = e.do("POST", "/setup/save", e.form("section", "hosts", "prism_host", "prism.example.test", "id_host", "id.example.test"), true)
+	if rec.Code != 303 {
+		t.Fatalf("save hosts on a fresh store: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = e.do("GET", "/setup", nil, true)
+	if body := rec.Body.String(); strings.Contains(body, "Missing: prism_host") || !strings.Contains(body, "Missing: prism_central.url") {
+		t.Fatalf("missing list after save: %s", body)
+	}
+	rec = e.do("POST", "/setup/apply", e.form(), true)
+	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "settings incomplete") {
+		t.Fatalf("apply on a draft: %d", rec.Code)
 	}
 }

@@ -166,10 +166,83 @@ func TestSetValidates(t *testing.T) {
 	if svc.Stored(context.Background()) {
 		t.Fatal("an invalid Set stored something")
 	}
-	in = sample()
-	in.PrismCentral.APIKey = ""
-	err = svc.Set(context.Background(), in)
-	if err == nil || !strings.Contains(err.Error(), "prism_central.api_key") {
-		t.Fatalf("Set without the API key = %v, want an error naming it", err)
+}
+
+func newService(t *testing.T) *Service {
+	t.Helper()
+	return NewService(newStore(t), sealerFor(t, 1))
+}
+
+func TestMissingListsEmptyRequiredFields(t *testing.T) {
+	var s Settings
+	s.PrismHost = "prism.example.test"
+	got := s.Missing()
+	if len(got) != 16 || got[0] != "id_host" || got[len(got)-1] != "tenants.operation_timeout" {
+		t.Fatalf("missing = %v", got)
+	}
+	full := sample()
+	if m := full.Missing(); len(m) != 0 {
+		t.Fatalf("complete document missing %v", m)
+	}
+}
+
+func TestValidateNamesMissingFieldsAndFormat(t *testing.T) {
+	var s Settings
+	s.Tenants.ProjectPrefix = "Bad Prefix"
+	err := s.Validate()
+	if err == nil || !strings.Contains(err.Error(), "project_prefix") {
+		t.Fatalf("format error: %v", err)
+	}
+	s = Defaults()
+	var inc *IncompleteError
+	if err := s.Validate(); !errors.As(err, &inc) || len(inc.Missing) == 0 || !strings.Contains(err.Error(), "missing prism_host, id_host") {
+		t.Fatalf("incomplete error: %v", err)
+	}
+	if s.ValidateFormat() != nil {
+		t.Fatal("defaults do not pass the format check")
+	}
+}
+
+func TestServiceStoresADraft(t *testing.T) {
+	svc := newService(t)
+	d := Defaults()
+	d.PrismHost, d.IDHost = "prism.example.test", "id.example.test"
+	if err := svc.Set(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Get(context.Background())
+	if err != nil || got.PrismHost != "prism.example.test" || len(got.Missing()) != 9 {
+		t.Fatalf("draft = %+v %v", got, err)
+	}
+}
+
+// Patch re-reads the stored document under a lock and changes only what
+// the function touches, so two writers never revert each other.
+func TestServicePatchMergesIntoTheStoredDocument(t *testing.T) {
+	ctx := context.Background()
+	svc := newService(t)
+	s := Defaults()
+	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	if err := svc.Set(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Patch(ctx, func(d *Settings) { d.Keycloak.Realm = "msp" }); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Patch(ctx, func(d *Settings) { d.Tenants.ClusterExtID = "cl-9" }); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Get(ctx)
+	if err != nil || got.Keycloak.Realm != "msp" || got.Tenants.ClusterExtID != "cl-9" || got.PrismHost != "prism.example.test" {
+		t.Fatalf("got=%+v err=%v", got, err)
+	}
+	// Nothing stored yet: the patch applies to the defaults.
+	empty := newService(t)
+	if err := empty.Patch(ctx, func(d *Settings) { d.PrismHost = "p.example.test" }); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = empty.Get(ctx)
+	if got.PrismHost != "p.example.test" || got.Tenants.GroupPrefix != Defaults().Tenants.GroupPrefix {
+		t.Fatalf("got=%+v", got)
 	}
 }

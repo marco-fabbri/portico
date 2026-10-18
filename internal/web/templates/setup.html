@@ -1,5 +1,8 @@
 {{define "content"}}
 <h1>Setup</h1>
+{{if eq .Data.Mode "setup"}}
+<div class="banner warning">Setup mode: the public listener is off until every card is saved and applied.</div>
+{{end}}
 {{if .Data.Stored}}
 <p class="muted">Settings are stored in Portico's database and sealed with the master key. Saved changes take effect after <strong>Apply and restart</strong>.</p>
 {{else if eq .Data.Source "file"}}
@@ -21,33 +24,33 @@
 
 <section class="card" id="card-prism_central">
   <h2>Prism Central</h2>
-  <form method="post" action="/setup/save">
+  <form method="post" action="/setup/save" id="form-prism_central">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
     <input type="hidden" name="section" value="prism_central">
     <label>URL <input type="url" name="url" value="{{.Data.S.PrismCentral.URL}}" placeholder="https://10.0.0.10:9440" required></label>
     <label class="inline"><input type="checkbox" name="tls_verify" value="on"{{if .Data.S.PrismCentral.TLSVerify}} checked{{end}}> verify the TLS certificate</label>
     <label>CA certificate (PEM, when verifying a private CA) <textarea name="ca_pem" rows="4">{{.Data.S.PrismCentral.CAPEM}}</textarea></label>
-    <label>Service account API key <input type="password" name="api_key" value="" autocomplete="off" placeholder="{{if .Data.APIKeySet}}unchanged{{else}}required{{end}}"></label>
-    <label>SAML identity provider name <input type="text" name="saml_idp_name" value="{{.Data.S.PrismCentral.SAMLIdPName}}" required></label>
+    <label>Service account API key {{template "input-api_key" .Data}}</label>
     <div class="actions">
       <button type="button" hx-post="/setup/check" hx-include="closest form" hx-vals='{"target":"prism_central"}' hx-target="#check-prism_central">Check</button>
       <button type="submit" class="primary">Save</button>
     </div>
     <div id="check-prism_central" class="check-result"></div>
   </form>
+  <div id="boot-prism_central" class="bootstrap">{{template "boot-form-prism_central" .}}</div>
 </section>
 
 <section class="card" id="card-keycloak">
   <h2>Identity</h2>
-  <form method="post" action="/setup/save">
+  <form method="post" action="/setup/save" id="form-keycloak">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
     <input type="hidden" name="section" value="keycloak">
-    <label>Keycloak realm <input type="text" name="realm" value="{{.Data.S.Keycloak.Realm}}" required></label>
-    <label>Admin client id <input type="text" name="admin_client_id" value="{{.Data.S.Keycloak.AdminClientID}}" required></label>
-    <label>Admin client secret <input type="password" name="admin_client_secret" value="" autocomplete="off" placeholder="{{if .Data.AdminSecretSet}}unchanged{{else}}required{{end}}"></label>
-    <label>OIDC issuer <input type="url" name="issuer" value="{{.Data.S.OIDC.Issuer}}" required></label>
-    <label>OIDC client id <input type="text" name="client_id" value="{{.Data.S.OIDC.ClientID}}" required></label>
-    <label>OIDC client secret <input type="password" name="client_secret" value="" autocomplete="off" placeholder="{{if .Data.ClientSecretSet}}unchanged{{else}}required{{end}}"></label>
+    <label>Keycloak realm {{template "input-realm" .Data}}</label>
+    <label>Admin client id {{template "input-admin_client_id" .Data}}</label>
+    <label>Admin client secret {{template "input-admin_client_secret" .Data}}</label>
+    <label>OIDC issuer {{template "input-issuer" .Data}}</label>
+    <label>OIDC client id {{template "input-client_id" .Data}}</label>
+    <label>OIDC client secret {{template "input-client_secret" .Data}}</label>
     <div class="actions">
       <button type="button" hx-post="/setup/check" hx-include="closest form" hx-vals='{"target":"keycloak"}' hx-target="#check-keycloak">Check admin client</button>
       <button type="button" hx-post="/setup/check" hx-include="closest form" hx-vals='{"target":"oidc"}' hx-target="#check-oidc">Check OIDC</button>
@@ -56,11 +59,24 @@
     <div id="check-keycloak" class="check-result"></div>
     <div id="check-oidc" class="check-result"></div>
   </form>
+  <div id="boot-keycloak" class="bootstrap">{{template "boot-form-keycloak" .}}</div>
+</section>
+
+<section class="card" id="card-saml">
+  <h2>SAML trust</h2>
+  <p class="muted">Prism Central trusts the Keycloak realm as its SAML identity provider; Keycloak holds Prism Central as a SAML client. Portico creates both.</p>
+  <form method="post" action="/setup/save" id="form-saml">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <input type="hidden" name="section" value="saml">
+    <label>Identity provider name in Prism Central {{template "input-saml_idp_name" .Data}}</label>
+    <div class="actions"><button type="submit" class="primary">Save</button></div>
+  </form>
+  <div id="boot-saml" class="bootstrap">{{template "boot-form-saml" .}}</div>
 </section>
 
 <section class="card" id="card-tenants">
   <h2>Tenants</h2>
-  <p class="muted">A successful Prism Central check fills the cluster and storage container pickers.</p>
+  <p class="muted">A successful Prism Central check or bootstrap fills the cluster and storage container pickers.</p>
   <form method="post" action="/setup/save">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
     <input type="hidden" name="section" value="tenants">
@@ -77,11 +93,77 @@
 <section class="card">
   <h2>Apply</h2>
   <p class="muted">Portico restarts and reads the stored settings. Open sessions end; log in again afterwards.</p>
+  {{if not .Data.Complete}}<p class="muted">Missing: {{range $i, $m := .Data.Missing}}{{if $i}}, {{end}}{{$m}}{{end}}</p>{{end}}
   <form method="post" action="/setup/apply">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
-    <div class="actions"><button type="submit" class="primary"{{if not .Data.Stored}} disabled{{end}}>Apply and restart</button></div>
+    <div class="actions"><button type="submit" class="primary"{{if not (and .Data.Stored .Data.Complete)}} disabled{{end}}>Apply and restart</button></div>
   </form>
 </section>
+{{end}}
+
+{{/* The inputs a bootstrap fills, shared by the page and the fragments that swap them out-of-band. */}}
+{{define "input-api_key"}}<input type="password" name="api_key" id="api_key" value="" autocomplete="off" placeholder="{{if .APIKeySet}}unchanged{{else}}required{{end}}"{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
+{{define "input-realm"}}<input type="text" name="realm" id="realm" value="{{.S.Keycloak.Realm}}" required{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
+{{define "input-admin_client_id"}}<input type="text" name="admin_client_id" id="admin_client_id" value="{{.S.Keycloak.AdminClientID}}" required{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
+{{define "input-admin_client_secret"}}<input type="password" name="admin_client_secret" id="admin_client_secret" value="" autocomplete="off" placeholder="{{if .AdminSecretSet}}unchanged{{else}}required{{end}}"{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
+{{define "input-issuer"}}<input type="url" name="issuer" id="issuer" value="{{.S.OIDC.Issuer}}" required{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
+{{define "input-client_id"}}<input type="text" name="client_id" id="client_id" value="{{.S.OIDC.ClientID}}" required{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
+{{define "input-client_secret"}}<input type="password" name="client_secret" id="client_secret" value="" autocomplete="off" placeholder="{{if .ClientSecretSet}}unchanged{{else}}required{{end}}"{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
+{{define "input-saml_idp_name"}}<input type="text" name="saml_idp_name" id="saml_idp_name" value="{{with .S.PrismCentral.SAMLIdPName}}{{.}}{{else}}portico-keycloak{{end}}" required{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
+
+{{/* Bootstrap forms: one-time credentials, used for the call and not stored. */}}
+{{define "boot-form-prism_central"}}
+<p>Or let Portico create it: enter once the credentials of an account that can create users and edit authorization policies. They are used for this call and not stored.</p>
+<form hx-post="/setup/bootstrap/prism-central" hx-include="#form-prism_central" hx-target="#boot-prism_central">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <label>Username <input type="text" name="username" value="" autocomplete="off"></label>
+  <label>Password <input type="password" name="password" value="" autocomplete="off"></label>
+  <label>Service account to create <input type="text" name="service_account" value="portico"></label>
+  <div class="actions"><button type="submit">Create the service account</button></div>
+</form>
+{{end}}
+{{define "boot-form-keycloak"}}
+<p>Or let Portico create them: enter once the Keycloak administrator's credentials. They are used for this call and not stored. The realm name comes from the field above.</p>
+<form hx-post="/setup/bootstrap/keycloak" hx-include="#form-keycloak" hx-target="#boot-keycloak">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <label>Keycloak administrator <input type="text" name="admin_username" value="" autocomplete="off"></label>
+  <label>Password <input type="password" name="admin_password" value="" autocomplete="off"></label>
+  <label>Realm display name (optional) <input type="text" name="display_name" value=""></label>
+  <div class="actions"><button type="submit">Create the realm and clients</button></div>
+</form>
+{{end}}
+{{define "boot-form-saml"}}
+<p>Portico uses its service account; the credentials are needed only when Prism Central refuses the service account for this step. They are used for this call and not stored.</p>
+<form hx-post="/setup/bootstrap/saml" hx-include="#form-saml" hx-target="#boot-saml">
+  <input type="hidden" name="_csrf" value="{{.CSRF}}">
+  <label>Username (optional) <input type="text" name="username" value="" autocomplete="off"></label>
+  <label>Password (optional) <input type="password" name="password" value="" autocomplete="off"></label>
+  <div class="actions"><button type="submit">Create the SAML trust</button></div>
+</form>
+{{end}}
+
+{{/* Bootstrap fragments: the banner, a fresh form, and the filled inputs swapped into their cards. */}}
+{{define "bootstrap_prism_central"}}
+<div class="banner {{.Status}}">{{.Message}}</div>
+{{template "boot-form-prism_central" .}}
+{{if .OK}}{{template "input-api_key" .Data}}
+<select name="cluster_ext_id" id="cluster_ext_id" hx-swap-oob="true">
+  {{range .Clusters}}<option value="{{.ExtID}}"{{if eq .ExtID $.Data.S.Tenants.ClusterExtID}} selected{{end}}>{{.Name}} ({{.ExtID}})</option>{{end}}
+</select>
+<select name="storage_container_ext_id" id="storage_container_ext_id" hx-swap-oob="true">
+  {{range .Containers}}<option value="{{.ExtID}}"{{if eq .ExtID $.Data.S.Tenants.StorageContainerExtID}} selected{{end}}>{{.Name}} ({{.ExtID}})</option>{{end}}
+</select>
+{{end}}
+{{end}}
+{{define "bootstrap_keycloak"}}
+<div class="banner {{.Status}}">{{.Message}}</div>
+{{template "boot-form-keycloak" .}}
+{{if .OK}}{{template "input-realm" .Data}}{{template "input-admin_client_id" .Data}}{{template "input-admin_client_secret" .Data}}{{template "input-issuer" .Data}}{{template "input-client_id" .Data}}{{template "input-client_secret" .Data}}{{end}}
+{{end}}
+{{define "bootstrap_saml"}}
+<div class="banner {{.Status}}">{{.Message}}</div>
+{{template "boot-form-saml" .}}
+{{if .OK}}{{template "input-saml_idp_name" .Data}}{{end}}
 {{end}}
 
 {{define "check"}}

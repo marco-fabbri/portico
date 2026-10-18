@@ -52,8 +52,12 @@ type listener struct {
 	tls  *tls.Config
 }
 
-// runServe builds the three listeners from cfg and runs them until ctx is
-// done, then shuts them down with a 10 s grace period.
+// runServe opens the store and the settings, then runs Portico in one
+// of two modes until ctx is done: running (the three listeners) when
+// the settings are complete, setup (the admin listener only, design
+// §4.7) when the stored document is a draft or nothing is stored and
+// the file does not carry a complete runtime configuration. Apply
+// returns ErrRestart in both modes.
 func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	st, err := store.OpenSQLite(cfg.Store.Path)
 	if err != nil {
@@ -71,26 +75,63 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		return err
 	}
 	settingsSvc := settings.NewService(st, sealer)
+	stored := settingsSvc.Stored(ctx)
+	var missing []string
+	setupMode := false
 	var secret, apiKey, kcSecret string
 	var caPEM []byte
-	if settingsSvc.Stored(ctx) {
+	if stored {
 		doc, err := settingsSvc.Get(ctx)
 		if err != nil {
 			return err
 		}
-		rt, err := doc.Overlay(cfg)
-		if err != nil {
+		var inc *settings.IncompleteError
+		if err := doc.Validate(); errors.As(err, &inc) {
+			setupMode, missing = true, inc.Missing
+		} else if err != nil {
 			return err
 		}
-		secret, apiKey, kcSecret, caPEM = rt.ClientSecret, rt.APIKey, rt.AdminSecret, []byte(rt.CAPEM)
+		if !setupMode {
+			rt, err := doc.Overlay(cfg)
+			if err != nil {
+				return err
+			}
+			secret, apiKey, kcSecret, caPEM = rt.ClientSecret, rt.APIKey, rt.AdminSecret, []byte(rt.CAPEM)
+		}
 		log.Info("settings source", "source", "store")
+	} else if err := cfg.ValidateRuntime(); err != nil {
+		setupMode, missing = true, settings.Defaults().Missing()
+		log.Info("settings source", "source", "none", "file", err.Error())
 	} else {
 		log.Info("settings source", "source", "file")
 	}
-	if err := cfg.ValidateRuntime(); err != nil {
-		return err
+	// Branding: read by every tenant-facing page and error page.
+	brand := branding.NewService(st, log)
+	// Settings: the API and the setup page edit the stored document.
+	restart := make(chan struct{})
+	var restartOnce sync.Once
+	setup := &api.SettingsOptions{Service: settingsSvc, Checker: settings.NewChecker(log), Bootstrapper: settings.NewBootstrapper(log, settingsSvc), KeycloakURL: cfg.Keycloak.URL,
+		Restart: func() { restartOnce.Do(func() { close(restart) }) }}
+	if setupMode {
+		setup.Mode = "setup"
+		log.Warn("setup mode: the public and pass-through listeners are off", "missing", missing)
+		brand.OnChange(func(ctx context.Context, b branding.Branding) error {
+			if err := branding.WriteTheme(cfg.Keycloak.ThemeDir, b); err != nil {
+				return fmt.Errorf("theme files: %w", err)
+			}
+			return nil
+		})
+		admin, limiter, adminSessions, err := adminListener(cfg, st, brand, nil, setup, log)
+		if err != nil {
+			return err
+		}
+		return serveListeners(ctx, []listener{admin}, restart, func(now time.Time) {
+			adminSessions.Sweep(now)
+			limiter.Sweep(now)
+		}, func() {}, log)
 	}
-	if !settingsSvc.Stored(ctx) {
+	setup.Mode = "running"
+	if !stored {
 		if secret, err = cfg.ClientSecret(); err != nil {
 			return err
 		}
@@ -105,9 +146,12 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 				return fmt.Errorf("prism_central.ca_file: %w", err)
 			}
 		}
+		// When the process runs from the file, the setup page prefills
+		// from it (with the secrets the process already read) so the
+		// first save adopts it.
+		fileDoc := settings.FromConfig(cfg, apiKey, kcSecret, secret, string(caPEM))
+		setup.File = &fileDoc
 	}
-	// Branding: read by every tenant-facing page and error page.
-	brand := branding.NewService(st, log)
 	pages := branding.NewPages(brand.Get)
 	pcURL, err := url.Parse(cfg.PrismCentral.URL)
 	if err != nil {
@@ -169,6 +213,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	} else if n > 0 {
 		log.Warn("tenants interrupted by the previous run marked failed", "count", n)
 	}
+	setup.Busy = tenants.Running
 
 	publicTLS, err := serverTLS(cfg.Public.TLS)
 	if err != nil {
@@ -178,10 +223,6 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("internal: %w", err)
 	}
-	// Admin listener: the REST API and the UI share the break-glass
-	// account, one failure limiter and one authentication middleware.
-	limiter := api.NewLimiter()
-	adminSessions := auth.NewMemoryStore(8*time.Hour, 15*time.Minute)
 	// Saving the branding regenerates the Keycloak login theme and sets it
 	// on the realm; a failure is reported to the admin, the save stands.
 	brand.OnChange(func(ctx context.Context, b branding.Branding) error {
@@ -198,21 +239,10 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			log.Warn("branding: theme not applied at start", "err", err.Error())
 		}
 	}
-	// Settings: the API and the setup page edit the stored document; when
-	// the process runs from the file, the page prefills from it (with the
-	// secrets the process already read) so the first save adopts it.
-	restart := make(chan struct{})
-	var restartOnce sync.Once
-	setup := &api.SettingsOptions{Service: settingsSvc, Checker: settings.NewChecker(log), KeycloakURL: cfg.Keycloak.URL,
-		Restart: func() { restartOnce.Do(func() { close(restart) }) }, Busy: tenants.Running}
-	if !settingsSvc.Stored(ctx) {
-		fileDoc := settings.FromConfig(cfg, apiKey, kcSecret, secret, string(caPEM))
-		setup.File = &fileDoc
+	admin, limiter, adminSessions, err := adminListener(cfg, st, brand, tenants, setup, log)
+	if err != nil {
+		return err
 	}
-	ui := web.New(web.Options{Store: st, Service: tenants, Branding: brand, Sessions: adminSessions, Limiter: limiter, Setup: setup, Secure: internalTLS != nil, Version: version, Log: log})
-	guard := api.RequireAdmin(st, ui, limiter, "portico", log)
-	adminAPI := guard(api.New(tenants, st, brand, setup, log))
-	adminUI := guard(ui)
 	// Tenant-facing pages: the landing page replaces Prism Central's
 	// provider page and starts the SAML login with the browser's own
 	// login-request cookie (write-ups 12 and 13).
@@ -238,21 +268,53 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Policy: proxy.PrismPolicy{AllowPrefixes: cfg.Policy.AllowPrefixes}, Log: log,
 		Landing: landing,
 	})
-	newServer := func(addr string, h http.Handler) *http.Server {
-		return &http.Server{
-			Addr:              addr,
-			Handler:           h,
-			ReadHeaderTimeout: 10 * time.Second,
-			IdleTimeout:       120 * time.Second,
-			ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
-		}
-	}
 	listeners := []listener{
-		{"public", newServer(cfg.Public.Listen, public), publicTLS},
-		{"passthrough", newServer(cfg.Internal.PassthroughListen, passthrough), internalTLS},
-		{"admin", newServer(cfg.Internal.AdminListen, proxy.NewAdmin(log, adminAPI, adminUI)), internalTLS},
+		{"public", newServer(cfg.Public.Listen, public, log), publicTLS},
+		{"passthrough", newServer(cfg.Internal.PassthroughListen, passthrough, log), internalTLS},
+		admin,
 	}
+	return serveListeners(ctx, listeners, restart, func(now time.Time) {
+		if n := sessions.Sweep(now); n > 0 {
+			log.Debug("sessions swept", "count", n)
+		}
+		adminSessions.Sweep(now)
+		limiter.Sweep(now)
+	}, tenants.Wait, log)
+}
 
+func newServer(addr string, h http.Handler, log *slog.Logger) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
+	}
+}
+
+// adminListener builds the admin listener shared by both modes: the
+// REST API and the UI behind the break-glass account, one failure
+// limiter and one authentication middleware. tenants is nil in setup
+// mode, which makes the tenant routes answer 503.
+func adminListener(cfg *config.Config, st store.Store, brand *branding.Service, tenants *tenant.Service, setup *api.SettingsOptions, log *slog.Logger) (listener, *api.Limiter, *auth.MemoryStore, error) {
+	internalTLS, err := serverTLS(cfg.Internal.TLS)
+	if err != nil {
+		return listener{}, nil, nil, fmt.Errorf("internal: %w", err)
+	}
+	limiter := api.NewLimiter()
+	adminSessions := auth.NewMemoryStore(8*time.Hour, 15*time.Minute)
+	ui := web.New(web.Options{Store: st, Service: tenants, Branding: brand, Sessions: adminSessions, Limiter: limiter, Setup: setup, Secure: internalTLS != nil, Version: version, Log: log})
+	guard := api.RequireAdmin(st, ui, limiter, "portico", log)
+	adminAPI := guard(api.New(tenants, st, brand, setup, log))
+	adminUI := guard(ui)
+	return listener{"admin", newServer(cfg.Internal.AdminListen, proxy.NewAdmin(log, adminAPI, adminUI), log), internalTLS}, limiter, adminSessions, nil
+}
+
+// serveListeners binds and serves the listeners until ctx is done, one
+// of them fails, or a restart is requested (ErrRestart). sweep runs
+// every minute; wait runs after the shutdown, before returning, so a
+// tenant operation in flight finishes its step before the store closes.
+func serveListeners(ctx context.Context, listeners []listener, restart <-chan struct{}, sweep func(time.Time), wait func(), log *slog.Logger) error {
 	errs := make(chan error, len(listeners))
 	for _, l := range listeners {
 		ln, err := net.Listen("tcp", l.srv.Addr)
@@ -274,30 +336,26 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		}(l, ln)
 	}
 
-	sweep := time.NewTicker(time.Minute)
-	defer sweep.Stop()
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
 	for {
 		select {
-		case <-sweep.C:
-			if n := sessions.Sweep(time.Now()); n > 0 {
-				log.Debug("sessions swept", "count", n)
-			}
-			adminSessions.Sweep(time.Now())
-			limiter.Sweep(time.Now())
+		case now := <-ticker.C:
+			sweep(now)
 		case err := <-errs:
 			shutdown(listeners, log)
-			tenants.Wait()
+			wait()
 			return err
 		case <-restart:
 			log.Info("restarting on request")
 			shutdown(listeners, log)
-			tenants.Wait()
+			wait()
 			return ErrRestart
 		case <-ctx.Done():
 			shutdown(listeners, log)
 			// Let a running tenant operation finish its current step set
 			// before the store closes; the operation timeout bounds it.
-			tenants.Wait()
+			wait()
 			return nil
 		}
 	}

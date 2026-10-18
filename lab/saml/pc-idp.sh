@@ -2,7 +2,7 @@
 # Read or create the SAML identity provider in Prism Central (design 6.8).
 #   lab/saml/pc-idp.sh list
 #   lab/saml/pc-idp.sh create [REDIRECT_URL]   refuses if an IdP not named portico-lab-keycloak exists
-#   lab/saml/pc-idp.sh delete
+#   lab/saml/pc-idp.sh delete              deletes the SAML users it created first
 # The IdP metadata XML is fetched from Keycloak by the Mac and passed inline
 # (base64), because the PCVM cannot resolve the lab host names.
 # Requires `source lab/env.sh`.
@@ -44,6 +44,12 @@ case "${1:?subcommand}" in
   delete)
     id=$(lab/pc.sh GET "$EP" 2>/dev/null | jq -r --arg n "$NAME" '.data[]? | select(.name==$n) | .extId')
     [ -n "$id" ] || { echo "no idp named $NAME"; exit 0; }
+    # IAM-21016: the IdP cannot go while users created by its logins exist.
+    for u in $(lab/pc.sh GET "/api/iam/v4.1.b3/authn/users?\$filter=userType%20eq%20Schema.Enums.UserType'SAML'" 2>/dev/null | jq -r --arg i "$id" '.data[]? | select(.idpId==$i) | .extId'); do
+      uh=$(mktemp); PC_HEADERS_FILE="$uh" lab/pc.sh GET "/api/iam/v4.1.b3/authn/users/$u" >/dev/null 2>&1
+      uetag=$(grep -i '^etag:' "$uh" | awk '{print $2}' | tr -d '\r'); rm -f "$uh"
+      IF_MATCH="$uetag" lab/pc.sh DELETE "/api/iam/v4.1.b3/authn/users/$u" 2>&1 | tail -1 | sed "s/^/   saml user $u: /"
+    done
     h=$(mktemp); PC_HEADERS_FILE="$h" lab/pc.sh GET "$EP/$id" >/dev/null 2>&1
     etag=$(grep -i '^etag:' "$h" | awk '{print $2}' | tr -d '\r'); rm -f "$h"
     IF_MATCH="$etag" lab/pc.sh DELETE "$EP/$id" 2>&1 | tail -1

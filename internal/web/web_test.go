@@ -101,6 +101,10 @@ func (e *env) login(t *testing.T) {
 		t.Fatal("no session cookie after login")
 	}
 	rec = e.do("GET", "/", nil, true)
+	if rec.Code == 303 {
+		// Setup mode sends the home page to /setup.
+		rec = e.do("GET", rec.Header().Get("Location"), nil, true)
+	}
 	m := reCSRF.FindStringSubmatch(rec.Body.String())
 	if m == nil {
 		t.Fatalf("no CSRF token in the page: %d %s", rec.Code, rec.Body.String())

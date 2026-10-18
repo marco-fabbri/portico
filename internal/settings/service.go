@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/marco-fabbri/portico/internal/secrets"
 	"github.com/marco-fabbri/portico/internal/store"
@@ -29,6 +30,7 @@ func (e *OpenError) Unwrap() error { return e.Err }
 type Service struct {
 	st     store.Store
 	sealer *secrets.Sealer
+	mu     sync.Mutex // serialises the read-modify-write of Update and Patch
 }
 
 // NewService returns a service over the store with the sealer.
@@ -83,9 +85,17 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 	return out, nil
 }
 
-// Set validates and stores the document, sealing every non-empty secret.
+// Set checks the format of the document and stores it, sealing every
+// non-empty secret. The document may be incomplete (a draft): Apply is
+// what demands completeness.
 func (s *Service) Set(ctx context.Context, in Settings) error {
-	if err := in.Validate(); err != nil {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.set(ctx, in)
+}
+
+func (s *Service) set(ctx context.Context, in Settings) error {
+	if err := in.ValidateFormat(); err != nil {
 		return err
 	}
 	sealed := in
@@ -112,6 +122,8 @@ func (s *Service) Set(ctx context.Context, in Settings) error {
 // Update merges in onto the stored document: empty secret fields keep
 // the stored value, so a save without a password does not erase it.
 func (s *Service) Update(ctx context.Context, in Settings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	cur, err := s.Get(ctx)
 	if err != nil && !errors.Is(err, ErrNotStored) {
 		return err
@@ -124,5 +136,23 @@ func (s *Service) Update(ctx context.Context, in Settings) error {
 			}
 		}
 	}
-	return s.Set(ctx, in)
+	return s.set(ctx, in)
+}
+
+// Patch changes the stored document in place: it is read, handed to fn
+// and stored again under the service's lock, so a writer that took
+// seconds (a bootstrap) never reverts a save made meanwhile. With
+// nothing stored fn starts from Defaults().
+func (s *Service) Patch(ctx context.Context, fn func(*Settings)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur, err := s.Get(ctx)
+	if errors.Is(err, ErrNotStored) {
+		cur, err = Defaults(), nil
+	}
+	if err != nil {
+		return err
+	}
+	fn(&cur)
+	return s.set(ctx, cur)
 }

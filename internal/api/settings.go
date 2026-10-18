@@ -24,6 +24,12 @@ type SettingsOptions struct {
 	KeycloakURL string     // backchannel URL for the Keycloak and OIDC checks
 	Restart     func()     // asks serve to restart; nil when not available
 	Busy        func() int // tenant operations in progress; apply is refused while any runs
+	// Mode is "setup" when the process serves the admin listener only
+	// (design §4.7) and "running" otherwise.
+	Mode string
+	// Bootstrapper creates the realm, the service account and the SAML
+	// trust from one-time credentials (design §4.4, §4.5).
+	Bootstrapper *settings.Bootstrapper
 
 	restarting atomic.Bool
 }
@@ -39,7 +45,7 @@ func (o *SettingsOptions) Current(ctx context.Context) (settings.Settings, strin
 	if o.File != nil {
 		return *o.File, "file", nil
 	}
-	return settings.Settings{}, "none", nil
+	return settings.Defaults(), "none", nil
 }
 
 // BusyError says how many tenant operations stop an apply.
@@ -55,6 +61,13 @@ func (e *BusyError) Error() string {
 func (o *SettingsOptions) Apply(ctx context.Context) error {
 	if o.Service == nil || !o.Service.Stored(ctx) {
 		return settings.ErrNotStored
+	}
+	cur, err := o.Service.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if err := cur.Validate(); err != nil {
+		return err
 	}
 	if o.Restart == nil {
 		return errRestartUnavailable
@@ -104,10 +117,13 @@ func sameHost(a, b string) bool {
 // on input and never written on output; the *_set booleans say whether
 // one is held.
 type settingsJSON struct {
-	Stored       bool   `json:"stored"`
-	Source       string `json:"source"`
-	PrismHost    string `json:"prism_host"`
-	IDHost       string `json:"id_host"`
+	Stored       bool     `json:"stored"`
+	Source       string   `json:"source"`
+	Mode         string   `json:"mode,omitempty"`
+	Complete     bool     `json:"complete"`
+	Missing      []string `json:"missing"`
+	PrismHost    string   `json:"prism_host"`
+	IDHost       string   `json:"id_host"`
 	PrismCentral struct {
 		URL         string `json:"url"`
 		TLSVerify   *bool  `json:"tls_verify"` // absent keeps the current value
@@ -138,9 +154,14 @@ type settingsJSON struct {
 	} `json:"tenants"`
 }
 
-func toSettingsJSON(s settings.Settings, source string) settingsJSON {
+func toSettingsJSON(s settings.Settings, source, mode string) settingsJSON {
 	var j settingsJSON
-	j.Stored, j.Source = source == "store", source
+	j.Stored, j.Source, j.Mode = source == "store", source, mode
+	j.Missing = s.Missing()
+	if j.Missing == nil {
+		j.Missing = []string{}
+	}
+	j.Complete = len(j.Missing) == 0
 	j.PrismHost, j.IDHost = s.PrismHost, s.IDHost
 	tlsVerify := s.PrismCentral.TLSVerify
 	j.PrismCentral.URL, j.PrismCentral.TLSVerify, j.PrismCentral.CAPEM = s.PrismCentral.URL, &tlsVerify, s.PrismCentral.CAPEM
@@ -228,7 +249,7 @@ func (h *handler) getSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toSettingsJSON(s, source))
+	writeJSON(w, http.StatusOK, toSettingsJSON(s, source, h.so.Mode))
 }
 
 func (h *handler) putSettings(w http.ResponseWriter, r *http.Request) {
@@ -267,7 +288,7 @@ func (h *handler) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toSettingsJSON(cur, source))
+	writeJSON(w, http.StatusOK, toSettingsJSON(cur, source, h.so.Mode))
 }
 
 // checkJSON is the check request: the target plus candidate settings.
@@ -339,9 +360,12 @@ func (h *handler) applySettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var busy *BusyError
+	var inc *settings.IncompleteError
 	switch err := h.so.Apply(r.Context()); {
 	case errors.Is(err, settings.ErrNotStored):
 		writeError(w, http.StatusConflict, "no settings are stored: save them first")
+	case errors.As(err, &inc):
+		writeError(w, http.StatusConflict, err.Error())
 	case errors.As(err, &busy):
 		writeError(w, http.StatusConflict, err.Error())
 	case err != nil:
@@ -350,4 +374,117 @@ func (h *handler) applySettings(w http.ResponseWriter, r *http.Request) {
 		h.log.Info("settings apply: restart requested", "via", "api")
 		writeJSON(w, http.StatusAccepted, map[string]bool{"restarting": true})
 	}
+}
+
+// bootstrapKeycloakJSON is the Keycloak bootstrap request body.
+type bootstrapKeycloakJSON struct {
+	AdminUsername string `json:"admin_username"`
+	AdminPassword string `json:"admin_password"`
+	Realm         string `json:"realm"`
+	DisplayName   string `json:"display_name"`
+}
+
+// bootstrapAnswer writes a bootstrap outcome: 409 for a precondition,
+// 500 for an internal error, otherwise 200 with the result; its "stored"
+// field says whether the bootstrapper saved what it set.
+func (h *handler) bootstrapAnswer(w http.ResponseWriter, r *http.Request, res any, err error) {
+	var se *settings.StateError
+	switch {
+	case errors.As(err, &se):
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	case err != nil:
+		h.log.Error("bootstrap failed", "err", err.Error())
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (h *handler) bootstrapKeycloak(w http.ResponseWriter, r *http.Request) {
+	if h.settingsUnavailable(w) {
+		return
+	}
+	var in bootstrapKeycloakJSON
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	cur, _, err := h.so.Current(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	res, _, err := h.so.Bootstrapper.Keycloak(r.Context(), h.so.KeycloakURL, cur, settings.KeycloakInput{AdminUsername: in.AdminUsername, AdminPassword: in.AdminPassword, Realm: in.Realm, DisplayName: in.DisplayName})
+	if err == nil {
+		h.log.Info("bootstrap keycloak", "realm", in.Realm, "user", in.AdminUsername, "ok", res.OK, "created", res.Created)
+	}
+	h.bootstrapAnswer(w, r, res, err)
+}
+
+// bootstrapPrismJSON is the Prism Central bootstrap request body.
+type bootstrapPrismJSON struct {
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+	URL            string `json:"url"`
+	TLSVerify      *bool  `json:"tls_verify"`
+	CAPEM          string `json:"ca_pem"`
+	ServiceAccount string `json:"service_account"`
+}
+
+func (h *handler) bootstrapPrismCentral(w http.ResponseWriter, r *http.Request) {
+	if h.settingsUnavailable(w) {
+		return
+	}
+	var in bootstrapPrismJSON
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	cur, _, err := h.so.Current(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	pin := settings.PrismInput{Username: in.Username, Password: in.Password, URL: in.URL, TLSVerify: true, CAPEM: in.CAPEM, ServiceAccount: in.ServiceAccount}
+	if in.TLSVerify != nil {
+		pin.TLSVerify = *in.TLSVerify
+	}
+	res, _, err := h.so.Bootstrapper.PrismCentral(r.Context(), cur, pin)
+	if err == nil {
+		attrs := []any{"url", in.URL, "user", in.Username, "service_account", res.ServiceAccount, "ok", res.OK, "created", res.Created}
+		if res.OK {
+			attrs = append(attrs, "key_expires", res.KeyExpires)
+		}
+		h.log.Info("bootstrap prism central", attrs...)
+	}
+	h.bootstrapAnswer(w, r, res, err)
+}
+
+// bootstrapSAMLJSON is the SAML trust bootstrap request body.
+type bootstrapSAMLJSON struct {
+	Name     string `json:"name"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func (h *handler) bootstrapSAML(w http.ResponseWriter, r *http.Request) {
+	if h.settingsUnavailable(w) {
+		return
+	}
+	var in bootstrapSAMLJSON
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	cur, _, err := h.so.Current(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	res, _, err := h.so.Bootstrapper.SAML(r.Context(), h.so.KeycloakURL, cur, settings.SAMLInput{Name: in.Name, Username: in.Username, Password: in.Password})
+	if err == nil {
+		h.log.Info("bootstrap saml", "name", in.Name, "ok", res.OK, "used_credentials", res.UsedCredentials, "created", res.Created)
+	}
+	h.bootstrapAnswer(w, r, res, err)
 }
