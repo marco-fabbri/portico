@@ -100,7 +100,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		}
 		log.Info("settings source", "source", "store")
 	} else if err := cfg.ValidateRuntime(); err != nil {
-		setupMode = true
+		setupMode, missing = true, settings.Defaults().Missing()
 		log.Info("settings source", "source", "none", "file", err.Error())
 	} else {
 		log.Info("settings source", "source", "file")
