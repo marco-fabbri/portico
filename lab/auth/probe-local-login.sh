@@ -43,6 +43,9 @@ check POST "/PrismGateway/j_spring_security_check (admin form)" 403 -- -X POST -
 for p in /api/iam/v4.0/authn/users /api/nutanix/v3/users/me /PrismGateway/services/rest/v1/cluster /api/clustermgmt/v4.0/config/clusters; do
   check GET "$p (Basic admin)" 403 -- --config "$tmp/basic.cfg" "$base$p"
 done
+# Milestone 2c: the landing page and the SAML start exist only behind a session.
+check GET  "/ui/iam/providers (no session)" 302 "$base/.portico/login?rd=" -- -H 'Accept: text/html' "$base/ui/iam/providers"
+check GET  "/.portico/saml-start (no session)" 302 "$base/.portico/login?rd=" -- -H 'Accept: text/html' "$base/.portico/saml-start"
 # Any other Authorization scheme is refused too (write-up 12: the console sends none).
 check GET "/api/nutanix/v3/vms/list (Authorization: Bearer)" 403 -- -H 'Authorization: Bearer not-a-token' "$base/api/nutanix/v3/vms/list"
 if [ -s "$tmp/apikey.cfg" ]; then

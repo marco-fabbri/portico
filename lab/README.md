@@ -21,6 +21,7 @@ here runs on the appliance.
   prints the admin UI URL;
   `undeploy.sh` restores nginx; `portico.yaml` is the lab configuration.
 - `saml/keycloak-realm.sh oidc-client` registers Portico's OIDC client.
+- `saml/theme-probe.sh [reset]` writes a probe login theme and sets it on the realm (write-up 13); `auth/probe-login-request.sh` prints the login-request shape, the provider-selection PUT and `initiate-login`.
 - `tenants/api.sh METHOD PATH [JSON]` calls Portico's admin API on the lab VM with the break-glass password from `~/portico-secrets/portico-admin-pw`; `tenants/acceptance.sh [--delete]` is the Milestone 2a acceptance (write-up 11).
 - `saml/keycloak-realm.sh admin-client` registers the confidential client `portico-admin` (service account with realm-management roles) that the tenant service uses; secret in `~/portico-secrets/portico-kc-admin-secret`.
 

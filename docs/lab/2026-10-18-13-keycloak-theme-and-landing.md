@@ -97,3 +97,44 @@ Three facts the branding and the landing page of design §4.10 need:
 `source lab/env.sh && lab/saml/theme-probe.sh` (then
 `lab/saml/theme-probe.sh reset` to put the default theme back), and
 `lab/auth/probe-login-request.sh`.
+
+## Part two: the tenant's path in the browser (Milestone 2c acceptance)
+
+Measured on 2026-10-18 with Chrome on the Mac, branch `m2c-tenant-pages`
+deployed by `lab/portico/deploy.sh`, branding set through the API (name
+"Portico Lab MSP", tagline "Your cloud, your rules", colour `#8b1f5f`, a
+1×1 PNG as logo).
+
+- MEASURED, Keycloak login page: the accent colour on the button, the
+  tagline as the form title, the logo in the header. The first build
+  hid the MSP name under the logo (a fixed `height` on
+  `#kc-header-wrapper`): fixed with `min-height`, test added.
+- MEASURED, alice from `https://prism.lab.portico.test/`: Keycloak login
+  → Portico landing page (`rule=landing`, then `/.portico/logo`) →
+  `/.portico/saml-start` 302 → `initiate-login` 200 → `/auth_code` 302 →
+  console with her VM, **no click**. From the landing page to
+  `/auth_code`: **1.2 s** on the lab (journal 08:33:45.405 →
+  08:33:46.620). The whole login, Keycloak submit to console, under
+  10 s.
+- MEASURED, Keycloak stopped: `/.portico/logout` and `/.portico/login`
+  both end on the branded "Service unavailable" page (502, the identity
+  host's upstream is down), with the MSP name, colour and a "Try again"
+  button. The first build showed a broken logo there because
+  `/.portico/logo` existed only on the Prism Central host behind a
+  session: the logo is now a public asset on both hosts (test added).
+- MEASURED, fallback: with `prism_central.saml_idp_name` set to a wrong
+  name, alice's visit ran the landing page, `saml-start` logged one
+  warning (`step=idp`) and sent the browser to
+  `/ui/iam/providers?portico=manual`: Prism Central's own page with both
+  buttons, exactly one fallback, no loop. The name restored, the flow is
+  automatic again.
+- MEASURED: `lab/auth/probe-local-login.sh` has two new lines, the
+  provider page and `/.portico/saml-start` without a session both go to
+  `/.portico/login`; PASS.
+
+Re-measure: `source lab/env.sh && lab/portico/deploy.sh`, set the branding
+from `https://prism.lab.portico.test:8443/settings/branding`, log in as
+alice on the public name; stop Keycloak (`sudo systemctl stop keycloak`
+on the VM) and open the public name for the error page; set a wrong
+`saml_idp_name` in `lab/portico/portico.yaml` and redeploy for the
+fallback. Restore both afterwards.
