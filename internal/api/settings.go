@@ -273,13 +273,15 @@ func (h *handler) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.so.Service.Update(r.Context(), s); err != nil {
-		var oe *settings.OpenError
-		if errors.As(err, &oe) {
-			h.log.Error("settings unreadable", "err", err.Error())
-			writeError(w, http.StatusInternalServerError, err.Error())
+		// A wrong document is the caller's (400); anything else (the
+		// store, the master key) is the appliance's (500).
+		var ve *settings.ValidationError
+		if errors.As(err, &ve) {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeError(w, http.StatusBadRequest, err.Error())
+		h.log.Error("settings not stored", "err", err.Error())
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	h.log.Info("settings saved", "via", "api", "secrets_given", secretsIn(fromBody(in)))

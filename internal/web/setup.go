@@ -131,7 +131,13 @@ func (h *Handler) setupSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.setup.Service.Update(r.Context(), s); err != nil {
-		h.renderSetup(w, r, http.StatusBadRequest, s, source, err.Error())
+		status := http.StatusBadRequest
+		var ve *settings.ValidationError
+		if !errors.As(err, &ve) {
+			h.log.Error("settings not stored", "via", "ui", "err", err.Error())
+			status = http.StatusInternalServerError
+		}
+		h.renderSetup(w, r, status, s, source, err.Error())
 		return
 	}
 	h.log.Info("settings saved", "via", "ui", "section", section)
