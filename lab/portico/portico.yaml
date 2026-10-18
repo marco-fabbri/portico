@@ -1,6 +1,8 @@
 # Portico settings for the lab VM portico-lab (10.23.210.190). Lab only:
 # tls_verify is off because Prism Central uses a self-signed certificate,
 # and the internal listeners reuse the lab certificate. Secrets are files.
+# Since Milestone 2d this file is read once by `portico settings import`
+# (lab/portico/deploy.sh); the VM then runs from lab/portico/portico.store.yaml.
 public:
   listen: ":443"
   tls:
@@ -50,7 +52,8 @@ tenants:
   project_prefix: portico-lab   # lab safety: only portico-lab-* projects are ever touched
   group_prefix: tenant-
   role: Project Admin
-  # NTNX-01 cluster and its default container (docs/lab/payloads/resource-group-create.json)
+  # NTNX-01 cluster and its container `objectsl889411dccd9a44125aa3e31c2596dcf9`
+  # (docs/lab/payloads/resource-group-create.json; write-up 14 lists the names)
   cluster_ext_id: 00065dbb-5b39-35c7-78ee-5254000e0b96
   storage_container_ext_id: 206ecd5c-0ae4-44e7-bf94-dc7b0870f9e2
   operation_timeout: 15m        # the nested lab Prism Central is slow
