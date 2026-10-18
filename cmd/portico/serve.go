@@ -41,6 +41,11 @@ func serverTLS(t config.TLS) (*tls.Config, error) {
 	return &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}}, nil
 }
 
+// ErrRestart is what runServe returns when an administrator applied the
+// stored settings: main exits 0 and the unit's Restart=always brings the
+// service back with the new document.
+var ErrRestart = errors.New("restart requested")
+
 type listener struct {
 	name string
 	srv  *http.Server
@@ -196,7 +201,10 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// Settings: the API and the setup page edit the stored document; when
 	// the process runs from the file, the page prefills from it (with the
 	// secrets the process already read) so the first save adopts it.
-	setup := &api.SettingsOptions{Service: settingsSvc, Checker: settings.NewChecker(log), KeycloakURL: cfg.Keycloak.URL}
+	restart := make(chan struct{})
+	var restartOnce sync.Once
+	setup := &api.SettingsOptions{Service: settingsSvc, Checker: settings.NewChecker(log), KeycloakURL: cfg.Keycloak.URL,
+		Restart: func() { restartOnce.Do(func() { close(restart) }) }}
 	if !settingsSvc.Stored(ctx) {
 		fileDoc := settings.FromConfig(cfg, apiKey, kcSecret, secret, string(caPEM))
 		setup.File = &fileDoc
@@ -280,6 +288,11 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			shutdown(listeners, log)
 			tenants.Wait()
 			return err
+		case <-restart:
+			log.Info("restarting on request")
+			shutdown(listeners, log)
+			tenants.Wait()
+			return ErrRestart
 		case <-ctx.Done():
 			shutdown(listeners, log)
 			// Let a running tenant operation finish its current step set

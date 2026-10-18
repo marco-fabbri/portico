@@ -10,9 +10,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"github.com/marco-fabbri/portico/internal/secrets"
 	"github.com/marco-fabbri/portico/internal/settings"
 	"github.com/marco-fabbri/portico/internal/store"
+	"golang.org/x/crypto/bcrypt"
 	"io"
 	"log/slog"
 	"math/big"
@@ -298,5 +300,52 @@ func TestServeRefusesUnopenableSettings(t *testing.T) {
 	if resp, err := http.Get("http://" + cfg.Internal.AdminListen + "/healthz"); err == nil {
 		resp.Body.Close()
 		t.Fatal("a listener was bound although the settings could not be opened")
+	}
+}
+
+func TestServeRestartsOnRequest(t *testing.T) {
+	prism := httptest.NewServer(http.NotFoundHandler())
+	defer prism.Close()
+	cfg, logBuf := storeServeConfig(t, prism.URL, 1)
+	st, err := store.OpenSQLite(cfg.Store.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, _ := bcrypt.GenerateFromPassword([]byte("restart-pw-1"), bcrypt.MinCost)
+	if err := st.SetAdminPassword(context.Background(), "admin", string(hash)); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	log := slog.New(slog.NewJSONHandler(logBuf, nil))
+	go func() { done <- runServe(ctx, cfg, log) }()
+	waitHealthy(t, cfg.Internal.AdminListen)
+	req, _ := http.NewRequest("POST", "http://"+cfg.Internal.AdminListen+"/api/v1/settings/apply", nil)
+	req.SetBasicAuth("admin", "restart-pw-1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 202 || !strings.Contains(string(body), `"restarting":true`) {
+		t.Fatalf("apply: %d %s", resp.StatusCode, body)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrRestart) {
+			t.Fatalf("runServe returned %v, want ErrRestart", err)
+		}
+		var stderr bytes.Buffer
+		if code := serveExitCode(err, &stderr, log); code != 0 || stderr.Len() != 0 {
+			t.Fatalf("exit code %d, stderr %q; a requested restart must exit 0 quietly", code, stderr.String())
+		}
+		if !strings.Contains(logBuf.String(), "restarting on request") {
+			t.Fatalf("log lacks the restart line: %s", logBuf.String())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("runServe did not return within 3 s of the apply")
 	}
 }

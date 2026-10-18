@@ -10,6 +10,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -51,11 +52,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		log := newLogger(stderr, cfg.Log.Level)
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		if err := runServe(ctx, cfg, log); err != nil {
-			fmt.Fprintf(stderr, "portico: %v\n", err)
-			return 1
-		}
-		return 0
+		return serveExitCode(runServe(ctx, cfg, log), stderr, log)
 	case "settings":
 		if len(args) < 2 {
 			usage(stderr)
@@ -162,4 +159,20 @@ func newLogger(w io.Writer, level string) *slog.Logger {
 		lv = slog.LevelInfo
 	}
 	return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: lv}))
+}
+
+// serveExitCode maps runServe's result to the process exit code. A
+// requested restart exits 0 so systemd's Restart=always starts the
+// service again without counting a failure.
+func serveExitCode(err error, stderr io.Writer, log *slog.Logger) int {
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, ErrRestart):
+		log.Info("exiting for the restart")
+		return 0
+	default:
+		fmt.Fprintf(stderr, "portico: %v\n", err)
+		return 1
+	}
 }
