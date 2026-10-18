@@ -80,7 +80,11 @@ func themeCSS(b Branding) string {
 	sb.WriteString(".pf-v5-c-login { background: none; }\n")
 	sb.WriteString(".pf-v5-c-login__container { display: flex; flex-direction: column; align-items: center; gap: 1.5rem; width: 100%; max-width: none; padding: 8vh 1rem 3rem; }\n")
 	sb.WriteString("#kc-header { order: 0; grid-area: auto; width: auto; }\n")
-	sb.WriteString(".pf-v5-c-login__main { order: 1; grid-area: auto; width: 100%; max-width: 440px; border-radius: 14px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28); }\n")
+	// align-self: PatternFly starts the card at the cross-axis start,
+	// which in a column is the left edge; the parent theme's blue 4 px
+	// band on the card header goes too.
+	sb.WriteString(".pf-v5-c-login__main { order: 1; grid-area: auto; align-self: center; width: 100%; max-width: 480px; margin: 0; border-radius: 14px; overflow: hidden; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28); }\n")
+	sb.WriteString(".pf-v5-c-login__main-header { border-top: 0; }\n")
 	sb.WriteString("#kc-header-wrapper { display: flex; align-items: center; gap: 1rem; padding: 0; text-transform: none; letter-spacing: normal; color: #fff; font-family: \"RedHatDisplay\", \"Helvetica Neue\", Arial, sans-serif; font-weight: 300; font-size: 2.25rem; line-height: 1; }\n")
 	sb.WriteString("#kc-header-wrapper strong { font-weight: 700; }\n")
 	if b.HasLogo() {
