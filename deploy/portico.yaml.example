@@ -92,7 +92,9 @@ store:
   # service at first start (32 random bytes, mode 0600, owned by portico).
   # A backup is a copy of /var/lib/portico INCLUDING this file, kept
   # apart from the database copy; without the key the stored secrets
-  # cannot be opened and the service refuses to start.
+  # cannot be opened and the service refuses to start (the error names
+  # the field; after systemd's start limit run `systemctl reset-failed
+  # portico` once the key is back).
   master_key_file: /var/lib/portico/master.key
 
 tenants:

@@ -338,6 +338,10 @@ create users and edit authorization policies", not "the admin account".
   store whose secrets cannot be opened with the key stops the service
   with a clear error: no fallback to plain text, no silent defaults.
   Backup = copy of `/var/lib/portico` plus the key file, kept apart.
+  Measured in write-up 14: the error names the field; since the unit
+  restarts always, systemd's start limit leaves it `failed` after ten
+  seconds of retries, and recovery is "key back, `systemctl reset-failed
+  portico`, `systemctl start portico`".
 - TLS: direct mode uses either an uploaded certificate or ACME (HTTP-01 on
   443/80 or DNS-01 via Cloudflare API). Tunnel mode terminates TLS at
   Cloudflare; Portico listens on loopback plain HTTP for `cloudflared`.
@@ -619,7 +623,7 @@ portico/
 | 2a | Tenant arrival, API | done 2026-10-18 (write-up 11): `POST /api/v1/tenants` creates project + resource group + SAML group + IdP sharing + role membership + Keycloak group, records every step, visibility check passes on NTNX-01; first user, disable/enable, clean deletion |
 | 2b | Tenant arrival, admin UI | done 2026-10-18 (write-up 12): admin UI over the API with the break-glass login (tenant list, create, detail with steps and visibility, users, disable/enable, delete), the 2a review minors absorbed, every `Authorization` scheme refused on the public name after measuring the console, Prism Central's Sign Out path allowed |
 | 2c | Tenant arrival, tenant-facing pages | done 2026-10-18 (write-up 13): branding settings in the store, landing page that starts SAML itself, Keycloak theme, branded identity-provider-down page; a tenant user goes from the public URL to the console with one Keycloak login and no Nutanix login page |
-| 2d | Setup wizard, settings and secrets at rest | settings move to the store sealed with the master key; `portico settings import`; setup pages with connectivity checks; Apply restarts the service; the lab runs from the store with no secret file in the YAML |
+| 2d | Setup wizard, settings and secrets at rest | done 2026-10-18 (write-up 14): settings in the store sealed with the master key; `portico settings import` and `settings show`; setup page with connectivity checks and pickers; Apply = controlled restart; the lab runs from the store with no secret file on the VM |
 | 2e | Bootstrap | service-account bootstrap path in Prism Central, Keycloak realm and clients registered by Portico, SAML identity provider created by Portico |
 | 3 | Appliance image | Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
 | 4 | First release (step 1 complete) | README, install guide, release artefacts, known limits documented |

@@ -1,0 +1,34 @@
+# Portico process settings for the lab VM portico-lab (10.23.210.190),
+# Milestone 2d: the runtime sections (public names, Prism Central,
+# Keycloak realm and admin client, OIDC client, tenants) live in the store,
+# sealed with the master key, after `portico settings import` of
+# lab/portico/portico.yaml. This file names no secret. Lab only: the
+# internal listeners reuse the lab certificate.
+public:
+  listen: ":443"
+  tls:
+    cert_file: /etc/portico/tls/lab.crt
+    key_file: /etc/portico/tls/lab.key
+
+internal:
+  admin_listen: "10.23.210.190:8443"
+  passthrough_listen: "10.23.210.190:9440"
+  tls:
+    cert_file: /etc/portico/tls/lab.crt
+    key_file: /etc/portico/tls/lab.key
+
+keycloak:
+  url: http://127.0.0.1:8080
+  theme_dir: /var/lib/portico/keycloak-theme   # mounted as /opt/keycloak/themes/portico (lab/vm/keycloak.container)
+  theme_name: portico
+
+session:
+  max_age: 8h
+  idle: 15m
+
+log:
+  level: debug
+
+store:
+  path: /var/lib/portico/portico.db
+  master_key_file: /var/lib/portico/master.key   # created at the first start; back it up with the store

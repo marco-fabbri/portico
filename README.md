@@ -60,7 +60,7 @@ different project model and are out of scope.
 
 ## Status
 
-**Milestone 2c: the tenant never sees a Nutanix login page.** `portico
+**Milestone 2d: settings live in the appliance, sealed.** `portico
 serve` fronts Prism Central and Keycloak on two public names, requires a
 Keycloak login before any request reaches Prism Central, refuses every
 local-login path and every `Authorization` header measured on pc.7.6, and
@@ -74,7 +74,15 @@ tenant end to end (Keycloak group, Projects 2.0 project with resource
 group, SAML group, identity provider sharing, project-scoped role
 membership, visibility check), follows the steps, creates its first user,
 disables, enables and deletes it; the same actions are a JSON API for
-scripts. No setup wizard yet (Milestone 2d), no appliance image
+scripts. The runtime settings (public names, Prism Central connection and
+service-account key, Keycloak and OIDC clients, tenant placement) are
+stored in Portico's database, sealed with a master key the service
+creates at its first start; the YAML keeps the process settings only.
+The setup page edits them card by card, checks each connection before a
+save, and "Apply and restart" brings the service back on the new
+document; `portico settings import` moves an existing file-based
+installation over in one command. Bootstrap of the service account and
+of Keycloak comes next (Milestone 2e), then the appliance image
 (Milestone 3).
 The design document is in
 [`docs/superpowers/specs/2026-10-17-portico-design.md`](docs/superpowers/specs/2026-10-17-portico-design.md),
