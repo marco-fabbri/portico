@@ -60,19 +60,22 @@ different project model and are out of scope.
 
 ## Status
 
-**Milestone 2b: tenants are managed from the admin UI in the lab.** `portico
+**Milestone 2c: the tenant never sees a Nutanix login page.** `portico
 serve` fronts Prism Central and Keycloak on two public names, requires a
 Keycloak login before any request reaches Prism Central, refuses every
 local-login path and every `Authorization` header measured on pc.7.6, and
-offers an internal pass-through for administrators. On the internal
-listener an administrator signs in with the break-glass account and
-creates a tenant end to end (Keycloak group, Projects 2.0 project with
-resource group, SAML group, identity provider sharing, project-scoped role
+offers an internal pass-through for administrators. A tenant user signs
+in once on a Keycloak page carrying the MSP's name, colour and logo,
+passes through Portico's landing page and lands in the console: Portico
+starts the SAML login itself. When the identity provider is down the
+browser gets a branded page. On the internal listener an administrator
+signs in with the break-glass account, sets the branding, and creates a
+tenant end to end (Keycloak group, Projects 2.0 project with resource
+group, SAML group, identity provider sharing, project-scoped role
 membership, visibility check), follows the steps, creates its first user,
 disables, enables and deletes it; the same actions are a JSON API for
-scripts. The tenant user logs in once and sees only that project. No
-landing page or Keycloak theme yet (Milestone 2c), no setup wizard
-(Milestone 2d), no appliance image (Milestone 3).
+scripts. No setup wizard yet (Milestone 2d), no appliance image
+(Milestone 3).
 The design document is in
 [`docs/superpowers/specs/2026-10-17-portico-design.md`](docs/superpowers/specs/2026-10-17-portico-design.md),
 lab measurements in `docs/lab/`, decisions in `docs/adr/`.
