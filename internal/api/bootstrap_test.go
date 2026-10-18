@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/marco-fabbri/portico/internal/settings"
 )
 
 // fakeKCAdmin is a compact Keycloak for the bootstrap routes: master
@@ -22,10 +25,12 @@ type fakeKCAdmin struct {
 	clients                 map[string]map[string]any
 	mapped, mapperNames     map[string][]string
 	tokens                  int
+	realmSecret, descriptor string // portico-admin secret the realm token accepts; descriptor entityID
 }
 
 func newFakeKCAdmin(t *testing.T) *fakeKCAdmin {
-	f := &fakeKCAdmin{adminSecret: "kc-sec-admin-777", oidcSecret: "kc-sec-oidc-888", realms: map[string]map[string]any{}, clients: map[string]map[string]any{}, mapped: map[string][]string{}, mapperNames: map[string][]string{}}
+	f := &fakeKCAdmin{adminSecret: "kc-sec-admin-777", oidcSecret: "kc-sec-oidc-888", realms: map[string]map[string]any{}, clients: map[string]map[string]any{}, mapped: map[string][]string{}, mapperNames: map[string][]string{},
+		realmSecret: "admin-secret-1", descriptor: "https://id.example.test/realms/portico"}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -43,6 +48,25 @@ func (f *fakeKCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		f.tokens++
 		fmt.Fprintf(w, `{"access_token":"tok-%d","expires_in":60}`, f.tokens)
+		return
+	}
+	if realm, ok := strings.CutPrefix(r.URL.Path, "/realms/"); ok {
+		name, rest, _ := strings.Cut(realm, "/")
+		switch rest {
+		case "protocol/openid-connect/token":
+			r.ParseForm()
+			if _, exists := f.realms[name]; !exists || r.Form.Get("client_secret") != f.realmSecret {
+				w.WriteHeader(401)
+				return
+			}
+			f.tokens++
+			fmt.Fprintf(w, `{"access_token":"tok-%d","expires_in":60}`, f.tokens)
+		case "protocol/saml/descriptor":
+			w.Header().Set("Content-Type", "application/xml")
+			fmt.Fprintf(w, `<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="%s"/>`, f.descriptor)
+		default:
+			w.WriteHeader(404)
+		}
 		return
 	}
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer tok-") {
@@ -76,7 +100,7 @@ func (f *fakeKCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(out)
 	case p == "clients" && r.Method == "POST":
-		id := "cli-" + body["clientId"].(string)
+		id := "cli-" + strings.NewReplacer("/", "_", ":", "_").Replace(body["clientId"].(string))
 		body["id"] = id
 		f.clients[id] = body
 		w.Header().Set("Location", f.srv.URL+r.URL.Path+"/"+id)
@@ -135,6 +159,14 @@ type fakePCAdmin struct {
 	mu   sync.Mutex
 	user map[string]any
 	key  string
+	idps []map[string]any
+}
+
+// addIdP pre-seeds an identity provider.
+func (f *fakePCAdmin) addIdP(name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.idps = append(f.idps, map[string]any{"extId": "idp-" + name, "name": name})
 }
 
 func newFakePCAdmin(t *testing.T) *fakePCAdmin {
@@ -165,6 +197,19 @@ func (f *fakePCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	p := r.URL.Path
 	switch {
+	case strings.HasSuffix(p, "/authn/saml-identity-providers") && r.Method == "GET":
+		out := f.idps
+		if out == nil {
+			out = []map[string]any{}
+		}
+		reply(200, out)
+	case strings.HasSuffix(p, "/authn/saml-identity-providers") && r.Method == "POST":
+		idp := map[string]any{"extId": "idp-" + body["name"].(string), "name": body["name"], "redirectURL": body["redirectURL"]}
+		f.idps = append(f.idps, idp)
+		reply(201, idp)
+	case strings.HasSuffix(p, "/sp-metadata"):
+		w.Header().Set("Content-Type", "application/xml")
+		w.Write([]byte(`<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://prism.example.test/api/iam/authn"><md:SPSSODescriptor><md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://prism.example.test/api/iam/authn/callback" index="1"/></md:SPSSODescriptor></md:EntityDescriptor>`))
 	case strings.HasSuffix(p, "/config/clusters"):
 		reply(200, []map[string]any{{"extId": "cl-1", "name": "NTNX-01", "config": map[string]any{"clusterFunction": []string{"AOS"}}}})
 	case strings.HasSuffix(p, "/config/storage-containers"):
@@ -267,5 +312,33 @@ func TestBootstrapPrismCentralStoresKeyAndNeverLogsPassword(t *testing.T) {
 	rec, out = e.do("POST", "/api/v1/settings/bootstrap/prism-central", `{"username":"admin","url":"`+e.pcAdmin.URL+`"}`)
 	if rec.Code != 409 {
 		t.Fatalf("no password: %d %v", rec.Code, out)
+	}
+}
+
+func TestBootstrapSAMLStoresIdPName(t *testing.T) {
+	e := newSettingsEnv(t, false)
+	e.so.File = nil
+	// A document after the two previous bootstraps, pointing at the fakes.
+	doc := sampleSettings(e.pcAdmin.URL)
+	doc.PrismCentral.APIKey, doc.PrismCentral.SAMLIdPName = settings.Secret(e.pcAdmin.issuedKey()), ""
+	if err := e.svc.Set(context.Background(), doc); err != nil {
+		t.Fatal(err)
+	}
+	e.kcAdmin.realms["portico"] = map[string]any{"realm": "portico"}
+	rec, out := e.do("POST", "/api/v1/settings/bootstrap/saml", `{"name":"portico-keycloak"}`)
+	if rec.Code != 200 || out["ok"] != true || out["stored"] != true || out["entity_id"] != "https://prism.example.test/api/iam/authn" || out["used_credentials"] != false {
+		t.Fatalf("bootstrap: %d %v", rec.Code, out)
+	}
+	if !strings.Contains(e.log.String(), `"msg":"bootstrap saml"`) {
+		t.Fatalf("log lacks the bootstrap line: %s", e.log.String())
+	}
+	rec, out = e.do("GET", "/api/v1/settings", "")
+	if out["prism_central"].(map[string]any)["saml_idp_name"] != "portico-keycloak" || out["complete"] != true {
+		t.Fatalf("stored: %v", out)
+	}
+	e.pcAdmin.addIdP("corp-adfs")
+	rec, out = e.do("POST", "/api/v1/settings/bootstrap/saml", `{"name":"portico-keycloak"}`)
+	if rec.Code != 409 || !strings.Contains(out["error"].(string), "corp-adfs") {
+		t.Fatalf("second IdP: %d %v", rec.Code, out)
 	}
 }

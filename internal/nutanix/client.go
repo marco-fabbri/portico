@@ -164,6 +164,35 @@ func (c *Client) do(ctx context.Context, method, path, query string, body any, i
 	return resp.Header.Get("ETag"), nil
 }
 
+// getRaw performs a GET whose body is not the JSON envelope (the SAML
+// SP metadata is XML) and returns it as read, capped at 1 MiB.
+func (c *Client) getRaw(ctx context.Context, path string) ([]byte, error) {
+	u := *c.base
+	u.Path = path
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	c.auth(req)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.log.Warn("prism central call failed", "method", "GET", "path", path, "err", err.Error())
+		return nil, fmt.Errorf("prism central: GET %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("prism central: GET %s: read: %w", path, err)
+	}
+	c.log.Debug("prism central call", "method", "GET", "path", path, "status", resp.StatusCode)
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		msg := errorMessage(raw)
+		c.log.Warn("prism central error", "method", "GET", "path", path, "status", resp.StatusCode, "message", msg)
+		return nil, &APIError{Status: resp.StatusCode, Message: msg}
+	}
+	return raw, nil
+}
+
 // errorMessage extracts a human-readable message from a v4 error body:
 // data.error as a string, else every "message" found under it, else the
 // first 200 bytes of the body.
