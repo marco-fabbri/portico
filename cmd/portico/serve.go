@@ -97,7 +97,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		CookieMaxAge: cfg.Session.MaxAge,
 	}, sessions, &http.Client{Timeout: 15 * time.Second}, log)
 
-	stripped := []string{auth.SessionCookie, auth.OIDCCookie}
+	stripped := auth.PorticoCookies()
 	prismUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: pcURL, HostHeader: cfg.Public.PrismHost, TLS: pcTLS, StripCookies: stripped, Log: log})
 	kcUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: kcURL, HostHeader: cfg.Public.IDHost, StripCookies: stripped, Log: log})
 	public := proxy.NewPublic(proxy.PublicOptions{

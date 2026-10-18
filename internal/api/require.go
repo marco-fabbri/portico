@@ -43,10 +43,10 @@ func isAPIPath(p string) bool {
 	return strings.HasPrefix(p, Prefix) || p == strings.TrimSuffix(Prefix, "/")
 }
 
-// RequireAdmin accepts a UI session (through sessions, may be nil) or HTTP
-// Basic against the stored break-glass hash, braked by lim. Without
-// either: 401 with the Basic challenge on API paths, a redirect to /login
-// on UI paths. When no password is set: 401 on API paths, 503 with the
+// RequireAdmin accepts a UI session (through sessions, may be nil) on UI
+// paths, and HTTP Basic against the stored break-glass hash, braked by
+// lim, on every path. Without either: 401 with the Basic challenge on API
+// paths, a redirect to /login on UI paths. When no password is set: 401 on API paths, 503 with the
 // set-password instruction on UI paths. The login page and the static
 // assets pass through.
 func RequireAdmin(st store.Store, sessions SessionChecker, lim *Limiter, realm string, log *slog.Logger) func(http.Handler) http.Handler {
@@ -63,7 +63,10 @@ func RequireAdmin(st store.Store, sessions SessionChecker, lim *Limiter, realm s
 				next.ServeHTTP(w, r)
 				return
 			}
-			if sessions != nil {
+			// The UI session is a cookie with no CSRF token on the API, and
+			// SameSite=Strict is port-blind: a page on the tenant site could
+			// post to the API with it. API paths take Basic only.
+			if sessions != nil && !api {
 				if id, ok := sessions.Identity(r); ok {
 					next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), identityKey{}, id)))
 					return

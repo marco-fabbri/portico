@@ -9,10 +9,10 @@ import (
 	"github.com/marco-fabbri/portico/internal/auth"
 )
 
-// SessionCookie carries the admin session id. No __Host- prefix: the
-// internal listener may be plain HTTP on the loopback, where a Secure
-// cookie would never come back.
-const SessionCookie = "portico_admin"
+// SessionCookie carries the admin session id (auth.AdminCookie). No
+// __Host- prefix: the internal listener may be plain HTTP on the
+// loopback, where a Secure cookie would never come back.
+const SessionCookie = auth.AdminCookie
 
 const sessionMaxAge = 8 * time.Hour
 

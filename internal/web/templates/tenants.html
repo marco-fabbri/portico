@@ -6,17 +6,17 @@
   </div>
   <table>
     <thead><tr><th>Slug</th><th>Display name</th><th>Status</th><th>Project</th><th>Updated</th></tr></thead>
-    <tbody id="rows"{{if .Data.Polling}} hx-get="/?partial=rows" hx-trigger="every 10s" hx-swap="outerHTML"{{end}}>
-      {{template "rows" .}}
-    </tbody>
+    {{template "rows" .}}
   </table>
   {{if not .Data.Tenants}}<p class="muted">No tenants yet.</p>{{end}}
 </section>
 {{end}}
-{{define "rows"}}{{range .Data.Tenants}}<tr>
+{{define "rows"}}<tbody id="rows"{{if .Data.Polling}} hx-get="/?partial=rows" hx-trigger="every 10s" hx-swap="outerHTML"{{end}}>
+{{range .Data.Tenants}}<tr>
   <td><a href="/tenants/{{.ID}}">{{.ID}}</a></td>
   <td>{{.DisplayName}}</td>
   <td><span class="status status-{{.Status}}">{{.Status}}</span></td>
   <td><code>{{.ProjectID}}</code></td>
   <td>{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
-</tr>{{end}}{{end}}
+</tr>{{end}}
+</tbody>{{end}}

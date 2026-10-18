@@ -17,6 +17,18 @@ const SessionCookie = "__Host-portico_session"
 // OIDCCookie carries the state of a login in progress.
 const OIDCCookie = "__Host-portico_oidc"
 
+// AdminCookie is the admin UI's session on the internal listener. It has
+// no __Host- prefix (the listener may be plain HTTP on the loopback) and
+// cookies are port-blind, so a browser holding an admin session sends it
+// to the public listener on the same host name too: the proxy strips it.
+const AdminCookie = "portico_admin"
+
+// PorticoCookies lists every cookie Portico sets; none of them may reach
+// an upstream.
+func PorticoCookies() []string {
+	return []string{SessionCookie, OIDCCookie, AdminCookie}
+}
+
 // Session is one authenticated browser.
 type Session struct {
 	ID        string

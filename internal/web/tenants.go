@@ -49,6 +49,11 @@ func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if r.URL.Query().Get("partial") == "rows" || r.Header.Get("HX-Request") == "true" {
+		if !d.Polling {
+			// Every run finished: reload the page once so the empty-list
+			// text and the badges settle, and the polling stops.
+			w.Header().Set("HX-Refresh", "true")
+		}
 		h.fragment(w, r, "tenants", "rows", d)
 		return
 	}

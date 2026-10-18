@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"github.com/marco-fabbri/portico/internal/auth"
 	"io"
 	"log/slog"
 	"net"
@@ -82,9 +83,11 @@ func TestUpstreamRewritesHostAndForwardedHeaders(t *testing.T) {
 
 func TestUpstreamStripsPorticoCookies(t *testing.T) {
 	up, got := recordingUpstream(t, false, nil)
-	p := proxyFor(t, up.URL, UpstreamOptions{StripCookies: []string{"__Host-portico_session", "__Host-portico_oidc"}})
+	p := proxyFor(t, up.URL, UpstreamOptions{StripCookies: auth.PorticoCookies()})
 	req, _ := http.NewRequest("GET", p.URL+"/console/", nil)
-	req.Header.Set("Cookie", "__Host-portico_session=a; __Host-portico_oidc=b; NTNX=c")
+	// The admin UI's cookie is port-blind: a browser that holds an admin
+	// session sends it to the public listener too.
+	req.Header.Set("Cookie", "__Host-portico_session=a; __Host-portico_oidc=b; portico_admin=d; NTNX=c")
 	if _, err := http.DefaultClient.Do(req); err != nil {
 		t.Fatal(err)
 	}
