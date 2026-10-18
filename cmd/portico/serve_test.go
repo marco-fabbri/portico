@@ -71,6 +71,12 @@ func testServeConfig(t *testing.T, prismURL string) *config.Config {
 	cfg.OIDC.Issuer = "http://127.0.0.1:1/realms/x"
 	cfg.OIDC.ClientID = "portico"
 	cfg.OIDC.ClientSecretFile = secret
+	cfg.PrismCentral.APIKeyFile = secret
+	cfg.PrismCentral.SAMLIdPName = "lab-idp"
+	cfg.Keycloak.Realm = "x"
+	cfg.Keycloak.AdminClientSecretFile = secret
+	cfg.Store.Path = filepath.Join(t.TempDir(), "portico.db")
+	cfg.Tenants.ClusterExtID, cfg.Tenants.StorageContainerExtID = "cl-1", "sc-1"
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +109,7 @@ func get(t *testing.T, addr, host, path string, hdr map[string]string) *http.Res
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { resp.Body.Close() })
+	t.Cleanup(func() { io.Copy(io.Discard, resp.Body); resp.Body.Close() })
 	return resp
 }
 
@@ -156,5 +162,36 @@ func TestRunServeWithIdPDown(t *testing.T) {
 	resp = get(t, cfg.Internal.AdminListen, "127.0.0.1", "/healthz", nil)
 	if resp.StatusCode != 200 {
 		t.Errorf("healthz with IdP down: %d", resp.StatusCode)
+	}
+}
+
+func TestServeOpensStoreAndMountsAPI(t *testing.T) {
+	prism := httptest.NewServer(http.NotFoundHandler())
+	defer prism.Close()
+	cfg := testServeConfig(t, prism.URL)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runServe(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil))) }()
+	waitHealthy(t, cfg.Internal.AdminListen)
+
+	resp := get(t, cfg.Internal.AdminListen, "127.0.0.1", "/api/v1/tenants", nil)
+	if resp.StatusCode != 401 || resp.Header.Get("WWW-Authenticate") == "" {
+		t.Errorf("API without credentials: %d %q", resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
+	}
+	resp = get(t, cfg.Internal.AdminListen, "127.0.0.1", "/healthz", nil)
+	if resp.StatusCode != 200 {
+		t.Errorf("healthz: %d", resp.StatusCode)
+	}
+	if _, err := os.Stat(cfg.Store.Path); err != nil {
+		t.Errorf("store file: %v", err)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("runServe returned %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runServe did not stop within 2s")
 	}
 }
