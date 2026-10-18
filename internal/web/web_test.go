@@ -16,6 +16,7 @@ import (
 
 	"github.com/marco-fabbri/portico/internal/api"
 	"github.com/marco-fabbri/portico/internal/auth"
+	"github.com/marco-fabbri/portico/internal/branding"
 	"github.com/marco-fabbri/portico/internal/store"
 	"github.com/marco-fabbri/portico/internal/tenant"
 	"github.com/marco-fabbri/portico/internal/tenant/tenanttest"
@@ -31,6 +32,7 @@ type env struct {
 	svc    *tenant.Service
 	pc     *tenanttest.PC
 	kc     *tenanttest.KC
+	brand  *branding.Service
 	log    *bytes.Buffer
 	cookie *http.Cookie
 	csrf   string
@@ -54,12 +56,13 @@ func newEnv(t *testing.T, withPassword bool, opts ...envOpt) *env {
 	pc := tenanttest.NewPC("lab-idp")
 	kc := tenanttest.NewKC()
 	svc := tenant.NewService(st, pc, kc, tenant.Config{SAMLIdPName: "lab-idp", ClusterExtID: "cl", StorageContainerExtID: "sc", OperationTimeout: 5 * time.Second}, log)
-	o := Options{Store: st, Service: svc, Sessions: auth.NewMemoryStore(8*time.Hour, 15*time.Minute), Limiter: api.NewLimiter(), Secure: true, Version: "test", Log: log}
+	brand := branding.NewService(st, log)
+	o := Options{Store: st, Service: svc, Branding: brand, Sessions: auth.NewMemoryStore(8*time.Hour, 15*time.Minute), Limiter: api.NewLimiter(), Secure: true, Version: "test", Log: log}
 	for _, f := range opts {
 		f(&o)
 	}
 	h := New(o)
-	return &env{h: api.RequireAdmin(st, h, o.Limiter, "portico", log)(h), web: h, st: st, svc: svc, pc: pc, kc: kc, log: &buf}
+	return &env{h: api.RequireAdmin(st, h, o.Limiter, "portico", log)(h), web: h, st: st, svc: svc, pc: pc, kc: kc, brand: brand, log: &buf}
 }
 
 func (e *env) do(method, path string, form url.Values, auth bool) *httptest.ResponseRecorder {

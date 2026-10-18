@@ -22,6 +22,9 @@ form.inline { display: inline; }
 .banner { padding: .6rem .9rem; border-radius: 4px; margin-bottom: 1rem; }
 .banner.error { background: #fdecea; color: var(--bad); border: 1px solid #f5c6c2; }
 .banner.notice { background: #e8f4ea; color: var(--ok); border: 1px solid #bfe0c4; }
+.banner.warning { background: #fff3e0; color: var(--warn); border: 1px solid #f2d2a3; }
+header.top nav a { color: #fff; text-decoration: none; opacity: .85; }
+.logo-preview { max-height: 80px; max-width: 240px; display: block; margin: .4rem 0; background: #fff; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 tbody tr:nth-child(even) { background: #fafbfc; }

@@ -17,6 +17,7 @@ import (
 
 	"github.com/marco-fabbri/portico/internal/api"
 	"github.com/marco-fabbri/portico/internal/auth"
+	"github.com/marco-fabbri/portico/internal/branding"
 	"github.com/marco-fabbri/portico/internal/store"
 	"github.com/marco-fabbri/portico/internal/tenant"
 )
@@ -31,6 +32,7 @@ var staticFS embed.FS
 type Options struct {
 	Store    store.Store
 	Service  *tenant.Service
+	Branding *branding.Service
 	Sessions *auth.MemoryStore // admin sessions: 8 h absolute, 15 min idle
 	Limiter  *api.Limiter      // shared with the API's Basic check
 	Secure   bool              // the listener has TLS: Secure cookie
@@ -43,6 +45,7 @@ type Options struct {
 type Handler struct {
 	st       store.Store
 	svc      *tenant.Service
+	brand    *branding.Service
 	sessions *auth.MemoryStore
 	limiter  *api.Limiter
 	secure   bool
@@ -63,7 +66,10 @@ func New(o Options) *Handler {
 	if o.Limiter == nil {
 		o.Limiter = api.NewLimiter()
 	}
-	h := &Handler{st: o.Store, svc: o.Service, sessions: o.Sessions, limiter: o.Limiter, secure: o.Secure, version: o.Version, log: o.Log}
+	if o.Branding == nil {
+		o.Branding = branding.NewService(o.Store, o.Log)
+	}
+	h := &Handler{st: o.Store, svc: o.Service, brand: o.Branding, sessions: o.Sessions, limiter: o.Limiter, secure: o.Secure, version: o.Version, log: o.Log}
 	h.pages = parsePages()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", h.loginPage)
@@ -116,6 +122,7 @@ type page struct {
 	CSRF    string
 	Version string
 	Error   string
+	Warning string
 	Notice  string
 	Data    any
 }

@@ -12,6 +12,8 @@
   <a class="brand" href="/">Portico</a>
   <nav>
     {{if .Admin}}
+    <a href="/">Tenants</a>
+    <a href="/settings/branding">Branding</a>
     <span class="who">{{.Admin}}</span>
     <form method="post" action="/logout" class="inline">
       <input type="hidden" name="_csrf" value="{{.CSRF}}">
@@ -22,6 +24,7 @@
 </header>
 <main>
 {{if .Error}}<div class="banner error">{{.Error}}</div>{{end}}
+{{if .Warning}}<div class="banner warning">{{.Warning}}</div>{{end}}
 {{if .Notice}}<div class="banner notice">{{.Notice}}</div>{{end}}
 {{template "content" .}}
 </main>
