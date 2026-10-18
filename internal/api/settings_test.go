@@ -26,6 +26,7 @@ type settingsEnv struct {
 	svc       *settings.Service
 	log       *bytes.Buffer
 	restarted int
+	busy      int
 	pc        *httptest.Server
 }
 
@@ -42,21 +43,15 @@ func sampleSettings(pcURL string) settings.Settings {
 	return s
 }
 
-func newSettingsEnv(t *testing.T, stored bool) *settingsEnv {
-	t.Helper()
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "p.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
-	hash, _ := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.MinCost)
-	st.SetAdminPassword(context.Background(), "admin", string(hash))
-	sealer, _ := secrets.NewSealer(bytes.Repeat([]byte{7}, secrets.KeySize))
-	svc := settings.NewService(st, sealer)
-	// A fake Prism Central for the check: accepts the key "key-secret-1".
-	pc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// fakePC answers the two list calls of the Prism Central check; seen, when
+// given, records the API key header of every request.
+func fakePC(key string, seen *[]string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if seen != nil {
+			*seen = append(*seen, r.Header.Get("X-Ntnx-Api-Key"))
+		}
 		w.Header().Set("Content-Type", "application/json")
-		if r.Header.Get("X-Ntnx-Api-Key") != "key-secret-1" {
+		if r.Header.Get("X-Ntnx-Api-Key") != key {
 			w.WriteHeader(401)
 			w.Write([]byte(`{"data":{"error":"unauthorized"}}`))
 			return
@@ -69,7 +64,22 @@ func newSettingsEnv(t *testing.T, stored bool) *settingsEnv {
 		default:
 			w.WriteHeader(404)
 		}
-	}))
+	})
+}
+
+func newSettingsEnv(t *testing.T, stored bool) *settingsEnv {
+	t.Helper()
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "p.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	hash, _ := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.MinCost)
+	st.SetAdminPassword(context.Background(), "admin", string(hash))
+	sealer, _ := secrets.NewSealer(bytes.Repeat([]byte{7}, secrets.KeySize))
+	svc := settings.NewService(st, sealer)
+	// A fake Prism Central for the check: accepts the key "key-secret-1".
+	pc := httptest.NewServer(fakePC("key-secret-1", nil))
 	t.Cleanup(pc.Close)
 	e := &settingsEnv{svc: svc, log: &bytes.Buffer{}, pc: pc}
 	if stored {
@@ -80,7 +90,8 @@ func newSettingsEnv(t *testing.T, stored bool) *settingsEnv {
 	log := slog.New(slog.NewJSONHandler(e.log, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	tsvc := tenant.NewService(st, tenanttest.NewPC("lab-idp"), tenanttest.NewKC(), tenant.Config{SAMLIdPName: "lab-idp", ClusterExtID: "cl", StorageContainerExtID: "sc"}, log)
 	file := sampleSettings(pc.URL)
-	so := &SettingsOptions{Service: svc, File: &file, Checker: settings.NewChecker(log), KeycloakURL: "http://127.0.0.1:1", Restart: func() { e.restarted++ }}
+	e.busy = 0
+	so := &SettingsOptions{Service: svc, File: &file, Checker: settings.NewChecker(log), KeycloakURL: "http://127.0.0.1:1", Restart: func() { e.restarted++ }, Busy: func() int { return e.busy }}
 	e.h = BasicAuth(st, "portico", log)(New(tsvc, st, branding.NewService(st, log), so, log))
 	return e
 }
@@ -208,5 +219,76 @@ func TestSettingsCheckUsesStoredFieldsWhenOmitted(t *testing.T) {
 	rec, out = e.do("POST", "/api/v1/settings/check", `{"target":"prism_central","prism_central":{"url":"`+e.pc.URL+`"}}`)
 	if rec.Code != 200 || out["ok"] != true {
 		t.Fatalf("check with the URL only: %d %v", rec.Code, out)
+	}
+}
+
+func TestSettingsCheckRefusesStoredKeyForAnotherHost(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	var seen []string
+	other := httptest.NewServer(fakePC("never", &seen))
+	defer other.Close()
+	// The stored key must not travel to a host the caller names.
+	rec, out := e.do("POST", "/api/v1/settings/check", `{"target":"prism_central","prism_central":{"url":"`+other.URL+`","tls_verify":false}}`)
+	if rec.Code != 200 || out["ok"] != false || !strings.Contains(out["message"].(string), "API key must be given") {
+		t.Fatalf("check against another host without a key: %d %v", rec.Code, out)
+	}
+	if len(seen) != 0 {
+		t.Fatalf("the other host received %d request(s)", len(seen))
+	}
+	// With a key in the body the check runs against the new host with that key only.
+	rec, out = e.do("POST", "/api/v1/settings/check", `{"target":"prism_central","prism_central":{"url":"`+other.URL+`","tls_verify":false,"api_key":"given-key"}}`)
+	if rec.Code != 200 || out["ok"] != false || len(seen) != 1 || seen[0] != "given-key" {
+		t.Fatalf("check against another host with a key: %d %v seen=%v", rec.Code, out, seen)
+	}
+}
+
+func TestSettingsCheckKeepsTLSVerifyWhenOmitted(t *testing.T) {
+	e := newSettingsEnv(t, false)
+	tlsPC := httptest.NewTLSServer(fakePC("key-secret-1", nil))
+	defer tlsPC.Close()
+	s := sampleSettings(tlsPC.URL)
+	s.PrismCentral.TLSVerify = true
+	if err := e.svc.Set(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	// The flag is not in the body: the stored true applies and the self-signed certificate fails.
+	rec, out := e.do("POST", "/api/v1/settings/check", `{"target":"prism_central","prism_central":{"url":"`+tlsPC.URL+`"}}`)
+	if rec.Code != 200 || out["ok"] != false || !strings.Contains(out["message"].(string), "certificate") {
+		t.Fatalf("check with the flag omitted: %d %v", rec.Code, out)
+	}
+	rec, out = e.do("POST", "/api/v1/settings/check", `{"target":"prism_central","prism_central":{"url":"`+tlsPC.URL+`","tls_verify":false}}`)
+	if rec.Code != 200 || out["ok"] != true {
+		t.Fatalf("check with the flag false: %d %v", rec.Code, out)
+	}
+	// GET still reports the stored flag.
+	rec, out = e.do("GET", "/api/v1/settings", "")
+	if rec.Code != 200 || out["prism_central"].(map[string]any)["tls_verify"] != true {
+		t.Fatalf("GET after the checks: %d %v", rec.Code, out)
+	}
+}
+
+func TestSettingsPutAdoptsFileSecrets(t *testing.T) {
+	e := newSettingsEnv(t, false)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","tls_verify":false,"saml_idp_name":"lab-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
+	if rec.Code != 200 || out["stored"] != true || out["source"] != "store" {
+		t.Fatalf("PUT on a file-based installation: %d %v", rec.Code, out)
+	}
+	got, err := e.svc.Get(context.Background())
+	if err != nil || got.PrismCentral.APIKey != "key-secret-1" || got.OIDC.ClientSecret != "client-secret-1" {
+		t.Fatalf("stored = %+v, %v: the file's secrets must be adopted", got, err)
+	}
+}
+
+func TestSettingsApplyRefusedWhileTenantOperationRuns(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	e.busy = 2
+	rec, out := e.do("POST", "/api/v1/settings/apply", "")
+	if rec.Code != 409 || e.restarted != 0 || !strings.Contains(out["error"].(string), "2 tenant operation") {
+		t.Fatalf("apply while busy: %d %v restarted=%d", rec.Code, out, e.restarted)
+	}
+	e.busy = 0
+	rec, _ = e.do("POST", "/api/v1/settings/apply", "")
+	if rec.Code != 202 || e.restarted != 1 {
+		t.Fatalf("apply when idle: %d restarted=%d", rec.Code, e.restarted)
 	}
 }

@@ -20,11 +20,13 @@ internal:
 
 # The sections below (public names, prism_central, keycloak realm and
 # client, oidc, tenants) are read from this file only until the settings
-# have been stored: `portico settings import -config <this file>` moves
-# them (and the secret files' contents) into the store, sealed with the
-# master key; from then on the store wins and these sections, together
-# with the secret files, can be removed. The setup pages of the admin UI
-# edit the stored settings.
+# have been stored: `sudo -u portico portico settings import -config <this file>`
+# moves them (and the secret files' contents) into the store, sealed with
+# the master key; run it as the service user (the command refuses root),
+# so the key it creates belongs to the user that runs `portico serve`.
+# From then on the store wins and these sections, together with the
+# secret files, can be removed. The setup pages of the admin UI edit the
+# stored settings.
 prism_central:
   url: https://10.0.0.10:9440    # required
   tls_verify: true               # false only in a lab

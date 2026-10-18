@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/marco-fabbri/portico/internal/api"
 	"github.com/marco-fabbri/portico/internal/settings"
 )
 
@@ -157,7 +158,7 @@ func (h *Handler) setupCheck(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown target", http.StatusBadRequest)
 		return
 	}
-	res, ok := h.setup.Check(r.Context(), target, cand)
+	res, ok := h.setup.Check(r.Context(), target, cur, cand, r.FormValue("api_key") != "")
 	if !ok {
 		http.Error(w, "unknown target", http.StatusBadRequest)
 		return
@@ -178,9 +179,12 @@ func (h *Handler) setupApply(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	var busy *api.BusyError
 	switch err := h.setup.Apply(r.Context()); {
 	case errors.Is(err, settings.ErrNotStored):
 		h.renderSetup(w, r, http.StatusConflict, cur, source, "no settings are stored yet: save them first")
+	case errors.As(err, &busy):
+		h.renderSetup(w, r, http.StatusConflict, cur, source, "Apply refused: "+err.Error())
 	case err != nil:
 		h.renderSetup(w, r, http.StatusNotImplemented, cur, source, err.Error())
 	default:

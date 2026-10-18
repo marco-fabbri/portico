@@ -36,6 +36,10 @@ happens when the master key is wrong?
    aside, `systemctl start portico`, read the journal; put the key back.
 6. Branding logo: `PUT /api/v1/settings/branding` with
    `lab/portico/portico-lab-logo.svg` as `logo_data`.
+7. After the review fixes (binary `dev-c04e264` plus the fix commit):
+   `POST /api/v1/tenants` (tenant-b), then `POST /api/v1/settings/apply`
+   at once; poll the tenant to `active`; apply again; poll `/healthz`;
+   `DELETE /api/v1/tenants/tenant-b?delete_project=true`.
 
 ## Result
 
@@ -86,6 +90,23 @@ happens when the master key is wrong?
   secret for "" in realm ""`. The candidate now falls back to the stored
   value for every empty field; test
   `TestSettingsCheckUsesStoredFieldsWhenOmitted`.
+- MEASURED (after the review fixes): Apply while tenant-b was
+  provisioning answered `409 {"error":"1 tenant operation(s) running:
+  retry when they finish"}` and nothing restarted; once the tenant was
+  `active`, Apply answered 202 and `/healthz` was back within 4 s. The
+  earlier plan wording ("bounded by TimeoutStopSec") was wrong: a
+  voluntary exit waits for the operation with no bound, so the apply is
+  refused instead.
+- Fixed in the review pass, with tests: the check sends the stored
+  service-account key only to the stored Prism Central host (another URL
+  must carry its own key: `TestSettingsCheckRefusesStoredKeyForAnotherHost`);
+  `tls_verify` omitted from a check body keeps the stored value instead
+  of becoming false (`TestSettingsCheckKeepsTLSVerifyWhenOmitted`); a
+  `PUT` without secrets on a file-based installation adopts the file's
+  secrets as the UI does (`TestSettingsPutAdoptsFileSecrets`); `settings
+  show` never creates the master key and `settings import` refuses to
+  run as root, so the key always belongs to the service user
+  (`TestSettingsShowDoesNotCreateKey`, `TestSettingsImportRefusesRoot`).
 - MEASURED: the lab storage container `206ecd5c-…` is named
   `objectsl889411dccd9a44125aa3e31c2596dcf9` in Prism Central (the YAML
   comment called it the default container; corrected).

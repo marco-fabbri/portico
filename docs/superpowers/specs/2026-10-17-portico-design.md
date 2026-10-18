@@ -370,7 +370,12 @@ flag day, and `portico settings import` copies the YAML and its secret
 files into the store once. Changing settings needs a restart of the
 process (listeners, TLS, clients): the wizard's "Apply" asks `serve` to
 stop cleanly and systemd restarts it (`Restart=always`); the page says
-so and polls the health endpoint until Portico is back. The bootstrap
+so and polls a readiness fragment until Portico is back. Apply is
+refused (409) while a tenant operation runs, because the restart closes
+the listeners before waiting for the operation and the service would
+stay dark until it ended (write-up 14). A connectivity check sends the
+stored service-account key only to the stored Prism Central host: a
+check against another URL must carry its own key. The bootstrap
 paths (service account created by Portico, Keycloak realm and clients
 registered by Portico, SAML identity provider created by Portico) are
 Milestone 2e: in 2d the wizard takes the values the MSP already has.

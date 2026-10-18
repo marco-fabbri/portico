@@ -155,6 +155,13 @@ func (s *Service) background(id string, op string, fn func(ctx context.Context) 
 // Wait blocks until every background operation has finished.
 func (s *Service) Wait() { s.wg.Wait() }
 
+// Running reports how many tenant operations are in progress.
+func (s *Service) Running() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.running)
+}
+
 // Create validates the request, records the tenant as creating and starts
 // provisioning in the background. store.ErrExists passes through.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*store.Tenant, error) {
