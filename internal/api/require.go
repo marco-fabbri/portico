@@ -34,9 +34,11 @@ func IdentityFromContext(ctx context.Context) (Identity, bool) {
 // sleep is replaced by tests.
 var sleep = time.Sleep
 
-// publicUIPaths need no authentication: the login page and its assets.
+// publicUIPaths need no authentication: the login page and its assets,
+// and the readiness fragment the restart page polls (sessions do not
+// survive a restart).
 func publicUIPath(p string) bool {
-	return p == "/login" || strings.HasPrefix(p, "/static/")
+	return p == "/login" || p == "/setup/ready" || strings.HasPrefix(p, "/static/")
 }
 
 func isAPIPath(p string) bool {

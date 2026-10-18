@@ -13,7 +13,7 @@ h1 { font-size: 1.35rem; margin: 0 0 .6rem; }
 h2 { font-size: 1.05rem; margin: 1.2rem 0 .5rem; }
 .muted { color: var(--muted); }
 label { display: block; margin: .7rem 0; }
-label input, label select { display: block; width: 100%; margin-top: .25rem; padding: .45rem .55rem; border: 1px solid var(--line); border-radius: 4px; font: inherit; }
+label input, label select, label textarea { display: block; width: 100%; margin-top: .25rem; padding: .45rem .55rem; border: 1px solid var(--line); border-radius: 4px; font: inherit; }
 button, .button { font: inherit; padding: .45rem .9rem; border-radius: 4px; border: 1px solid var(--line); background: #fff; color: var(--fg); cursor: pointer; text-decoration: none; display: inline-block; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.danger { color: var(--bad); border-color: var(--bad); }
@@ -40,3 +40,6 @@ pre { background: #f0f3f5; padding: .7rem; border-radius: 4px; overflow-x: auto;
 .password-box { font-size: 1.3rem; padding: .8rem; background: #f0f3f5; border-radius: 4px; user-select: all; }
 dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; }
 dt { color: var(--muted); } dd { margin: 0; word-break: break-all; }
+
+.check-result { margin-top: .8rem; }
+.check-result .banner { margin-bottom: 0; }

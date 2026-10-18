@@ -1,0 +1,96 @@
+{{define "content"}}
+<h1>Setup</h1>
+{{if .Data.Stored}}
+<p class="muted">Settings are stored in Portico's database and sealed with the master key. Saved changes take effect after <strong>Apply and restart</strong>.</p>
+{{else if eq .Data.Source "file"}}
+<div class="banner warning">Portico is running from the file: save a card to move the settings into the store, which wins from the next start.</div>
+{{else}}
+<div class="banner warning">No settings yet. Fill in the cards and save them, then apply.</div>
+{{end}}
+
+<section class="card" id="card-hosts">
+  <h2>Public names</h2>
+  <form method="post" action="/setup/save">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <input type="hidden" name="section" value="hosts">
+    <label>Prism Central public host <input type="text" name="prism_host" value="{{.Data.S.PrismHost}}" placeholder="prism.msp.example" required></label>
+    <label>Identity public host <input type="text" name="id_host" value="{{.Data.S.IDHost}}" placeholder="id.msp.example" required></label>
+    <div class="actions"><button type="submit" class="primary">Save</button></div>
+  </form>
+</section>
+
+<section class="card" id="card-prism_central">
+  <h2>Prism Central</h2>
+  <form method="post" action="/setup/save">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <input type="hidden" name="section" value="prism_central">
+    <label>URL <input type="url" name="url" value="{{.Data.S.PrismCentral.URL}}" placeholder="https://10.0.0.10:9440" required></label>
+    <label class="inline"><input type="checkbox" name="tls_verify" value="on"{{if .Data.S.PrismCentral.TLSVerify}} checked{{end}}> verify the TLS certificate</label>
+    <label>CA certificate (PEM, when verifying a private CA) <textarea name="ca_pem" rows="4">{{.Data.S.PrismCentral.CAPEM}}</textarea></label>
+    <label>Service account API key <input type="password" name="api_key" value="" autocomplete="off" placeholder="{{if .Data.APIKeySet}}unchanged{{else}}required{{end}}"></label>
+    <label>SAML identity provider name <input type="text" name="saml_idp_name" value="{{.Data.S.PrismCentral.SAMLIdPName}}" required></label>
+    <div class="actions">
+      <button type="button" hx-post="/setup/check" hx-include="closest form" hx-vals='{"target":"prism_central"}' hx-target="#check-prism_central">Check</button>
+      <button type="submit" class="primary">Save</button>
+    </div>
+    <div id="check-prism_central" class="check-result"></div>
+  </form>
+</section>
+
+<section class="card" id="card-keycloak">
+  <h2>Identity</h2>
+  <form method="post" action="/setup/save">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <input type="hidden" name="section" value="keycloak">
+    <label>Keycloak realm <input type="text" name="realm" value="{{.Data.S.Keycloak.Realm}}" required></label>
+    <label>Admin client id <input type="text" name="admin_client_id" value="{{.Data.S.Keycloak.AdminClientID}}" required></label>
+    <label>Admin client secret <input type="password" name="admin_client_secret" value="" autocomplete="off" placeholder="{{if .Data.AdminSecretSet}}unchanged{{else}}required{{end}}"></label>
+    <label>OIDC issuer <input type="url" name="issuer" value="{{.Data.S.OIDC.Issuer}}" required></label>
+    <label>OIDC client id <input type="text" name="client_id" value="{{.Data.S.OIDC.ClientID}}" required></label>
+    <label>OIDC client secret <input type="password" name="client_secret" value="" autocomplete="off" placeholder="{{if .Data.ClientSecretSet}}unchanged{{else}}required{{end}}"></label>
+    <div class="actions">
+      <button type="button" hx-post="/setup/check" hx-include="closest form" hx-vals='{"target":"keycloak"}' hx-target="#check-keycloak">Check admin client</button>
+      <button type="button" hx-post="/setup/check" hx-include="closest form" hx-vals='{"target":"oidc"}' hx-target="#check-keycloak">Check OIDC</button>
+      <button type="submit" class="primary">Save</button>
+    </div>
+    <div id="check-keycloak" class="check-result"></div>
+  </form>
+</section>
+
+<section class="card" id="card-tenants">
+  <h2>Tenants</h2>
+  <p class="muted">A successful Prism Central check fills the cluster and storage container pickers.</p>
+  <form method="post" action="/setup/save">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <input type="hidden" name="section" value="tenants">
+    <label>Project prefix <input type="text" name="project_prefix" value="{{.Data.S.Tenants.ProjectPrefix}}" required></label>
+    <label>Group prefix <input type="text" name="group_prefix" value="{{.Data.S.Tenants.GroupPrefix}}" required></label>
+    <label>Role in the project <input type="text" name="role" value="{{.Data.S.Tenants.Role}}" required></label>
+    <label>Cluster <input type="text" name="cluster_ext_id" id="cluster_ext_id" value="{{.Data.S.Tenants.ClusterExtID}}" required></label>
+    <label>Storage container <input type="text" name="storage_container_ext_id" id="storage_container_ext_id" value="{{.Data.S.Tenants.StorageContainerExtID}}" required></label>
+    <label>Operation timeout <input type="text" name="operation_timeout" value="{{.Data.OperationTimeout}}" placeholder="10m" required></label>
+    <div class="actions"><button type="submit" class="primary">Save</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Apply</h2>
+  <p class="muted">Portico restarts and reads the stored settings. Open sessions end; log in again afterwards.</p>
+  <form method="post" action="/setup/apply">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <div class="actions"><button type="submit" class="primary"{{if not .Data.Stored}} disabled{{end}}>Apply and restart</button></div>
+  </form>
+</section>
+{{end}}
+
+{{define "check"}}
+<div class="banner {{if .Res.OK}}notice{{else}}error{{end}}">{{.Res.Message}}</div>
+{{if and .Res.OK (eq .Target "prism_central")}}
+<select name="cluster_ext_id" id="cluster_ext_id" hx-swap-oob="true">
+  {{range .Res.Clusters}}<option value="{{.ExtID}}"{{if eq .ExtID $.ClusterExtID}} selected{{end}}>{{.Name}} ({{.ExtID}})</option>{{end}}
+</select>
+<select name="storage_container_ext_id" id="storage_container_ext_id" hx-swap-oob="true">
+  {{range .Res.Containers}}<option value="{{.ExtID}}"{{if eq .ExtID $.StorageContainer}} selected{{end}}>{{.Name}} ({{.ExtID}})</option>{{end}}
+</select>
+{{end}}
+{{end}}

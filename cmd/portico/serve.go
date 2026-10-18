@@ -193,9 +193,17 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			log.Warn("branding: theme not applied at start", "err", err.Error())
 		}
 	}
-	ui := web.New(web.Options{Store: st, Service: tenants, Branding: brand, Sessions: adminSessions, Limiter: limiter, Secure: internalTLS != nil, Version: version, Log: log})
+	// Settings: the API and the setup page edit the stored document; when
+	// the process runs from the file, the page prefills from it (with the
+	// secrets the process already read) so the first save adopts it.
+	setup := &api.SettingsOptions{Service: settingsSvc, Checker: settings.NewChecker(log), KeycloakURL: cfg.Keycloak.URL}
+	if !settingsSvc.Stored(ctx) {
+		fileDoc := settings.FromConfig(cfg, apiKey, kcSecret, secret, string(caPEM))
+		setup.File = &fileDoc
+	}
+	ui := web.New(web.Options{Store: st, Service: tenants, Branding: brand, Sessions: adminSessions, Limiter: limiter, Setup: setup, Secure: internalTLS != nil, Version: version, Log: log})
 	guard := api.RequireAdmin(st, ui, limiter, "portico", log)
-	adminAPI := guard(api.New(tenants, st, brand, log))
+	adminAPI := guard(api.New(tenants, st, brand, setup, log))
 	adminUI := guard(ui)
 	// Tenant-facing pages: the landing page replaces Prism Central's
 	// provider page and starts the SAML login with the browser's own
