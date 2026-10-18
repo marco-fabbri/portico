@@ -193,3 +193,41 @@ func TestKeycloakThemeDefaults(t *testing.T) {
 		t.Errorf("want a theme_name error, got %v", err)
 	}
 }
+
+// Milestone 2d: the YAML's runtime sections may live in the store, so
+// Validate splits into process checks (always) and runtime checks (after
+// the store overlay).
+func TestValidateProcessOnlyChecksProcessFields(t *testing.T) {
+	cfg := Default()
+	if err := cfg.ValidateProcess(); err != nil {
+		t.Fatalf("ValidateProcess on Default() = %v, want nil", err)
+	}
+	err := cfg.ValidateRuntime()
+	if err == nil {
+		t.Fatal("ValidateRuntime on Default() = nil, want the runtime fields named")
+	}
+	for _, want := range []string{"public.prism_host", "prism_central.url", "prism_central.api_key_file", "keycloak.realm", "oidc.issuer", "tenants.cluster_ext_id"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("ValidateRuntime does not mention %s: %v", want, err)
+		}
+	}
+	cfg.Internal.AdminListen = "0.0.0.0:8443"
+	err = cfg.ValidateProcess()
+	if err == nil || !strings.Contains(err.Error(), "internal.tls") {
+		t.Errorf("ValidateProcess must keep the loopback/TLS rule: %v", err)
+	}
+	cfg.Internal.AdminListen = "127.0.0.1:8443"
+	cfg.Session.Idle = 0
+	if err := cfg.ValidateProcess(); err == nil || !strings.Contains(err.Error(), "session") {
+		t.Errorf("ValidateProcess must keep the session rule: %v", err)
+	}
+}
+
+func TestValidateIsBoth(t *testing.T) {
+	cfg := Default()
+	cfg.Session.Idle = 0
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "session") || !strings.Contains(err.Error(), "prism_central.url") {
+		t.Fatalf("Validate = %v, want both kinds of errors", err)
+	}
+}
