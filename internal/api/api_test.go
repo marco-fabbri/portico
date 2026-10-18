@@ -51,7 +51,7 @@ func newEnv(t *testing.T) *env {
 	log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	svc := tenant.NewService(st, pc, kc, tenant.Config{SAMLIdPName: "lab-idp", ClusterExtID: "cl", StorageContainerExtID: "sc", OperationTimeout: 5 * time.Second}, log)
 	brand := branding.NewService(st, log)
-	h := BasicAuth(st, "portico", log)(New(svc, st, brand, log))
+	h := BasicAuth(st, "portico", log)(New(svc, st, brand, nil, log))
 	return &env{h: h, svc: svc, st: st, pc: pc, kc: kc, brand: brand, log: &buf}
 }
 

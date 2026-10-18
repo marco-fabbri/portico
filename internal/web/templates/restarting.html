@@ -1,0 +1,8 @@
+{{define "content"}}
+<section class="card narrow">
+  <h1>Restarting</h1>
+  <p>Portico is restarting with the stored settings. This page checks every two seconds.</p>
+  <div id="ready" hx-get="/setup/ready" hx-trigger="every 2s" hx-swap="innerHTML"><p class="muted">Waiting…</p></div>
+  <p class="muted">If nothing changes after a minute, check the service on the appliance: <code>systemctl status portico</code>.</p>
+</section>
+{{end}}

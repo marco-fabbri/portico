@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/marco-fabbri/portico/internal/branding"
+	"github.com/marco-fabbri/portico/internal/settings"
 	"github.com/marco-fabbri/portico/internal/store"
 	"github.com/marco-fabbri/portico/internal/tenant"
 )
@@ -25,20 +26,29 @@ type handler struct {
 	svc   *tenant.Service
 	st    store.Store
 	brand *branding.Service
+	so    *SettingsOptions
 	log   *slog.Logger
 }
 
 // New returns the API handler. The caller wraps it with the
-// authentication middleware.
-func New(svc *tenant.Service, st store.Store, brand *branding.Service, log *slog.Logger) http.Handler {
+// authentication middleware. so may be nil: the settings routes then
+// answer 501.
+func New(svc *tenant.Service, st store.Store, brand *branding.Service, so *SettingsOptions, log *slog.Logger) http.Handler {
 	if log == nil {
 		log = slog.Default()
 	}
 	if brand == nil {
 		brand = branding.NewService(st, log)
 	}
-	h := &handler{svc: svc, st: st, brand: brand, log: log}
+	if so != nil && so.Checker == nil {
+		so.Checker = settings.NewChecker(log)
+	}
+	h := &handler{svc: svc, st: st, brand: brand, so: so, log: log}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET "+Prefix+"settings", h.getSettings)
+	mux.HandleFunc("PUT "+Prefix+"settings", h.putSettings)
+	mux.HandleFunc("POST "+Prefix+"settings/check", h.checkSettings)
+	mux.HandleFunc("POST "+Prefix+"settings/apply", h.applySettings)
 	mux.HandleFunc("GET "+Prefix+"settings/branding", h.getBranding)
 	mux.HandleFunc("PUT "+Prefix+"settings/branding", h.putBranding)
 	mux.HandleFunc("GET "+Prefix+"settings/branding/logo", h.getLogo)

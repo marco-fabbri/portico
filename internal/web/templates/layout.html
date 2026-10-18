@@ -14,6 +14,7 @@
     {{if .Admin}}
     <a href="/">Tenants</a>
     <a href="/settings/branding">Branding</a>
+    <a href="/setup">Setup</a>
     <span class="who">{{.Admin}}</span>
     <form method="post" action="/logout" class="inline">
       <input type="hidden" name="_csrf" value="{{.CSRF}}">
