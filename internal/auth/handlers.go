@@ -29,6 +29,13 @@ type loginState struct {
 
 const oidcCookieMaxAge = 10 * time.Minute
 
+// restartCookie marks that a callback without its login state already
+// restarted the flow once; it lives one minute.
+const (
+	restartCookie       = "__Host-portico_restart"
+	restartCookieMaxAge = time.Minute
+)
+
 // SessionFromContext returns the session Require stored for the request.
 func SessionFromContext(ctx context.Context) (Session, bool) {
 	s, ok := ctx.Value(sessionKey).(Session)
@@ -141,7 +148,19 @@ func (a *Authenticator) Callback() http.Handler {
 		clearOIDCCookie(w)
 		ls, ok := readOIDCCookie(r)
 		if !ok {
-			writeTextError(w, http.StatusBadRequest, "login state missing or expired, start again")
+			// The state cookie expired (the login page sat open) or never
+			// arrived: restart the flow from / once. The restart cookie
+			// makes a second miss in a row the plain error, so a browser
+			// that blocks cookies does not loop through Keycloak.
+			if c, err := r.Cookie(restartCookie); err == nil && c.Value != "" {
+				http.SetCookie(w, cookie(restartCookie, "", -1))
+				writeTextError(w, http.StatusBadRequest, "login state missing or expired, start again")
+				return
+			}
+			a.log.Info("callback: login state missing, restarting the login")
+			http.SetCookie(w, cookie(restartCookie, "1", int(restartCookieMaxAge.Seconds())))
+			w.Header().Set("Cache-Control", "no-store")
+			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
 		q := r.URL.Query()

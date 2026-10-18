@@ -203,20 +203,28 @@ func TestCallbackRejectsBadState(t *testing.T) {
 	}
 }
 
+// A replayed callback (its state cookie is gone after the first use)
+// never exchanges the code again or creates a session: it restarts from
+// /, where the existing session answers.
 func TestCallbackRejectsReplay(t *testing.T) {
 	idp := newFakeIDP(t)
-	a, _ := newTestAuth(t, idp)
+	a, st := newTestAuth(t, idp)
 	client, visited := porticoServer(t, a)
 	resp, err := client.Get("https://prism.test/.portico/login?rd=/console/")
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("first login: %v %v", err, resp)
 	}
-	resp, err = client.Get(callbackURL(*visited))
+	if len(st.sessions) != 1 {
+		t.Fatalf("%d sessions after the login, want 1", len(st.sessions))
+	}
+	replay := callbackURL(*visited)
+	*visited = (*visited)[:0]
+	resp, err = client.Get(replay)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != 400 {
-		t.Fatalf("replayed callback: status %d, want 400", resp.StatusCode)
+	if resp.StatusCode != 200 || len(st.sessions) != 1 || callbackURL(*visited) != "" {
+		t.Fatalf("replayed callback: status %d, sessions %d, visited %v", resp.StatusCode, len(st.sessions), *visited)
 	}
 }
 
@@ -358,5 +366,34 @@ func TestLoginIdPDownRendersErrorPageForBrowsers(t *testing.T) {
 	a.Login().ServeHTTP(rec, r)
 	if rec.Code != http.StatusServiceUnavailable || strings.Contains(rec.Body.String(), "BRANDED") || !strings.Contains(rec.Body.String(), "identity provider unavailable") {
 		t.Fatalf("non-browser: %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+// A callback without its login state (the state cookie expired while
+// the login page sat open) restarts the flow once from /; a second one
+// in a row is the 400 of old, so blocked cookies cannot loop.
+func TestCallbackWithoutStateRestartsOnce(t *testing.T) {
+	idp := newFakeIDP(t)
+	a, st := newTestAuth(t, idp)
+	client, _ := porticoServer(t, a)
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Get("https://prism.test/.portico/callback?code=x&state=y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 303 || resp.Header.Get("Location") != "/" {
+		t.Fatalf("first: %d %q, want 303 to /", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	resp, err = client.Get("https://prism.test/.portico/callback?code=x&state=y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Fatalf("second: %d, want 400", resp.StatusCode)
+	}
+	if len(st.sessions) != 0 {
+		t.Error("a session was created")
 	}
 }
