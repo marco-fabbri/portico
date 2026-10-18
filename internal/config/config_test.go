@@ -179,3 +179,17 @@ func TestValidateRefusesCleartextInternalListenerOffLoopback(t *testing.T) {
 		}
 	}
 }
+
+func TestKeycloakThemeDefaults(t *testing.T) {
+	cfg, err := Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Keycloak.ThemeDir != "/var/lib/portico/keycloak-theme" || cfg.Keycloak.ThemeName != "portico" {
+		t.Errorf("Keycloak theme defaults = %q %q", cfg.Keycloak.ThemeDir, cfg.Keycloak.ThemeName)
+	}
+	cfg.Keycloak.ThemeName = "Bad Name"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "keycloak.theme_name") {
+		t.Errorf("want a theme_name error, got %v", err)
+	}
+}

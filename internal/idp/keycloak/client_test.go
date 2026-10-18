@@ -27,6 +27,7 @@ type fakeKC struct {
 	fail      map[string]int
 	revoked   map[string]bool // tokens that no longer work
 	members   int             // number of members GroupMembers pages through
+	realm     map[string]any  // realm representation served on GET /admin/realms/lab
 }
 
 type recorded struct {
@@ -84,6 +85,10 @@ func (f *fakeKC) handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	p := strings.TrimPrefix(r.URL.Path, "/admin/realms/lab")
 	switch {
+	case p == "" && r.Method == "GET":
+		json.NewEncoder(w).Encode(f.realm)
+	case p == "" && r.Method == "PUT":
+		w.WriteHeader(204)
 	case p == "/groups" && r.Method == "GET":
 		name := r.URL.Query().Get("search")
 		var out []map[string]any
@@ -289,5 +294,27 @@ func TestGroupMembersPages(t *testing.T) {
 	}
 	if len(users) != 103 {
 		t.Fatalf("got %d members, want 103", len(users))
+	}
+}
+
+func TestSetRealmLoginTheme(t *testing.T) {
+	f := newFakeKC(t)
+	f.realm = map[string]any{"realm": "lab", "loginTheme": "keycloak", "displayName": "Lab realm", "enabled": true}
+	c := newClient(f, nil)
+	if err := c.SetRealmLoginTheme(context.Background(), "portico"); err != nil {
+		t.Fatalf("SetRealmLoginTheme: %v", err)
+	}
+	var put *recorded
+	for _, r := range f.requests() {
+		if r.Method == "PUT" && r.Path == "/admin/realms/lab" {
+			rr := r
+			put = &rr
+		}
+	}
+	if put == nil {
+		t.Fatal("no PUT on the realm")
+	}
+	if put.Body["loginTheme"] != "portico" || put.Body["displayName"] != "Lab realm" || put.Body["enabled"] != true {
+		t.Fatalf("PUT body = %v", put.Body)
 	}
 }

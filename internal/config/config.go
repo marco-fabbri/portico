@@ -55,6 +55,10 @@ type Keycloak struct {
 	Realm                 string `yaml:"realm"`
 	AdminClientID         string `yaml:"admin_client_id"`
 	AdminClientSecretFile string `yaml:"admin_client_secret_file"`
+	// ThemeDir is where Portico writes the login theme generated from the
+	// branding; Keycloak mounts it as /opt/keycloak/themes/<ThemeName>.
+	ThemeDir  string `yaml:"theme_dir"`
+	ThemeName string `yaml:"theme_name"`
 }
 
 // Tenants holds naming and placement for tenant provisioning (design §4.4).
@@ -127,7 +131,7 @@ func Default() Config {
 		Public:       Public{Listen: ":443"},
 		Internal:     Internal{AdminListen: "127.0.0.1:8443", PassthroughListen: "127.0.0.1:9440"},
 		PrismCentral: PrismCentral{TLSVerify: true},
-		Keycloak:     Keycloak{URL: "http://127.0.0.1:8080", AdminClientID: "portico-admin"},
+		Keycloak:     Keycloak{URL: "http://127.0.0.1:8080", AdminClientID: "portico-admin", ThemeDir: "/var/lib/portico/keycloak-theme", ThemeName: "portico"},
 		Session:      Session{MaxAge: 8 * time.Hour, Idle: 15 * time.Minute},
 		Policy:       Policy{AllowPrefixes: append([]string(nil), DefaultAllowPrefixes...)},
 		Log:          Log{Level: "info"},
@@ -167,6 +171,8 @@ func (c *Config) Validate() error {
 		{"keycloak.realm", c.Keycloak.Realm},
 		{"keycloak.admin_client_id", c.Keycloak.AdminClientID},
 		{"keycloak.admin_client_secret_file", c.Keycloak.AdminClientSecretFile},
+		{"keycloak.theme_dir", c.Keycloak.ThemeDir},
+		{"keycloak.theme_name", c.Keycloak.ThemeName},
 		{"store.path", c.Store.Path},
 		{"tenants.cluster_ext_id", c.Tenants.ClusterExtID},
 		{"tenants.storage_container_ext_id", c.Tenants.StorageContainerExtID},
@@ -190,6 +196,10 @@ func (c *Config) Validate() error {
 	// The prefix becomes part of a project id and a group name.
 	if !rePrefix.MatchString(c.Tenants.ProjectPrefix) {
 		errs = append(errs, fmt.Errorf("config: tenants.project_prefix %q must be lower-case letters, digits and dashes", c.Tenants.ProjectPrefix))
+	}
+	// The theme name is a directory name inside the container.
+	if !rePrefix.MatchString(c.Keycloak.ThemeName) {
+		errs = append(errs, fmt.Errorf("config: keycloak.theme_name %q must be lower-case letters, digits and dashes", c.Keycloak.ThemeName))
 	}
 	if !rePrefix.MatchString(strings.TrimSuffix(c.Tenants.GroupPrefix, "-")) {
 		errs = append(errs, fmt.Errorf("config: tenants.group_prefix %q must be lower-case letters, digits and dashes", c.Tenants.GroupPrefix))
