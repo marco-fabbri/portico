@@ -141,3 +141,18 @@ func TestRequireAdminNoPasswordSet(t *testing.T) {
 		t.Fatal("the password reached the log")
 	}
 }
+
+// Review fix 2: the UI session (a cookie, no CSRF token on the API) is
+// not accepted on API paths; scripts use Basic.
+func TestRequireAdminSessionIgnoredOnAPIPaths(t *testing.T) {
+	h, _, _ := requireEnv(t, true)
+	for _, method := range []string{"GET", "POST"} {
+		r := httptest.NewRequest(method, "https://127.0.0.1:8443/api/v1/tenants/x/disable", nil)
+		r.AddCookie(&http.Cookie{Name: "portico_admin", Value: "good"})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		if rec.Code != 401 {
+			t.Fatalf("%s API path with a UI session: %d, want 401", method, rec.Code)
+		}
+	}
+}
