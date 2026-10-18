@@ -25,3 +25,9 @@ is left behind without a row here.
 | SAML user (PC) | `alice@lab.portico.test`, created by Prism Central at her first SAML login | Task 5 | deleted with the IdP, or `DELETE /api/iam/v4.0/authn/users/{extId}` |
 | Keycloak OIDC client | `portico` in realm `portico-lab`, redirect `https://prism.lab.portico.test/.portico/callback`; secret in `~/portico-secrets/portico-oidc-secret` | M1 Task 8 | gone with the VM; delete the secret file when the lab ends |
 | VM service | `portico.service` (user `portico`, `/usr/local/bin/portico`, `/etc/portico/`), nginx disabled; firewalld ports 8443 and 9440 | M1 Task 8 | `lab/portico/undeploy.sh` restores nginx; gone with the VM |
+| Keycloak client | `portico-admin` in realm `portico-lab` (service account with realm-management roles); secret in `~/portico-secrets/portico-kc-admin-secret` | M2a Task 3 | gone with the VM; delete the secret file when the lab ends |
+| VM files | `/etc/portico/prism-api-key`, `/etc/portico/keycloak-admin-secret` (portico:portico 0600), store `/var/lib/portico/portico.db` | M2a Task 6 | gone with the VM |
+| secrets (Mac) | `~/portico-secrets/portico-admin-pw` (break-glass password of the admin API); `carol-tmp-pw`/`carol-pw` exist only between `acceptance.sh` and `acceptance.sh --delete` | M2a Task 6/7 | delete when the lab ends |
+| tenant (API) | `tenant-b` → project `portico-lab-tenant-b`, groups `tenant-tenant-b`: exist only while `lab/tenants/acceptance.sh` runs; removed by `acceptance.sh --delete` | M2a Task 7 | `lab/tenants/acceptance.sh --delete` |
+| Keycloak user | `carol@lab.portico.test` (created by `acceptance.sh`, removed by `acceptance.sh --delete`; Portico itself leaves tenant users in place) | M2a Task 7 | `lab/tenants/acceptance.sh --delete` |
+| SAML user (PC) | `carol@lab.portico.test`, created by Prism Central at her first SAML login | M2a Task 7 | `DELETE /api/iam/v4.0/authn/users/{extId}` when the lab ends |

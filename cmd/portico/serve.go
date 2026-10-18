@@ -12,9 +12,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/marco-fabbri/portico/internal/api"
 	"github.com/marco-fabbri/portico/internal/auth"
 	"github.com/marco-fabbri/portico/internal/config"
+	"github.com/marco-fabbri/portico/internal/idp/keycloak"
+	"github.com/marco-fabbri/portico/internal/nutanix"
 	"github.com/marco-fabbri/portico/internal/proxy"
+	"github.com/marco-fabbri/portico/internal/store"
+	"github.com/marco-fabbri/portico/internal/tenant"
 )
 
 // serverTLS returns the server-side TLS configuration for a listener, or
@@ -43,6 +48,19 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	apiKey, err := cfg.PrismAPIKey()
+	if err != nil {
+		return err
+	}
+	kcSecret, err := cfg.KeycloakAdminSecret()
+	if err != nil {
+		return err
+	}
+	st, err := store.OpenSQLite(cfg.Store.Path)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
 	pcURL, err := url.Parse(cfg.PrismCentral.URL)
 	if err != nil {
 		return fmt.Errorf("prism_central.url: %w", err)
@@ -90,6 +108,25 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// redirects for the address the administrator used.
 	passthrough := proxy.NewPassthrough(proxy.NewUpstream(proxy.UpstreamOptions{Target: pcURL, HostHeader: "", TLS: pcTLS, Log: log}), log)
 
+	// Tenant provisioning: Prism Central through the service account,
+	// Keycloak through the admin client on the backchannel.
+	pcClient, err := nutanix.New(cfg.PrismCentral.URL, apiKey, pcTLS, log)
+	if err != nil {
+		return err
+	}
+	kcClient := keycloak.New(cfg.Keycloak.URL, cfg.Keycloak.Realm, cfg.Keycloak.AdminClientID, kcSecret, &http.Client{Timeout: 15 * time.Second}, log)
+	tenants := tenant.NewService(st, pcClient, kcClient, tenant.Config{
+		ProjectPrefix: cfg.Tenants.ProjectPrefix, GroupPrefix: cfg.Tenants.GroupPrefix, RoleName: cfg.Tenants.Role,
+		SAMLIdPName: cfg.PrismCentral.SAMLIdPName, ClusterExtID: cfg.Tenants.ClusterExtID,
+		StorageContainerExtID: cfg.Tenants.StorageContainerExtID, OperationTimeout: cfg.Tenants.OperationTimeout,
+	}, log)
+	if n, err := tenants.RecoverInterrupted(ctx); err != nil {
+		return fmt.Errorf("tenant recovery: %w", err)
+	} else if n > 0 {
+		log.Warn("tenants interrupted by the previous run marked failed", "count", n)
+	}
+	adminAPI := api.BasicAuth(st, "portico", log)(api.New(tenants, st, log))
+
 	publicTLS, err := serverTLS(cfg.Public.TLS)
 	if err != nil {
 		return fmt.Errorf("public: %w", err)
@@ -110,7 +147,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	listeners := []listener{
 		{"public", newServer(cfg.Public.Listen, public), publicTLS},
 		{"passthrough", newServer(cfg.Internal.PassthroughListen, passthrough), internalTLS},
-		{"admin", newServer(cfg.Internal.AdminListen, proxy.NewAdmin(log)), internalTLS},
+		{"admin", newServer(cfg.Internal.AdminListen, proxy.NewAdmin(log, adminAPI)), internalTLS},
 	}
 
 	errs := make(chan error, len(listeners))
@@ -144,9 +181,13 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			}
 		case err := <-errs:
 			shutdown(listeners, log)
+			tenants.Wait()
 			return err
 		case <-ctx.Done():
 			shutdown(listeners, log)
+			// Let a running tenant operation finish its current step set
+			// before the store closes; the operation timeout bounds it.
+			tenants.Wait()
 			return nil
 		}
 	}

@@ -91,3 +91,91 @@ func TestClientSecretTrimsNewline(t *testing.T) {
 		t.Errorf("got %q, want s3cret", got)
 	}
 }
+
+// m1Config returns a Config with every Milestone 1 field set and nothing
+// from Milestone 2.
+func m1Config() Config {
+	cfg := Default()
+	cfg.Public.PrismHost, cfg.Public.IDHost = "prism.example.test", "id.example.test"
+	cfg.PrismCentral.URL = "https://pc.example.test:9440"
+	cfg.OIDC.Issuer, cfg.OIDC.ClientID, cfg.OIDC.ClientSecretFile = "https://id.example.test/realms/portico", "portico", "/nonexistent"
+	return cfg
+}
+
+func TestValidateRequiresMilestone2Fields(t *testing.T) {
+	cfg := m1Config()
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate without the Milestone 2 fields returned nil")
+	}
+	for _, want := range []string{"prism_central.api_key_file", "prism_central.saml_idp_name", "keycloak.realm", "keycloak.admin_client_secret_file", "tenants.cluster_ext_id", "tenants.storage_container_ext_id"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %s: %v", want, err)
+		}
+	}
+}
+
+func TestDefaultsForTenants(t *testing.T) {
+	cfg, err := Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Tenants.ProjectPrefix != "portico" || cfg.Tenants.GroupPrefix != "tenant-" || cfg.Tenants.Role != "Project Admin" || cfg.Tenants.OperationTimeout != 10*time.Minute {
+		t.Errorf("Tenants defaults = %+v", cfg.Tenants)
+	}
+	if cfg.Store.Path != "/var/lib/portico/portico.db" {
+		t.Errorf("Store.Path = %q", cfg.Store.Path)
+	}
+	if cfg.Keycloak.AdminClientID != "portico-admin" {
+		t.Errorf("Keycloak.AdminClientID = %q", cfg.Keycloak.AdminClientID)
+	}
+	if cfg.Tenants.ClusterExtID != "cl-1" || cfg.PrismCentral.SAMLIdPName != "lab-idp" {
+		t.Errorf("values from the file not loaded: %+v %+v", cfg.Tenants, cfg.PrismCentral)
+	}
+}
+
+func TestPrefixMustBeSlugSafe(t *testing.T) {
+	cfg, err := Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Tenants.ProjectPrefix = "Bad Prefix"
+	err = cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "tenants.project_prefix") {
+		t.Errorf("want a project_prefix error, got %v", err)
+	}
+}
+
+// Review fix 4: the break-glass password travels as HTTP Basic, so an
+// internal listener off the loopback must have TLS.
+func TestValidateRefusesCleartextInternalListenerOffLoopback(t *testing.T) {
+	cases := []struct {
+		admin, pass string
+		tls         bool
+		wantErr     bool
+	}{
+		{"127.0.0.1:8443", "127.0.0.1:9440", false, false},
+		{"[::1]:8443", "localhost:9440", false, false},
+		{"0.0.0.0:8443", "127.0.0.1:9440", false, true},
+		{"127.0.0.1:8443", "10.0.0.5:9440", false, true},
+		{":8443", "127.0.0.1:9440", false, true},
+		{"10.0.0.5:8443", "10.0.0.5:9440", true, false},
+	}
+	for _, c := range cases {
+		cfg, err := Load("testdata/minimal.yaml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Internal.AdminListen, cfg.Internal.PassthroughListen = c.admin, c.pass
+		if c.tls {
+			cfg.Internal.TLS = TLS{CertFile: "/c.pem", KeyFile: "/k.pem"}
+		}
+		err = cfg.Validate()
+		if c.wantErr && (err == nil || !strings.Contains(err.Error(), "internal.tls")) {
+			t.Errorf("%s/%s tls=%v: want an internal.tls error, got %v", c.admin, c.pass, c.tls, err)
+		}
+		if !c.wantErr && err != nil {
+			t.Errorf("%s/%s tls=%v: unexpected error %v", c.admin, c.pass, c.tls, err)
+		}
+	}
+}
