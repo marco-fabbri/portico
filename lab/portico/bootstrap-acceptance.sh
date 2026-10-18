@@ -92,7 +92,7 @@ done
 line "service back after apply" "$back" running
 
 # 7. Branding (write-up 14), so the login page is branded again.
-jq -n --rawfile logo lab/portico/portico-msp-logo.svg '{msp_name:"Portico MSP", tagline:"One door to your Nutanix cloud.", accent_color:"#a73422", logo_type:"image/svg+xml", logo_data:($logo|@base64), min_display_ms:800}' > "$tmp/brand.json"
+jq -n --rawfile logo lab/portico/portico-msp-logo.svg '{msp_name:"Portico MSP", tagline:"The single, authenticated entry point to your Nutanix services.", accent_color:"#a73422", logo_type:"image/svg+xml", logo_data:($logo|@base64), min_display_ms:800}' > "$tmp/brand.json"
 code=$(api PUT /api/v1/settings/branding "$tmp/brand.json")
 line "PUT branding" "$code" 200
 
