@@ -25,6 +25,16 @@ type fakePCAdmin struct {
 	keyDeleted int
 	posts      []string
 	issuedKey  string
+	idps       []map[string]any
+	idpPost    map[string]any
+	forbidKey  bool // the IdP calls answer 403 to the API key (service account without the right)
+}
+
+// addIdP pre-seeds an identity provider.
+func (f *fakePCAdmin) addIdP(name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.idps = append(f.idps, map[string]any{"extId": "idp-" + name, "name": name, "entityIssuer": "https://prism.example.test/api/iam/authn"})
 }
 
 func newFakePCAdmin(t *testing.T) *fakePCAdmin {
@@ -55,6 +65,32 @@ func (f *fakePCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 		f.posts = append(f.posts, r.URL.Path)
 	}
 	p := r.URL.Path
+	if strings.Contains(p, "/authn/saml-identity-providers") {
+		if f.forbidKey && !basic {
+			w.WriteHeader(403)
+			w.Write([]byte(`{"data":{"error":{"message":"forbidden"}}}`))
+			return
+		}
+		switch {
+		case p == nutanix.PathIAM1+"/authn/saml-identity-providers" && r.Method == "GET":
+			out := f.idps
+			if out == nil {
+				out = []map[string]any{}
+			}
+			reply(200, out)
+		case p == nutanix.PathIAM1+"/authn/saml-identity-providers" && r.Method == "POST":
+			f.idpPost = body
+			idp := map[string]any{"extId": "idp-" + body["name"].(string), "name": body["name"], "entityIssuer": "https://prism.example.test/api/iam/authn", "redirectURL": body["redirectURL"]}
+			f.idps = append(f.idps, idp)
+			reply(201, idp)
+		case strings.HasSuffix(p, "/sp-metadata"):
+			w.Header().Set("Content-Type", "application/xml")
+			w.Write([]byte(`<?xml version="1.0"?><md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://prism.example.test/api/iam/authn"><md:SPSSODescriptor><md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://prism.example.test/api/iam/authn/callback" index="1"/></md:SPSSODescriptor></md:EntityDescriptor>`))
+		default:
+			w.WriteHeader(404)
+		}
+		return
+	}
 	switch {
 	case strings.HasSuffix(p, "/config/clusters"):
 		reply(200, []map[string]any{{"extId": "cl-1", "name": "NTNX-01", "config": map[string]any{"clusterFunction": []string{"AOS"}}}})

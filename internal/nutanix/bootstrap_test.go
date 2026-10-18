@@ -19,7 +19,12 @@ type iamState struct {
 	keyDel    int
 	policy    map[string]any
 	policyPut map[string]any
+	idpPost   map[string]any
 }
+
+// testSPMetadata is the shape measured on pc.7.6.0.6 (2026-10-18): plain
+// XML, no JSON envelope.
+const testSPMetadata = `<?xml version="1.0" encoding="UTF-8"?><md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://prism.example.test/api/iam/authn"><md:SPSSODescriptor AuthnRequestsSigned="false" protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"><md:NameIDFormat>urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress</md:NameIDFormat><md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://prism.example.test/api/iam/authn/callback" index="1"/></md:SPSSODescriptor></md:EntityDescriptor>`
 
 func (f *fakePC) iam() *iamState {
 	if f.iamSt == nil {
@@ -60,6 +65,15 @@ func (f *fakePC) handleIAM(w http.ResponseWriter, r *http.Request, rec recorded,
 	case p == PathIAM1+"/authn/users/sa-1/keys/key-1" && r.Method == "DELETE":
 		st.keyDel++
 		w.WriteHeader(204)
+	case p == PathIAM1+"/authn/saml-identity-providers" && r.Method == "POST":
+		st.idpPost = rec.Body
+		reply(201, map[string]any{"extId": "idp-new", "name": rec.Body["name"], "entityIssuer": "https://prism.example.test/api/iam/authn", "redirectURL": rec.Body["redirectURL"]})
+	case p == PathIAM1+"/authn/saml-identity-providers/idp-new/sp-metadata" && r.Method == "GET":
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(200)
+		w.Write([]byte(testSPMetadata))
+	case strings.HasSuffix(p, "/sp-metadata") && r.Method == "GET":
+		reply(404, map[string]any{"error": "identity provider not found"})
 	case p == PathIAM1+"/authz/authorization-policies/pol-pm" && r.Method == "GET":
 		w.Header().Set("ETag", f.etag)
 		reply(200, st.policy)
@@ -183,5 +197,34 @@ func TestDeleteAPIKeyUsesETag(t *testing.T) {
 	del := find(f.requests(), "DELETE", PathIAM1+"/authn/users/sa-1/keys/key-1")
 	if del == nil || del.Header.Get("If-Match") != f.etag || f.iam().keyDel != 1 {
 		t.Fatalf("DELETE = %+v", del)
+	}
+}
+
+func TestCreateSAMLIdPEncodesMetadata(t *testing.T) {
+	f := newFakePC(t)
+	c := newClient(t, f, nil)
+	xml := []byte(`<EntityDescriptor entityID="https://id.example.test/realms/msp"/>`)
+	idp, err := c.CreateSAMLIdP(context.Background(), SAMLIdPSpec{Name: "portico-keycloak", MetadataXML: xml, RedirectURL: "https://prism.example.test"})
+	if err != nil || idp.ExtID != "idp-new" || idp.EntityIssuer != "https://prism.example.test/api/iam/authn" {
+		t.Fatalf("CreateSAMLIdP = %+v, %v", idp, err)
+	}
+	b := f.iam().idpPost
+	if b["name"] != "portico-keycloak" || b["usernameAttribute"] != "email" || b["emailAttribute"] != "email" || b["groupsAttribute"] != "groups" || b["isSignedAuthnReqEnabled"] != false || b["redirectURL"] != "https://prism.example.test" {
+		t.Fatalf("POST body = %v", b)
+	}
+	if dec, err := base64.StdEncoding.DecodeString(b["idpMetadataXml"].(string)); err != nil || string(dec) != string(xml) {
+		t.Fatalf("idpMetadataXml = %v (%v)", b["idpMetadataXml"], err)
+	}
+}
+
+func TestSPMetadataParsesEntityIDAndACS(t *testing.T) {
+	f := newFakePC(t)
+	c := newClient(t, f, nil)
+	entityID, acs, err := c.SPMetadata(context.Background(), "idp-new")
+	if err != nil || entityID != "https://prism.example.test/api/iam/authn" || acs != "https://prism.example.test/api/iam/authn/callback" {
+		t.Fatalf("SPMetadata = %q %q %v", entityID, acs, err)
+	}
+	if _, _, err := c.SPMetadata(context.Background(), "idp-missing"); !IsNotFound(err) {
+		t.Fatalf("missing IdP = %v", err)
 	}
 }
