@@ -97,7 +97,7 @@ func themeCSS(b Branding) string {
 		// any image type works (write-up 13).
 		fmt.Fprintf(&sb, ".portico-lockup::before { content: \"\"; width: 0.88em; height: 1em; flex: none; background: url(../img/logo.%s) no-repeat center; background-size: contain; }\n", b.LogoExt())
 	}
-	sb.WriteString(".pf-v5-c-login__container::after { content: \"Powered by Portico\"; order: 2; color: #fff; opacity: 0.75; font-size: 0.8rem; padding-left: 1.4rem; background: url(../img/portico-mark.svg) no-repeat left center; background-size: contain; line-height: 1.2rem; }\n")
+	sb.WriteString(".pf-v5-c-login__container::after { content: \"Powered by Portico\"; order: 2; margin-top: 1.5rem; color: #fff; opacity: 0.75; font-size: 0.8rem; padding-left: 1.4rem; background: url(../img/portico-mark.svg) no-repeat left center; background-size: contain; line-height: 1.2rem; }\n")
 	sb.WriteString(".pf-v5-c-button.pf-m-primary { background-color: var(--portico-accent); border-color: var(--portico-accent); border-radius: 8px; }\n")
 	sb.WriteString(".pf-v5-c-button.pf-m-primary:hover { filter: brightness(1.1); }\n")
 	sb.WriteString(".pf-v5-c-form-control { border-radius: 8px; }\n")
@@ -113,7 +113,8 @@ func themeMessages(b Branding) string {
 	name := strings.TrimSpace(b.MSPName)
 	lockup := html.EscapeString(name)
 	if i := strings.LastIndex(name, " "); i > 0 {
-		lockup = html.EscapeString(name[:i]) + " <strong>" + html.EscapeString(strings.TrimSpace(name[i+1:])) + "</strong>"
+		// A wordmark: no space before the bold last word (PORTICO**MSP**).
+		lockup = html.EscapeString(name[:i]) + "<strong>" + html.EscapeString(strings.TrimSpace(name[i+1:])) + "</strong>"
 	}
 	title := `<span class="portico-lockup">` + lockup + `</span>`
 	if claim := strings.TrimSpace(b.Tagline); claim != "" {
