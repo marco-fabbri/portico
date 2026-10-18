@@ -41,8 +41,24 @@ func TestTenantListShowsRowsAndPollsWhileCreating(t *testing.T) {
 		t.Fatalf("list with a creating tenant: %s", body)
 	}
 	rec = e.do("GET", "/?partial=rows", nil, true)
-	if rec.Code != 200 || strings.Contains(rec.Body.String(), "<html") || !strings.Contains(rec.Body.String(), "beta") {
-		t.Fatalf("rows partial: %d %s", rec.Code, rec.Body.String())
+	body = rec.Body.String()
+	if rec.Code != 200 || strings.Contains(body, "<html") || !strings.Contains(body, "beta") {
+		t.Fatalf("rows partial: %d %s", rec.Code, body)
+	}
+	// HTMX swaps the tbody with outerHTML: the fragment must bring its own
+	// tbody with the polling attributes, or polling stops after one tick.
+	if !strings.Contains(body, `<tbody id="rows"`) || !strings.Contains(body, `hx-trigger="every 10s"`) {
+		t.Fatalf("rows partial lacks the polling tbody: %s", body)
+	}
+	if rec.Header().Get("HX-Refresh") != "" {
+		t.Fatal("HX-Refresh set while a tenant is still in progress")
+	}
+	if err := e.st.DeleteTenant(context.Background(), "beta"); err != nil {
+		t.Fatal(err)
+	}
+	rec = e.do("GET", "/?partial=rows", nil, true)
+	if rec.Header().Get("HX-Refresh") != "true" {
+		t.Fatal("HX-Refresh not set once nothing is in progress")
 	}
 }
 

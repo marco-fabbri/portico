@@ -113,11 +113,19 @@ deployed by `lab/portico/deploy.sh`, NTNX-01 pc.7.6.0.6).
 - MEASURED: Disable → badge `disabled` (amber) and the Enable button
   replaces Disable; Enable → `active` again.
 - MEASURED: "delete the project too" ticked + Delete tenant → the list
-  shows `tenant-b` as `deleting` (grey) and polls every 10 s; after the
-  run (journal: `tenant operation done delete`, 106 s on the nested lab)
-  the row is gone and the list says "No tenants yet." The API confirms
-  `[]`; `lab/tenants/acceptance.sh --delete` then found the project and
-  the groups absent and removed carol from Keycloak.
+  shows `tenant-b` as `deleting` (grey). On the build under test the list
+  refreshed only once (the review found the rows fragment lacked its
+  `<tbody>`, so HTMX dropped the polling element after the first swap);
+  the empty list was seen after a manual reload. After the run (journal:
+  `tenant operation done delete`, 106 s on the nested lab) the row was
+  gone and the list said "No tenants yet." The API confirmed `[]`;
+  `lab/tenants/acceptance.sh --delete` then found the project and the
+  groups absent and removed carol from Keycloak.
+- MEASURED after the review fix: the rows fragment now carries its own
+  `<tbody id="rows" hx-trigger="every 10s">` (checked with curl on the
+  deployed build) and answers `HX-Refresh: true` once nothing is in
+  progress, so the list keeps polling until the run ends and then reloads
+  once.
 - MEASURED: Log out → `/login`, and `/` redirects to the login page again.
 - MEASURED on the way: a GET of a deep link while logged out lands on
   `/login?next=<path>` and returns there after the login.
