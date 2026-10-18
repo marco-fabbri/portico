@@ -29,7 +29,12 @@ it; the Milestone 2f sweep closed the 2d and 2e items listed at the end.
 - Prism Central's own Sign Out spins forever when `/api/nutanix/v3/logout`
   answers 403 upstream (the user was deleted meanwhile, observed
   2026-10-18); Portico could end its own session and redirect to its
-  logout on that answer (`internal/proxy`).
+  logout on that answer (`internal/proxy`). The same stale session (a
+  tenant deleted and recreated while the browser kept Prism Central's
+  cookie) lands on Prism Central's 403 page after a fresh Portico login,
+  because `/` is proxied when the cookie is present: on a console 403
+  Portico could expire the Prism Central cookies and restart the SAML
+  login (observed 2026-10-18, write-up 16).
 - The limiter is a serial brake (bcrypt before the delay, N parallel
   connections); note it in design §4.2. No throttle on failed Basic
   attempts on the API (`internal/api`).
@@ -71,6 +76,10 @@ it; the Milestone 2f sweep closed the 2d and 2e items listed at the end.
 - Two concurrent branding saves can race cache, store and the theme `.tmp`
   files (mutex across `Set`, `internal/branding`).
 - `min_display_ms` rounds down to whole seconds (label the field).
+- Keycloak login page layout: the realm name under the logo is readable
+  now but plain and redundant with a logo that already carries the name
+  (Marco, 2026-10-18); a layout pass on the login page is planned after
+  Milestone 2f (hide the name when a logo is set, or style it).
 - The branding save logs the MSP name value (the plan said field names).
 - `Validate` does not trim the MSP name on the API path.
 - Config validation accepts `prism_host == id_host`; a TLS private key
