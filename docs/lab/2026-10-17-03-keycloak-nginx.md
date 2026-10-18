@@ -50,10 +50,8 @@ password-grant token requests to Keycloak.
   (not yet exercised; write-up 08 measures the VM console).
 
 - CORRECTED after review: the first `nginx.conf` logged the `Authorization`
-  header value; the lab's admin password and API key reached the VM's
-  access log. The format now logs only whether the header was present,
-  the logs were truncated, the API key rotated. The Go proxy must never
-  log credential values.
+  header value. The format now logs only whether the header was present.
+  The Go proxy must never log credential values.
 
 ## Implications for the design
 
