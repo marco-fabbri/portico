@@ -21,6 +21,9 @@ type setupData struct {
 	Mode                                       string
 	Missing                                    []string
 	Complete                                   bool
+	// OOB marks the inputs rendered by a bootstrap fragment, which
+	// HTMX swaps into the cards by id.
+	OOB bool
 }
 
 func (h *Handler) setupRoutes(mux *http.ServeMux) {
@@ -28,6 +31,7 @@ func (h *Handler) setupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /setup/save", h.setupSave)
 	mux.HandleFunc("POST /setup/check", h.setupCheck)
 	mux.HandleFunc("POST /setup/apply", h.setupApply)
+	mux.HandleFunc("POST /setup/bootstrap/{target}", h.setupBootstrap)
 	mux.HandleFunc("GET /setup/ready", h.setupReady)
 }
 
@@ -81,10 +85,12 @@ func formSettings(r *http.Request, section string, cur settings.Settings) (setti
 		out.PrismHost, out.IDHost = v("prism_host"), v("id_host")
 	case "prism_central":
 		out.PrismCentral.URL, out.PrismCentral.TLSVerify = v("url"), r.FormValue("tls_verify") != ""
-		out.PrismCentral.CAPEM, out.PrismCentral.SAMLIdPName = strings.TrimSpace(r.FormValue("ca_pem")), v("saml_idp_name")
+		out.PrismCentral.CAPEM = strings.TrimSpace(r.FormValue("ca_pem"))
 		if k := r.FormValue("api_key"); k != "" {
 			out.PrismCentral.APIKey = settings.Secret(strings.TrimSpace(k))
 		}
+	case "saml":
+		out.PrismCentral.SAMLIdPName = v("saml_idp_name")
 	case "keycloak":
 		out.Keycloak.Realm, out.Keycloak.AdminClientID = v("realm"), v("admin_client_id")
 		if k := r.FormValue("admin_client_secret"); k != "" {
@@ -209,4 +215,87 @@ func (h *Handler) setupReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Write([]byte(`<p class="banner notice">Portico is back. <a href="/login">Log in again</a> to continue.</p>`))
+}
+
+// bootData is what a bootstrap fragment renders: the outcome banner, a
+// fresh copy of the bootstrap form (so the password fields come back
+// empty) and, on success, the inputs the bootstrap filled, swapped
+// out-of-band into their cards.
+type bootData struct {
+	Target, Status, Message string
+	OK                      bool
+	CSRF                    string
+	Data                    setupData
+	Clusters, Containers    []settings.Choice
+}
+
+// setupBootstrap runs one bootstrap from the card's form: the one-time
+// credentials travel in this request only (design §4.5) and the result
+// is stored through the settings service when the step succeeded.
+func (h *Handler) setupBootstrap(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCSRF(w, r) {
+		return
+	}
+	target := r.PathValue("target")
+	if target != "keycloak" && target != "prism-central" && target != "saml" {
+		http.NotFound(w, r)
+		return
+	}
+	cur, source, ok := h.current(w, r)
+	if !ok {
+		return
+	}
+	v := func(name string) string { return strings.TrimSpace(r.FormValue(name)) }
+	b := h.setup.Bootstrapper
+	var (
+		okRes   bool
+		message string
+		out     settings.Settings
+		err     error
+		d       = bootData{Target: target}
+	)
+	switch target {
+	case "keycloak":
+		var res settings.KeycloakResult
+		res, out, err = b.Keycloak(r.Context(), h.setup.KeycloakURL, cur, settings.KeycloakInput{AdminUsername: v("admin_username"), AdminPassword: r.FormValue("admin_password"), Realm: v("realm"), DisplayName: v("display_name")})
+		okRes, message = res.OK, res.Message
+	case "prism-central":
+		var res settings.PrismResult
+		res, out, err = b.PrismCentral(r.Context(), cur, settings.PrismInput{Username: v("username"), Password: r.FormValue("password"), URL: v("url"), TLSVerify: r.FormValue("tls_verify") != "", CAPEM: strings.TrimSpace(r.FormValue("ca_pem")), ServiceAccount: v("service_account")})
+		okRes, message, d.Clusters, d.Containers = res.OK, res.Message, res.Clusters, res.Containers
+	case "saml":
+		var res settings.SAMLResult
+		res, out, err = b.SAML(r.Context(), h.setup.KeycloakURL, cur, settings.SAMLInput{Name: v("saml_idp_name"), Username: v("username"), Password: r.FormValue("password")})
+		okRes, message = res.OK, res.Message
+	}
+	status := http.StatusOK
+	var se *settings.StateError
+	switch {
+	case errors.As(err, &se):
+		status, d.Status, d.Message = http.StatusConflict, "error", err.Error()
+	case err != nil:
+		h.log.Error("settings bootstrap failed", "via", "ui", "target", target, "err", err.Error())
+		status, d.Status, d.Message = http.StatusInternalServerError, "error", err.Error()
+	case !okRes:
+		d.Status, d.Message = "error", message
+	default:
+		if err := h.setup.Service.Update(r.Context(), out); err != nil {
+			h.log.Error("settings bootstrap: not stored", "via", "ui", "target", target, "err", err.Error())
+			status, d.Status, d.Message = http.StatusInternalServerError, "error", "bootstrap done but the settings were not stored: "+err.Error()
+			break
+		}
+		cur, source = out, "store"
+		d.OK, d.Status, d.Message = true, "notice", message
+	}
+	h.log.Info("settings bootstrap", "via", "ui", "target", target, "ok", d.OK, "status", status)
+	d.Data = toSetupData(cur, source, h.setup.Mode)
+	d.Data.OOB = true
+	if sess, ok := h.session(r); ok {
+		d.CSRF = sess.CSRF
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	if err := h.pages["setup"].ExecuteTemplate(w, "bootstrap_"+strings.ReplaceAll(target, "-", "_"), d); err != nil {
+		h.log.Error("template", "page", "setup/bootstrap", "err", err.Error())
+	}
 }
