@@ -67,7 +67,7 @@ and what a reset of the lab to that fresh state involves.
   `id_host`, `prism_central.url`, `prism_central.api_key`,
   `prism_central.saml_idp_name`, `keycloak.realm`,
   `keycloak.admin_client_secret`, `oidc.issuer`, `oidc.client_secret`,
-  `tenants.cluster_ext_id`, `tenants.container_ext_id`: 11 of 17, the six
+  `tenants.cluster_ext_id`, `tenants.storage_container_ext_id`: 11 of 17, the six
   with defaults are not listed), then `listening admin` only. Port 443
   and 9440 do not answer. The first build logged `missing=null` on an
   empty store (the list was only computed for a stored draft): fixed,
@@ -114,6 +114,14 @@ and what a reset of the lab to that fresh state involves.
   back **2.2 s** after `exiting for the restart`; `mode=running`;
   branding PUT 200 (the Keycloak theme was pushed to the new realm by
   the save).
+- Fixed in the review pass, with tests: each bootstrap now stores what
+  it set through `Service.Patch` (read, change, write under a lock), so
+  a card saved while a bootstrap runs, or two bootstraps started from
+  the same page, no longer revert each other
+  (`TestKeycloakBootstrapKeepsASaveMadeMeanwhile`); the store step runs
+  inside the bootstrapper on a context of its own, and a Prism Central
+  key that could not be stored is revoked at once instead of staying
+  valid with nobody holding it (`TestPrismBootstrapRevokesTheKeyWhenTheStoreFails`).
 - MEASURED: `lab/tenants/acceptance.sh` PASS on the bootstrapped
   appliance: provisioning of tenant-b **11 s**, seven steps `ok`,
   visibility `ok`, carol created, disabled and enabled.

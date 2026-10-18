@@ -360,7 +360,10 @@ its own, since the request's deadline is usually what failed) so a retry
 does not leave unused keys behind; when the creation call itself fails
 after Prism Central created the key (measured: a timeout, write-up 15),
 Portico lists the account's keys and revokes the one with the name it
-chose. The same one-time credentials may be offered
+chose. The store step is part of the bootstrap: each step writes only the
+fields it set, through a read-change-write under the settings service's
+lock, so a card saved while a step runs is kept; a key that could not be
+stored is revoked at once. The same one-time credentials may be offered
 to the SAML step (section 4.4) when the service account is refused there.
 
 The Keycloak side has the same shape: `POST /api/v1/settings/bootstrap/keycloak`

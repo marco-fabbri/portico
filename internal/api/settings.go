@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -386,9 +385,9 @@ type bootstrapKeycloakJSON struct {
 }
 
 // bootstrapAnswer writes a bootstrap outcome: 409 for a precondition,
-// 500 for a store failure, otherwise 200 with the result and "stored"
-// when the returned document was saved.
-func (h *handler) bootstrapAnswer(w http.ResponseWriter, r *http.Request, res any, ok bool, out settings.Settings, err error) {
+// 500 for an internal error, otherwise 200 with the result; its "stored"
+// field says whether the bootstrapper saved what it set.
+func (h *handler) bootstrapAnswer(w http.ResponseWriter, r *http.Request, res any, err error) {
 	var se *settings.StateError
 	switch {
 	case errors.As(err, &se):
@@ -399,18 +398,7 @@ func (h *handler) bootstrapAnswer(w http.ResponseWriter, r *http.Request, res an
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	raw, _ := json.Marshal(res)
-	var body map[string]any
-	json.Unmarshal(raw, &body)
-	if ok {
-		if err := h.so.Service.Update(r.Context(), out); err != nil {
-			h.log.Error("bootstrap: settings not stored", "err", err.Error())
-			writeError(w, http.StatusInternalServerError, "bootstrap done but the settings were not stored: "+err.Error())
-			return
-		}
-		body["stored"] = true
-	}
-	writeJSON(w, http.StatusOK, body)
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (h *handler) bootstrapKeycloak(w http.ResponseWriter, r *http.Request) {
@@ -427,11 +415,11 @@ func (h *handler) bootstrapKeycloak(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	res, out, err := h.so.Bootstrapper.Keycloak(r.Context(), h.so.KeycloakURL, cur, settings.KeycloakInput{AdminUsername: in.AdminUsername, AdminPassword: in.AdminPassword, Realm: in.Realm, DisplayName: in.DisplayName})
+	res, _, err := h.so.Bootstrapper.Keycloak(r.Context(), h.so.KeycloakURL, cur, settings.KeycloakInput{AdminUsername: in.AdminUsername, AdminPassword: in.AdminPassword, Realm: in.Realm, DisplayName: in.DisplayName})
 	if err == nil {
 		h.log.Info("bootstrap keycloak", "realm", in.Realm, "user", in.AdminUsername, "ok", res.OK, "created", res.Created)
 	}
-	h.bootstrapAnswer(w, r, res, res.OK, out, err)
+	h.bootstrapAnswer(w, r, res, err)
 }
 
 // bootstrapPrismJSON is the Prism Central bootstrap request body.
@@ -462,7 +450,7 @@ func (h *handler) bootstrapPrismCentral(w http.ResponseWriter, r *http.Request) 
 	if in.TLSVerify != nil {
 		pin.TLSVerify = *in.TLSVerify
 	}
-	res, out, err := h.so.Bootstrapper.PrismCentral(r.Context(), cur, pin)
+	res, _, err := h.so.Bootstrapper.PrismCentral(r.Context(), cur, pin)
 	if err == nil {
 		attrs := []any{"url", in.URL, "user", in.Username, "service_account", res.ServiceAccount, "ok", res.OK, "created", res.Created}
 		if res.OK {
@@ -470,7 +458,7 @@ func (h *handler) bootstrapPrismCentral(w http.ResponseWriter, r *http.Request) 
 		}
 		h.log.Info("bootstrap prism central", attrs...)
 	}
-	h.bootstrapAnswer(w, r, res, res.OK, out, err)
+	h.bootstrapAnswer(w, r, res, err)
 }
 
 // bootstrapSAMLJSON is the SAML trust bootstrap request body.
@@ -494,9 +482,9 @@ func (h *handler) bootstrapSAML(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	res, out, err := h.so.Bootstrapper.SAML(r.Context(), h.so.KeycloakURL, cur, settings.SAMLInput{Name: in.Name, Username: in.Username, Password: in.Password})
+	res, _, err := h.so.Bootstrapper.SAML(r.Context(), h.so.KeycloakURL, cur, settings.SAMLInput{Name: in.Name, Username: in.Username, Password: in.Password})
 	if err == nil {
-		h.log.Info("bootstrap saml", "name", out.PrismCentral.SAMLIdPName, "ok", res.OK, "used_credentials", res.UsedCredentials, "created", res.Created)
+		h.log.Info("bootstrap saml", "name", in.Name, "ok", res.OK, "used_credentials", res.UsedCredentials, "created", res.Created)
 	}
-	h.bootstrapAnswer(w, r, res, res.OK, out, err)
+	h.bootstrapAnswer(w, r, res, err)
 }

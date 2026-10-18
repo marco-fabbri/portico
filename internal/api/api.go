@@ -61,7 +61,7 @@ func New(svc *tenant.Service, st store.Store, brand *branding.Service, so *Setti
 		so.Checker = settings.NewChecker(log)
 	}
 	if so != nil && so.Bootstrapper == nil {
-		so.Bootstrapper = settings.NewBootstrapper(log)
+		so.Bootstrapper = settings.NewBootstrapper(log, so.Service)
 	}
 	h := &handler{svc: svc, st: st, brand: brand, so: so, log: log}
 	mux := http.NewServeMux()
