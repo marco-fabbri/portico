@@ -23,6 +23,9 @@ func samlEnv(t *testing.T) (*fakePCAdmin, *fakeKCAdmin, Settings) {
 func TestSAMLBootstrapCreatesIdPAndKeycloakClient(t *testing.T) {
 	pc, kc, s := samlEnv(t)
 	res, out, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{})
+	if res.Name != "portico-keycloak" {
+		t.Fatalf("result name %q, want the default", res.Name)
+	}
 	if err != nil || !res.OK || res.UsedCredentials || out.PrismCentral.SAMLIdPName != "portico-keycloak" {
 		t.Fatalf("res=%+v out=%+v err=%v", res, out, err)
 	}

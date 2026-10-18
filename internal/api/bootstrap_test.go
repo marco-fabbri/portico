@@ -325,12 +325,14 @@ func TestBootstrapSAMLStoresIdPName(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.kcAdmin.realms["portico"] = map[string]any{"realm": "portico"}
-	rec, out := e.do("POST", "/api/v1/settings/bootstrap/saml", `{"name":"portico-keycloak"}`)
-	if rec.Code != 200 || out["ok"] != true || out["stored"] != true || out["entity_id"] != "https://prism.example.test/api/iam/authn" || out["used_credentials"] != false {
+	rec, out := e.do("POST", "/api/v1/settings/bootstrap/saml", `{}`)
+	if rec.Code != 200 || out["ok"] != true || out["stored"] != true || out["entity_id"] != "https://prism.example.test/api/iam/authn" || out["used_credentials"] != false || out["name"] != "portico-keycloak" {
 		t.Fatalf("bootstrap: %d %v", rec.Code, out)
 	}
-	if !strings.Contains(e.log.String(), `"msg":"bootstrap saml"`) {
-		t.Fatalf("log lacks the bootstrap line: %s", e.log.String())
+	// The log names the identity provider actually used, also when the
+	// request left the name to its default.
+	if !strings.Contains(e.log.String(), `"msg":"bootstrap saml"`) || !strings.Contains(e.log.String(), `"name":"portico-keycloak"`) {
+		t.Fatalf("log lacks the bootstrap line with the name: %s", e.log.String())
 	}
 	rec, out = e.do("GET", "/api/v1/settings", "")
 	if out["prism_central"].(map[string]any)["saml_idp_name"] != "portico-keycloak" || out["complete"] != true {
