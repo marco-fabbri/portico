@@ -59,6 +59,17 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
+// unavailable answers "identity provider down": the branded page for a
+// browser navigation when one is configured, plain text otherwise.
+func (a *Authenticator) unavailable(w http.ResponseWriter, r *http.Request, retry string) {
+	if a.cfg.ErrorPage != nil && strings.Contains(r.Header.Get("Accept"), "text/html") {
+		a.cfg.ErrorPage(w, r, http.StatusServiceUnavailable, "Identity provider unavailable",
+			"The sign-in service is not answering right now. Your session and data are safe; please try again in a minute.", retry)
+		return
+	}
+	writeTextError(w, http.StatusServiceUnavailable, "identity provider unavailable, try again later")
+}
+
 func writeTextError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -105,7 +116,7 @@ func (a *Authenticator) Login() http.Handler {
 		p, err := a.Provider(a.ctxWithClient(r.Context()))
 		if err != nil {
 			a.log.Error("login: identity provider unavailable", "err", err.Error())
-			writeTextError(w, http.StatusServiceUnavailable, "identity provider unavailable, try again later")
+			a.unavailable(w, r, r.URL.RequestURI())
 			return
 		}
 		ls := loginState{
@@ -147,7 +158,7 @@ func (a *Authenticator) Callback() http.Handler {
 		ctx := a.ctxWithClient(r.Context())
 		p, err := a.Provider(ctx)
 		if err != nil {
-			writeTextError(w, http.StatusServiceUnavailable, "identity provider unavailable, try again later")
+			a.unavailable(w, r, "/.portico/login")
 			return
 		}
 		tok, err := a.oauth2Config(p).Exchange(ctx, q.Get("code"), oauth2.VerifierOption(ls.Verifier))
