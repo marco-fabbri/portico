@@ -232,3 +232,37 @@ func TestUpstreamKeepsInboundHostWhenUnset(t *testing.T) {
 		t.Errorf("upstream saw host %q forwarded-host %q", r.Host, r.Header.Get("X-Forwarded-Host"))
 	}
 }
+
+// Milestone 2c: a navigation to a dead upstream gets the branded page;
+// everything else keeps the JSON answer of Milestone 1.
+func TestUpstreamErrorPageForNavigations(t *testing.T) {
+	up, _ := recordingUpstream(t, false, nil)
+	up.Close()
+	p := proxyFor(t, up.URL, UpstreamOptions{ErrorPage: func(w http.ResponseWriter, r *http.Request, status int, title, text, retry string) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(status)
+		w.Write([]byte("<html>BRANDED " + title + "</html>"))
+	}})
+	req, _ := http.NewRequest("GET", p.URL+"/console/", nil)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 502 || !strings.Contains(string(b), "BRANDED") {
+		t.Fatalf("navigation: %d %q", resp.StatusCode, b)
+	}
+	req, _ = http.NewRequest("POST", p.URL+"/api/nutanix/v3/vms/list", nil)
+	req.Header.Set("Accept", "application/json")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 502 || strings.TrimSpace(string(b)) != `{"error":"upstream unavailable"}` {
+		t.Fatalf("api call: %d %q", resp.StatusCode, b)
+	}
+}

@@ -332,3 +332,31 @@ func TestLogoutExpiresUpstreamCookies(t *testing.T) {
 		}
 	}
 }
+
+// Milestone 2c: browsers get a branded page when the identity provider is
+// down; API-style callers keep the text answer.
+func TestLoginIdPDownRendersErrorPageForBrowsers(t *testing.T) {
+	idp := newFakeIDP(t)
+	idp.down.Store(true)
+	cfg := testConfig(idp)
+	cfg.ErrorPage = func(w http.ResponseWriter, r *http.Request, status int, title, text, retry string) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(status)
+		w.Write([]byte("<html>BRANDED " + title + " retry=" + retry + "</html>"))
+	}
+	a := NewAuthenticator(cfg, NewMemoryStore(8*time.Hour, 15*time.Minute), insecureClient(), slog.New(slog.NewTextHandler(testWriter{t}, nil)))
+	r := httptest.NewRequest("GET", "https://prism.test/.portico/login?rd=/console/", nil)
+	r.Header.Set("Accept", "text/html,application/xhtml+xml")
+	rec := httptest.NewRecorder()
+	a.Login().ServeHTTP(rec, r)
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "BRANDED") || !strings.Contains(rec.Body.String(), "retry=/.portico/login?rd=/console/") {
+		t.Fatalf("browser: %d %q", rec.Code, rec.Body.String())
+	}
+	r = httptest.NewRequest("GET", "https://prism.test/.portico/login", nil)
+	r.Header.Set("Accept", "application/json")
+	rec = httptest.NewRecorder()
+	a.Login().ServeHTTP(rec, r)
+	if rec.Code != http.StatusServiceUnavailable || strings.Contains(rec.Body.String(), "BRANDED") || !strings.Contains(rec.Body.String(), "identity provider unavailable") {
+		t.Fatalf("non-browser: %d %q", rec.Code, rec.Body.String())
+	}
+}
