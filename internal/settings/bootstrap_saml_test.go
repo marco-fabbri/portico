@@ -22,7 +22,7 @@ func samlEnv(t *testing.T) (*fakePCAdmin, *fakeKCAdmin, Settings) {
 
 func TestSAMLBootstrapCreatesIdPAndKeycloakClient(t *testing.T) {
 	pc, kc, s := samlEnv(t)
-	res, out, err := NewBootstrapper(nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{})
+	res, out, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{})
 	if err != nil || !res.OK || res.UsedCredentials || out.PrismCentral.SAMLIdPName != "portico-keycloak" {
 		t.Fatalf("res=%+v out=%+v err=%v", res, out, err)
 	}
@@ -48,7 +48,7 @@ func TestSAMLBootstrapRefusesAnotherIdP(t *testing.T) {
 	pc, kc, s := samlEnv(t)
 	pc.addIdP("corp-adfs")
 	var se *StateError
-	_, _, err := NewBootstrapper(nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{})
+	_, _, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{})
 	if !errors.As(err, &se) || !strings.Contains(err.Error(), "corp-adfs") || !strings.Contains(err.Error(), "does not adopt") {
 		t.Fatalf("another IdP: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestSAMLBootstrapRefusesAnotherIdP(t *testing.T) {
 func TestSAMLBootstrapDescriptorMismatch(t *testing.T) {
 	pc, kc, s := samlEnv(t)
 	kc.descriptorEntityID = "https://localhost:8080/realms/msp"
-	res, _, err := NewBootstrapper(nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{})
+	res, _, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{})
 	if err != nil || res.OK || !strings.Contains(res.Message, "check Keycloak's hostname setting") || !strings.Contains(res.Message, "https://localhost:8080/realms/msp") {
 		t.Fatalf("mismatch: %+v %v", res, err)
 	}
@@ -72,11 +72,11 @@ func TestSAMLBootstrapDescriptorMismatch(t *testing.T) {
 func TestSAMLBootstrapForbiddenAsksForCredentials(t *testing.T) {
 	pc, kc, s := samlEnv(t)
 	pc.forbidKey = true
-	res, _, err := NewBootstrapper(nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{})
+	res, _, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{})
 	if err != nil || res.OK || res.Message != "Prism Central refused the service account (403): give the credentials of an account that can manage identity providers" {
 		t.Fatalf("forbidden: %+v %v", res, err)
 	}
-	res, out, err := NewBootstrapper(nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{Username: "admin", Password: "pc-pw-1"})
+	res, out, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{Username: "admin", Password: "pc-pw-1"})
 	if err != nil || !res.OK || !res.UsedCredentials || out.PrismCentral.SAMLIdPName != "portico-keycloak" || out.PrismCentral.APIKey != Secret(pc.issuedKey) {
 		t.Fatalf("with credentials: %+v %v", res, err)
 	}
@@ -84,7 +84,7 @@ func TestSAMLBootstrapForbiddenAsksForCredentials(t *testing.T) {
 
 func TestSAMLBootstrapIsIdempotent(t *testing.T) {
 	pc, kc, s := samlEnv(t)
-	b := NewBootstrapper(nil)
+	b := NewBootstrapper(nil, nil)
 	if res, _, err := b.SAML(context.Background(), kc.srv.URL, s, SAMLInput{Name: "msp-idp"}); err != nil || !res.OK {
 		t.Fatalf("first run: %+v %v", res, err)
 	}
@@ -99,7 +99,7 @@ func TestSAMLBootstrapIsIdempotent(t *testing.T) {
 
 func TestSAMLBootstrapPreconditions(t *testing.T) {
 	_, kc, s := samlEnv(t)
-	b := NewBootstrapper(nil)
+	b := NewBootstrapper(nil, nil)
 	var se *StateError
 	for name, mut := range map[string]func(*Settings){
 		"no hosts":        func(s *Settings) { s.IDHost = "" },

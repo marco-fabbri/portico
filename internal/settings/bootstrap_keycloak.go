@@ -29,6 +29,7 @@ type KeycloakResult struct {
 	ClientID      string   `json:"client_id,omitempty"`
 	Issuer        string   `json:"issuer,omitempty"`
 	Created       []string `json:"created"`
+	Stored        bool     `json:"stored"`
 }
 
 const (
@@ -135,14 +136,25 @@ func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Setti
 		return remote(err)
 	}
 
+	patch := func(d *Settings) {
+		d.Keycloak.Realm, d.Keycloak.AdminClientID, d.Keycloak.AdminClientSecret = in.Realm, adminClientID, Secret(adminSecret)
+		d.OIDC.Issuer, d.OIDC.ClientID, d.OIDC.ClientSecret = "https://"+s.IDHost+"/realms/"+in.Realm, oidcClientID, Secret(oidcSecret)
+	}
 	out := s
-	out.Keycloak.Realm, out.Keycloak.AdminClientID, out.Keycloak.AdminClientSecret = in.Realm, adminClientID, Secret(adminSecret)
-	out.OIDC.Issuer, out.OIDC.ClientID, out.OIDC.ClientSecret = "https://"+s.IDHost+"/realms/"+in.Realm, oidcClientID, Secret(oidcSecret)
-	res.OK, res.Realm, res.AdminClientID, res.ClientID, res.Issuer = true, in.Realm, adminClientID, oidcClientID, out.OIDC.Issuer
+	patch(&out)
+	res.Realm, res.AdminClientID, res.ClientID, res.Issuer = in.Realm, adminClientID, oidcClientID, out.OIDC.Issuer
 	if len(res.Created) == 0 {
 		res.Message = "Keycloak realm " + in.Realm + " and its clients are in place; the secrets were read again"
 	} else {
 		res.Message = "Keycloak bootstrap done: created " + strings.Join(res.Created, ", ")
 	}
+	stored, err := b.store(ctx, patch)
+	if err != nil {
+		// Nothing to undo: the realm and clients stay and a retry reads
+		// the secrets again.
+		res.Message = "Keycloak bootstrap done but the settings were not stored: " + err.Error()
+		return res, s, nil
+	}
+	res.OK, res.Stored = true, stored
 	return res, out, nil
 }

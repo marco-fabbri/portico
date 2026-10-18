@@ -1,8 +1,10 @@
 package settings
 
 import (
+	"context"
 	"log/slog"
 	"regexp"
+	"time"
 )
 
 // Bootstrapper creates what Portico needs in the systems it fronts
@@ -13,14 +15,34 @@ import (
 // are never stored and never logged.
 type Bootstrapper struct {
 	log *slog.Logger
+	svc *Service
 }
 
-// NewBootstrapper returns a bootstrapper.
-func NewBootstrapper(log *slog.Logger) *Bootstrapper {
+// NewBootstrapper returns a bootstrapper that stores what a step sets
+// through svc (Service.Patch, so a save made meanwhile survives). With a
+// nil svc the steps only return the updated document.
+func NewBootstrapper(log *slog.Logger, svc *Service) *Bootstrapper {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Bootstrapper{log: log}
+	return &Bootstrapper{log: log, svc: svc}
+}
+
+// store applies patch to the stored document. It runs on a context of
+// its own: the caller's may be gone (the browser closed the page during
+// a long step) and a result that exists remotely must be stored, or
+// undone by the caller.
+func (b *Bootstrapper) store(ctx context.Context, patch func(*Settings)) (bool, error) {
+	if b.svc == nil {
+		return false, nil
+	}
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	if err := b.svc.Patch(sctx, patch); err != nil {
+		b.log.Error("bootstrap: settings not stored", "err", err.Error())
+		return false, err
+	}
+	return true, nil
 }
 
 // StateError says a precondition of a bootstrap step is not met in the

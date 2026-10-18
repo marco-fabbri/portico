@@ -15,7 +15,7 @@ func withBootstrapFakes(t *testing.T, e *env) (*settingstest.KC, *settingstest.P
 	t.Helper()
 	kc, pc := settingstest.NewKC(t), settingstest.NewPC(t)
 	e.web.setup.KeycloakURL = kc.Srv.URL
-	e.web.setup.Bootstrapper = settings.NewBootstrapper(nil)
+	e.web.setup.Bootstrapper = settings.NewBootstrapper(nil, e.web.setup.Service)
 	return kc, pc
 }
 

@@ -29,6 +29,7 @@ type fakeKCAdmin struct {
 	// adminSecret is the portico-admin client secret the realm token
 	// endpoint accepts.
 	descriptorEntityID, adminSecret string
+	onClients                       func() // called when the clients are listed (a save made meanwhile)
 }
 
 func newFakeKCAdmin(t *testing.T) *fakeKCAdmin {
@@ -128,6 +129,9 @@ func (f *fakeKCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 	case p == "" && r.Method == "GET":
 		json.NewEncoder(w).Encode(f.realmReps[realm])
 	case p == "clients" && r.Method == "GET":
+		if f.onClients != nil {
+			f.onClients()
+		}
 		out := []map[string]any{}
 		for _, c := range f.clients {
 			if c["clientId"] == r.URL.Query().Get("clientId") {
@@ -185,7 +189,7 @@ func (f *fakeKCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 
 func TestKeycloakBootstrapCreatesRealmAndClients(t *testing.T) {
 	kc := newFakeKCAdmin(t)
-	b := NewBootstrapper(nil)
+	b := NewBootstrapper(nil, nil)
 	s := Defaults()
 	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
 	res, out, err := b.Keycloak(context.Background(), kc.srv.URL, s, KeycloakInput{AdminUsername: "kcadmin", AdminPassword: "adm-pw-1", Realm: "msp"})
@@ -219,7 +223,7 @@ func TestKeycloakBootstrapCreatesRealmAndClients(t *testing.T) {
 
 func TestKeycloakBootstrapPreconditionsAndRefusal(t *testing.T) {
 	kc := newFakeKCAdmin(t)
-	b := NewBootstrapper(nil)
+	b := NewBootstrapper(nil, nil)
 	var se *StateError
 	if _, _, err := b.Keycloak(context.Background(), kc.srv.URL, Defaults(), KeycloakInput{AdminUsername: "a", AdminPassword: "b", Realm: "msp"}); !errors.As(err, &se) || !strings.Contains(err.Error(), "public names") {
 		t.Fatalf("no hosts: %v", err)
@@ -239,5 +243,33 @@ func TestKeycloakBootstrapPreconditionsAndRefusal(t *testing.T) {
 	res, _, err = b.Keycloak(context.Background(), "http://127.0.0.1:1", s, KeycloakInput{AdminUsername: "kcadmin", AdminPassword: "adm-pw-1", Realm: "msp"})
 	if err != nil || res.OK || !strings.HasPrefix(res.Message, "Keycloak did not answer: ") {
 		t.Fatalf("keycloak down: %+v %v", res, err)
+	}
+}
+
+// A card saved while the bootstrap runs survives: the bootstrap stores
+// its own fields through Service.Patch instead of writing back the
+// document it started from.
+func TestKeycloakBootstrapKeepsASaveMadeMeanwhile(t *testing.T) {
+	ctx := context.Background()
+	kc := newFakeKCAdmin(t)
+	svc := newService(t)
+	s := Defaults()
+	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	if err := svc.Set(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	kc.onClients = func() {
+		kc.onClients = nil
+		if err := svc.Patch(ctx, func(d *Settings) { d.Tenants.ClusterExtID = "cl-9" }); err != nil {
+			t.Error(err)
+		}
+	}
+	res, _, err := NewBootstrapper(nil, svc).Keycloak(ctx, kc.srv.URL, s, KeycloakInput{AdminUsername: "kcadmin", AdminPassword: "adm-pw-1", Realm: "msp"})
+	if err != nil || !res.OK || !res.Stored {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	got, err := svc.Get(ctx)
+	if err != nil || got.Keycloak.Realm != "msp" || got.Tenants.ClusterExtID != "cl-9" || got.OIDC.ClientSecret == "" {
+		t.Fatalf("got=%+v err=%v", got, err)
 	}
 }

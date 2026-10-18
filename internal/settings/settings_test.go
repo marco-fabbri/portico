@@ -215,3 +215,34 @@ func TestServiceStoresADraft(t *testing.T) {
 		t.Fatalf("draft = %+v %v", got, err)
 	}
 }
+
+// Patch re-reads the stored document under a lock and changes only what
+// the function touches, so two writers never revert each other.
+func TestServicePatchMergesIntoTheStoredDocument(t *testing.T) {
+	ctx := context.Background()
+	svc := newService(t)
+	s := Defaults()
+	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	if err := svc.Set(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Patch(ctx, func(d *Settings) { d.Keycloak.Realm = "msp" }); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Patch(ctx, func(d *Settings) { d.Tenants.ClusterExtID = "cl-9" }); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Get(ctx)
+	if err != nil || got.Keycloak.Realm != "msp" || got.Tenants.ClusterExtID != "cl-9" || got.PrismHost != "prism.example.test" {
+		t.Fatalf("got=%+v err=%v", got, err)
+	}
+	// Nothing stored yet: the patch applies to the defaults.
+	empty := newService(t)
+	if err := empty.Patch(ctx, func(d *Settings) { d.PrismHost = "p.example.test" }); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = empty.Get(ctx)
+	if got.PrismHost != "p.example.test" || got.Tenants.GroupPrefix != Defaults().Tenants.GroupPrefix {
+		t.Fatalf("got=%+v", got)
+	}
+}

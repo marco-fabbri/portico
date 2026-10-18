@@ -279,12 +279,12 @@ func (h *Handler) setupBootstrap(w http.ResponseWriter, r *http.Request) {
 	case !okRes:
 		d.Status, d.Message = "error", message
 	default:
-		if err := h.setup.Service.Update(r.Context(), out); err != nil {
-			h.log.Error("settings bootstrap: not stored", "via", "ui", "target", target, "err", err.Error())
-			status, d.Status, d.Message = http.StatusInternalServerError, "error", "bootstrap done but the settings were not stored: "+err.Error()
-			break
-		}
+		// The bootstrapper stored what it set; the page shows the
+		// document as it is now, with any save made meanwhile.
 		cur, source = out, "store"
+		if now, err := h.setup.Service.Get(r.Context()); err == nil {
+			cur = now
+		}
 		d.OK, d.Status, d.Message = true, "notice", message
 	}
 	h.log.Info("settings bootstrap", "via", "ui", "target", target, "ok", d.OK, "status", status)

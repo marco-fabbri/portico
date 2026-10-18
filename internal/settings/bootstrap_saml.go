@@ -34,6 +34,7 @@ type SAMLResult struct {
 	KeycloakClientID string   `json:"keycloak_client_id,omitempty"`
 	UsedCredentials  bool     `json:"used_credentials"`
 	Created          []string `json:"created"`
+	Stored           bool     `json:"stored"`
 }
 
 const defaultIdPName = "portico-keycloak"
@@ -178,13 +179,20 @@ func (b *Bootstrapper) SAML(ctx context.Context, keycloakURL string, s Settings,
 		res.Created = append(res.Created, "mappers "+strings.Join(added, ", "))
 	}
 
+	patch := func(d *Settings) { d.PrismCentral.SAMLIdPName = name }
 	out := s
-	out.PrismCentral.SAMLIdPName = name
-	res.OK = true
+	patch(&out)
 	if len(res.Created) == 0 {
 		res.Message = fmt.Sprintf("the SAML trust is in place: identity provider %s and Keycloak client %s", name, entityID)
 	} else {
 		res.Message = "SAML trust done: created " + strings.Join(res.Created, ", ")
 	}
+	stored, err := b.store(ctx, patch)
+	if err != nil {
+		// The trust exists on both sides; a retry finds it and stores the name.
+		res.Message = "SAML trust done but the settings were not stored: " + err.Error()
+		return res, s, nil
+	}
+	res.OK, res.Stored = true, stored
 	return res, out, nil
 }
