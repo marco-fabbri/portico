@@ -389,6 +389,58 @@ internal admin UI. Nothing else is configurable from the console.
   container image tags for Keycloak/PostgreSQL. Full image replacement
   documented as the clean path.
 
+### 4.11 Deployment topologies: single node and pair
+
+Direction agreed with Marco on 2026-10-18; step 1 builds and tests the
+single node, the pair is planned after Milestone 2b. The point of the
+section is that nothing built now may forbid the pair.
+
+**Single node** (step 1): one appliance VM with Portico, Keycloak,
+PostgreSQL (Keycloak's) and SQLite (Portico's). Availability comes from
+the Nutanix VM high availability: the VM restarts on another host.
+
+**Pair**: two appliance VMs, typically in two datacenters, both able to
+reach every connected Prism Central on port 9440 across the datacenter
+interconnect (the firewall rule of section 4.2 then names both Portico
+addresses). The nodes are equal in front of the tenants: every public
+host name (one per Prism Central, section 4.10, plus the identity host)
+resolves to both, through two `cloudflared` connectors on the same tunnel
+or a DNS/GSLB with health checks in direct mode. Serving a Prism Central
+from the node in the other datacenter costs the interconnect round trip;
+origin priority in the tunnel or GSLB affinity keeps the local node
+preferred.
+
+What each kind of state does in the pair:
+
+- **Sessions**: the Portico session becomes a cookie encrypted with a key
+  shared by the two nodes, so a node restart or a switch between nodes
+  does not log the user out. Small change, planned for Milestone 2b
+  together with the landing page.
+- **Identity**: one Keycloak per VM, clustered with each other, over one
+  PostgreSQL primary with a streaming replica on the other VM. Keycloak is
+  active/active, the database active/passive. Portico keeps talking to
+  its local Keycloak on the loopback. PostgreSQL active/active
+  (multi-master) is rejected: Keycloak expects a single writer, the write
+  load is tiny, and conflict resolution on identity data is a risk with
+  no benefit.
+- **Portico store**: in the pair it lives in the same PostgreSQL, so there
+  is one database failover for everything. In the single node it stays
+  SQLite. The store is therefore behind a Go interface from Milestone 2a
+  on, with SQLite as the first implementation. The admin API runs on the
+  node whose database is primary; proxying works on both, because
+  forwarding needs only the list of Prism Centrals. The store stays a
+  rebuildable record: a `reconcile` command (step 2, shared with the
+  brownfield inventory) rebuilds the rows from the projects with
+  Portico's prefix, the groups and the role memberships.
+- **Failover**: promote the replica, Keycloak and Portico on the surviving
+  node use it, names already resolve there; users log in again, nothing
+  else is lost. Automatic failover needs a quorum: with two VMs alone an
+  automatic promotion risks two primaries when the interconnect fails, so
+  it is offered only with a third witness node placed elsewhere (a small
+  VM in a third site, another cluster, a VPS); without a witness the
+  promotion is a documented, scripted Portico command. Synchronous commit
+  is an option when the interconnect latency allows it.
+
 ## 5. Security model summary
 
 | threat | control |

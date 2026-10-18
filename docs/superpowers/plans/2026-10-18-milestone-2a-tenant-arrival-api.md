@@ -9,7 +9,7 @@ every step, and a user created for that tenant logs in through the public
 URL and sees only that project.
 
 **Architecture:** Three new packages behind one service. `internal/store`
-is SQLite (pure Go driver, WAL) holding tenants, their provisioning steps
+is an interface with a SQLite implementation (pure Go driver, WAL) holding tenants, their provisioning steps
 and the break-glass account. `internal/nutanix` is the Prism Central client
 (API key, the v4 calls measured in write-ups 05 and 07, ETag and task
 handling). `internal/idp/keycloak` is the Keycloak admin client (client
@@ -229,17 +229,25 @@ type Step struct {
     At time.Time
 }
 
-func Open(path string) (*Store, error)        // creates the file, journal_mode=WAL, busy_timeout=5000, runs migrations
-func (s *Store) Close() error
-func (s *Store) CreateTenant(ctx context.Context, t *Tenant) error   // ErrExists on duplicate ID; sets CreatedAt/UpdatedAt
-func (s *Store) GetTenant(ctx context.Context, id string) (*Tenant, error)   // ErrNotFound
-func (s *Store) ListTenants(ctx context.Context) ([]Tenant, error)   // ordered by ID
-func (s *Store) UpdateTenant(ctx context.Context, t *Tenant) error   // ErrNotFound; bumps UpdatedAt
-func (s *Store) DeleteTenant(ctx context.Context, id string) error   // also deletes its steps
-func (s *Store) AddStep(ctx context.Context, st Step) error          // sets At when zero
-func (s *Store) ListSteps(ctx context.Context, tenantID string) ([]Step, error)  // in insertion order
-func (s *Store) SetAdminPassword(ctx context.Context, name, bcryptHash string) error  // upsert
-func (s *Store) AdminPasswordHash(ctx context.Context, name string) (string, error)  // ErrNotFound
+// Store is the interface every consumer (tenant service, API, serve) uses.
+// SQLite is the first implementation; PostgreSQL is added for the pair
+// topology (spec §4.11) without touching the consumers.
+type Store interface {
+    Close() error
+    CreateTenant(ctx context.Context, t *Tenant) error   // ErrExists on duplicate ID; sets CreatedAt/UpdatedAt
+    GetTenant(ctx context.Context, id string) (*Tenant, error)   // ErrNotFound
+    ListTenants(ctx context.Context) ([]Tenant, error)   // ordered by ID
+    UpdateTenant(ctx context.Context, t *Tenant) error   // ErrNotFound; bumps UpdatedAt
+    DeleteTenant(ctx context.Context, id string) error   // also deletes its steps
+    AddStep(ctx context.Context, st Step) error          // sets At when zero
+    ListSteps(ctx context.Context, tenantID string) ([]Step, error)  // in insertion order
+    SetAdminPassword(ctx context.Context, name, bcryptHash string) error  // upsert
+    AdminPasswordHash(ctx context.Context, name string) (string, error)  // ErrNotFound
+}
+
+type SQLite struct{ /* *sql.DB */ }   // implements Store
+func OpenSQLite(path string) (*SQLite, error)   // creates the file, journal_mode=WAL, busy_timeout=5000, runs migrations
+var _ Store = (*SQLite)(nil)
 ```
 
 Schema (`0001_init.sql`): `tenants` (id TEXT PRIMARY KEY, display_name,
@@ -254,11 +262,11 @@ KEY). Timestamps as RFC 3339 UTC text. `PRAGMA foreign_keys=ON` on open.
 - [ ] **Step 1: Write the failing tests in `store_test.go`**
 
 ```go
-func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T)   // Open twice on the same temp path; second open succeeds; file exists
+func TestOpenCreatesSchemaAndIsIdempotent(t *testing.T)   // OpenSQLite twice on the same temp path; second open succeeds; file exists
 func TestTenantCRUD(t *testing.T)                          // Create → Get equal (ignoring timestamps); Create again → ErrExists; Update changes Status; List has 1; Delete → Get ErrNotFound
 func TestStepsAreOrderedAndCascade(t *testing.T)           // AddStep ×3 → ListSteps order; DeleteTenant → ListSteps empty
 func TestAdminPassword(t *testing.T)                       // AdminPasswordHash → ErrNotFound; Set → hash returned; Set again overwrites
-func TestOpenRefusesUnwritableDir(t *testing.T)            // path under a non-existent dir → error mentions the path
+func TestOpenSQLiteRefusesUnwritableDir(t *testing.T)            // path under a non-existent dir → error mentions the path
 ```
 
 - [ ] **Step 2: Run them**
@@ -303,7 +311,7 @@ Expected: FAIL ("unknown command admin" or compile error).
 
 In `main.go`: subcommand `admin` with sub-subcommand `set-password -config
 PATH`; reads the first line of stdin, trims `\r\n`, rejects empty,
-`bcrypt.GenerateFromPassword(pw, 12)`, `store.Open(cfg.Store.Path)`,
+`bcrypt.GenerateFromPassword(pw, 12)`, `store.OpenSQLite(cfg.Store.Path)`,
 `SetAdminPassword(ctx, "admin", hash)`, prints `password set for admin`.
 Usage text documents: `printf '%s\n' "$PW" | portico admin set-password
 -config /etc/portico/portico.yaml` run as the `portico` user.
@@ -536,7 +544,7 @@ git commit -m "feat: Keycloak admin client; lab admin-client registration"
   can fail a named step)
 
 **Interfaces:**
-- Consumes: `store.Store`, `nutanix.Client` methods, `keycloak.Client`
+- Consumes: the `store.Store` interface, `nutanix.Client` methods, `keycloak.Client`
   methods, through two interfaces declared in this package:
 
 ```go
@@ -592,7 +600,7 @@ type Config struct {
 }
 
 type Service struct{ /* store, pc, kc, cfg, log, mu, running map[string]bool */ }
-func NewService(st *store.Store, pc PrismCentral, kc Keycloak, cfg Config, log *slog.Logger) *Service
+func NewService(st store.Store, pc PrismCentral, kc Keycloak, cfg Config, log *slog.Logger) *Service
 
 type CreateRequest struct{ Slug, DisplayName, Contacts string }
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*store.Tenant, error)
@@ -678,13 +686,13 @@ git commit -m "feat: tenant service with idempotent provisioning and static visi
   mounts `api` under `/api/v1/`; `/healthz` stays open), `internal/proxy/internal_test.go`
 
 **Interfaces:**
-- Consumes: `tenant.Service`, `store.Store.AdminPasswordHash`.
+- Consumes: `tenant.Service`, `store.Store` (interface) for `AdminPasswordHash`.
 - Produces:
 
 ```go
 package api
 
-func New(svc *tenant.Service, st *store.Store, log *slog.Logger) http.Handler
+func New(svc *tenant.Service, st store.Store, log *slog.Logger) http.Handler
 // routes (all JSON, Cache-Control: no-store):
 //   GET    /api/v1/tenants                      200 [tenantJSON]
 //   POST   /api/v1/tenants                      {slug, display_name, contacts} → 202 tenantJSON (status creating); 400 invalid slug/json; 409 exists
@@ -696,7 +704,7 @@ func New(svc *tenant.Service, st *store.Store, log *slog.Logger) http.Handler
 //   POST   /api/v1/tenants/{id}/users           {email, first_name, last_name} → 201 {id, email, temporary_password}; 409 ErrState
 //   GET    /api/v1/tenants/{id}/visibility      200 {ok, findings}
 // errors: {"error": "<message>"}; unknown path 404 {"error":"not found"}
-func BasicAuth(st *store.Store, realm string, log *slog.Logger) func(http.Handler) http.Handler
+func BasicAuth(st store.Store, realm string, log *slog.Logger) func(http.Handler) http.Handler
 // user "admin"; bcrypt.CompareHashAndPassword; missing/invalid → 401 with WWW-Authenticate: Basic realm="<realm>", body {"error":"unauthorized"}; no password or hash in any log line
 ```
 
@@ -805,7 +813,7 @@ Expected: FAIL (401 not returned: no API mounted).
 
 - [ ] **Step 7: Wire `runServe`**
 
-Order: open the store (error aborts start), read the API key and the
+Order: `store.OpenSQLite(cfg.Store.Path)` (error aborts start; the variable is typed `store.Store`), read the API key and the
 Keycloak admin secret, `nutanix.New(cfg.PrismCentral.URL, key, pcTLS,
 log)`, `keycloak.New(cfg.Keycloak.URL, cfg.Keycloak.Realm, ...)`,
 `tenant.NewService(...)` with `tenant.Config` from `cfg.Tenants` and
@@ -949,7 +957,9 @@ git commit -m "lab: tenant arrival acceptance on NTNX-01 (write-up 11)"
 
 ## Self-review notes
 
-- Spec coverage: §4.4 tenant row fields → Task 1 schema; idempotent steps,
+- Spec coverage: §4.11 store behind an interface → Task 1 (`store.Store`,
+  `SQLite` implementation; consumers depend on the interface only).
+  §4.4 tenant row fields → Task 1 schema; idempotent steps,
   recording, deletion order, disable, first user with temporary password,
   static visibility → Task 4; project naming prefix → Task 4/6; live
   visibility check → not in this plan (spec allows "a button in the UI",
