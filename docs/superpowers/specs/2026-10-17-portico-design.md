@@ -311,7 +311,10 @@ Step 1 scope decisions (design calls):
   `frontchannelLogout: false`, and the `email` and `groups` mappers. The
   step runs with the service account; when Prism Central refuses it
   (403), the response says so and the step accepts the one-time
-  credentials of section 4.5 instead.
+  credentials of section 4.5 instead. Measured (write-up 15): a member
+  of `Project Manager_acp` cannot create an identity provider, so on
+  pc.7.6 this step always takes the one-time credentials; they are used
+  for that call and never stored.
 
 ### 4.5 Service account in Prism Central
 
@@ -352,8 +355,12 @@ policy and add the account's extId to its user identity filter when
 missing (PUT with the read-back body stripped of its read-only fields,
 `If-Match` with the ETag); verify the new key by listing clusters with
 the ordinary API-key client; store URL, TLS settings and key. A failure
-after the key was created deletes that key (best effort) so a retry does
-not leave unused keys behind. The same one-time credentials may be offered
+after the key was created deletes that key (best effort, on a context of
+its own, since the request's deadline is usually what failed) so a retry
+does not leave unused keys behind; when the creation call itself fails
+after Prism Central created the key (measured: a timeout, write-up 15),
+Portico lists the account's keys and revokes the one with the name it
+chose. The same one-time credentials may be offered
 to the SAML step (section 4.4) when the service account is refused there.
 
 The Keycloak side has the same shape: `POST /api/v1/settings/bootstrap/keycloak`
@@ -696,7 +703,7 @@ portico/
 | 2b | Tenant arrival, admin UI | done 2026-10-18 (write-up 12): admin UI over the API with the break-glass login (tenant list, create, detail with steps and visibility, users, disable/enable, delete), the 2a review minors absorbed, every `Authorization` scheme refused on the public name after measuring the console, Prism Central's Sign Out path allowed |
 | 2c | Tenant arrival, tenant-facing pages | done 2026-10-18 (write-up 13): branding settings in the store, landing page that starts SAML itself, Keycloak theme, branded identity-provider-down page; a tenant user goes from the public URL to the console with one Keycloak login and no Nutanix login page |
 | 2d | Setup wizard, settings and secrets at rest | done 2026-10-18 (write-up 14): settings in the store sealed with the master key; `portico settings import` and `settings show`; setup page with connectivity checks and pickers; Apply = controlled restart; the lab runs from the store with no secret file on the VM |
-| 2e | Bootstrap and setup mode | service-account bootstrap path in Prism Central, Keycloak realm and clients registered by Portico, SAML identity provider created by Portico; a fresh appliance (process YAML, empty store) starts in setup mode and is configured card by card from the setup page, then applied |
+| 2e | Bootstrap and setup mode | done 2026-10-18 (write-up 15): a fresh appliance (process YAML, empty store) starts in setup mode and is configured card by card from the setup page; Portico creates the service account and its key in Prism Central, the Keycloak realm and clients, and the SAML identity provider from one-time credentials; the service account cannot create the IdP (`Project Manager_acp`), so that step asks for an administrator once; 41 s end to end on the lab |
 | 3 | Appliance image | Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
 | 4 | First release (step 1 complete) | README, install guide, release artefacts, known limits documented |
 
