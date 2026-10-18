@@ -1,5 +1,8 @@
 {{define "content"}}
 <h1>Setup</h1>
+{{if eq .Data.Mode "setup"}}
+<div class="banner warning">Setup mode: the public listener is off until every card is saved and applied.</div>
+{{end}}
 {{if .Data.Stored}}
 <p class="muted">Settings are stored in Portico's database and sealed with the master key. Saved changes take effect after <strong>Apply and restart</strong>.</p>
 {{else if eq .Data.Source "file"}}
@@ -77,9 +80,10 @@
 <section class="card">
   <h2>Apply</h2>
   <p class="muted">Portico restarts and reads the stored settings. Open sessions end; log in again afterwards.</p>
+  {{if not .Data.Complete}}<p class="muted">Missing: {{range $i, $m := .Data.Missing}}{{if $i}}, {{end}}{{$m}}{{end}}</p>{{end}}
   <form method="post" action="/setup/apply">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
-    <div class="actions"><button type="submit" class="primary"{{if not .Data.Stored}} disabled{{end}}>Apply and restart</button></div>
+    <div class="actions"><button type="submit" class="primary"{{if not (and .Data.Stored .Data.Complete)}} disabled{{end}}>Apply and restart</button></div>
   </form>
 </section>
 {{end}}
