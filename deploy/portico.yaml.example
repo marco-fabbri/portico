@@ -11,7 +11,8 @@ public:
                                  # (same registrable domain as prism_host)
 
 internal:
-  admin_listen: "127.0.0.1:8443"       # Portico health and, later, the admin UI
+  admin_listen: "127.0.0.1:8443"       # health, the admin UI and the JSON API; off the
+                                       # loopback it needs internal.tls (credentials)
   passthrough_listen: "127.0.0.1:9440" # raw pass-through to Prism Central, local login allowed
   tls:
     cert_file: ""
