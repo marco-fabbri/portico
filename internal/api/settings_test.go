@@ -29,6 +29,7 @@ type settingsEnv struct {
 	busy      int
 	pc        *httptest.Server
 	so        *SettingsOptions
+	kcAdmin   *fakeKCAdmin
 }
 
 func sampleSettings(pcURL string) settings.Settings {
@@ -92,7 +93,8 @@ func newSettingsEnv(t *testing.T, stored bool) *settingsEnv {
 	tsvc := tenant.NewService(st, tenanttest.NewPC("lab-idp"), tenanttest.NewKC(), tenant.Config{SAMLIdPName: "lab-idp", ClusterExtID: "cl", StorageContainerExtID: "sc"}, log)
 	file := sampleSettings(pc.URL)
 	e.busy = 0
-	so := &SettingsOptions{Service: svc, File: &file, Checker: settings.NewChecker(log), KeycloakURL: "http://127.0.0.1:1", Restart: func() { e.restarted++ }, Busy: func() int { return e.busy }}
+	e.kcAdmin = newFakeKCAdmin(t)
+	so := &SettingsOptions{Service: svc, File: &file, Checker: settings.NewChecker(log), KeycloakURL: e.kcAdmin.srv.URL, Restart: func() { e.restarted++ }, Busy: func() int { return e.busy }}
 	e.so = so
 	e.h = BasicAuth(st, "portico", log)(New(tsvc, st, branding.NewService(st, log), so, log))
 	return e

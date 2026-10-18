@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -27,6 +28,9 @@ type SettingsOptions struct {
 	// Mode is "setup" when the process serves the admin listener only
 	// (design §4.7) and "running" otherwise.
 	Mode string
+	// Bootstrapper creates the realm, the service account and the SAML
+	// trust from one-time credentials (design §4.4, §4.5).
+	Bootstrapper *settings.Bootstrapper
 
 	restarting atomic.Bool
 }
@@ -371,4 +375,61 @@ func (h *handler) applySettings(w http.ResponseWriter, r *http.Request) {
 		h.log.Info("settings apply: restart requested", "via", "api")
 		writeJSON(w, http.StatusAccepted, map[string]bool{"restarting": true})
 	}
+}
+
+// bootstrapKeycloakJSON is the Keycloak bootstrap request body.
+type bootstrapKeycloakJSON struct {
+	AdminUsername string `json:"admin_username"`
+	AdminPassword string `json:"admin_password"`
+	Realm         string `json:"realm"`
+	DisplayName   string `json:"display_name"`
+}
+
+// bootstrapAnswer writes a bootstrap outcome: 409 for a precondition,
+// 500 for a store failure, otherwise 200 with the result and "stored"
+// when the returned document was saved.
+func (h *handler) bootstrapAnswer(w http.ResponseWriter, r *http.Request, res any, ok bool, out settings.Settings, err error) {
+	var se *settings.StateError
+	switch {
+	case errors.As(err, &se):
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	case err != nil:
+		h.log.Error("bootstrap failed", "err", err.Error())
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	raw, _ := json.Marshal(res)
+	var body map[string]any
+	json.Unmarshal(raw, &body)
+	if ok {
+		if err := h.so.Service.Update(r.Context(), out); err != nil {
+			h.log.Error("bootstrap: settings not stored", "err", err.Error())
+			writeError(w, http.StatusInternalServerError, "bootstrap done but the settings were not stored: "+err.Error())
+			return
+		}
+		body["stored"] = true
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
+func (h *handler) bootstrapKeycloak(w http.ResponseWriter, r *http.Request) {
+	if h.settingsUnavailable(w) {
+		return
+	}
+	var in bootstrapKeycloakJSON
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	cur, _, err := h.so.Current(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	res, out, err := h.so.Bootstrapper.Keycloak(r.Context(), h.so.KeycloakURL, cur, settings.KeycloakInput{AdminUsername: in.AdminUsername, AdminPassword: in.AdminPassword, Realm: in.Realm, DisplayName: in.DisplayName})
+	if err == nil {
+		h.log.Info("bootstrap keycloak", "realm", in.Realm, "user", in.AdminUsername, "ok", res.OK, "created", res.Created)
+	}
+	h.bootstrapAnswer(w, r, res, res.OK, out, err)
 }

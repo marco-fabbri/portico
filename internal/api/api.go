@@ -60,12 +60,16 @@ func New(svc *tenant.Service, st store.Store, brand *branding.Service, so *Setti
 	if so != nil && so.Checker == nil {
 		so.Checker = settings.NewChecker(log)
 	}
+	if so != nil && so.Bootstrapper == nil {
+		so.Bootstrapper = settings.NewBootstrapper(log)
+	}
 	h := &handler{svc: svc, st: st, brand: brand, so: so, log: log}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+Prefix+"settings", h.getSettings)
 	mux.HandleFunc("PUT "+Prefix+"settings", h.putSettings)
 	mux.HandleFunc("POST "+Prefix+"settings/check", h.checkSettings)
 	mux.HandleFunc("POST "+Prefix+"settings/apply", h.applySettings)
+	mux.HandleFunc("POST "+Prefix+"settings/bootstrap/keycloak", h.bootstrapKeycloak)
 	mux.HandleFunc("GET "+Prefix+"settings/branding", h.getBranding)
 	mux.HandleFunc("PUT "+Prefix+"settings/branding", h.putBranding)
 	mux.HandleFunc("GET "+Prefix+"settings/branding/logo", h.getLogo)
