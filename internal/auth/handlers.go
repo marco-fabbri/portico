@@ -208,7 +208,7 @@ func (a *Authenticator) Callback() http.Handler {
 		}
 		_ = idt.Claims(&claims)
 		now := time.Now()
-		s := Session{ID: NewSessionID(), Subject: idt.Subject, Email: claims.Email, CreatedAt: now, LastSeen: now}
+		s := Session{ID: NewSessionID(), Subject: idt.Subject, Email: claims.Email, IDToken: raw, CreatedAt: now, LastSeen: now}
 		a.store.Create(s)
 		SetSessionCookie(w, s.ID, a.cfg.CookieMaxAge)
 		a.log.Info("login", "subject", s.Subject, "email", s.Email)
@@ -221,7 +221,11 @@ func (a *Authenticator) Callback() http.Handler {
 // end-session endpoint, so the Keycloak session ends too.
 func (a *Authenticator) Logout() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var idToken string
 		if c, err := r.Cookie(SessionCookie); err == nil && c.Value != "" {
+			if s, ok := a.store.Get(c.Value, time.Now()); ok {
+				idToken = s.IDToken
+			}
 			a.store.Delete(c.Value)
 		}
 		ClearSessionCookie(w)
@@ -244,7 +248,12 @@ func (a *Authenticator) Logout() http.Handler {
 			http.Redirect(w, r, home, http.StatusFound)
 			return
 		}
+		// id_token_hint names the session being ended, so Keycloak logs
+		// out at once instead of asking "Do you want to log out?".
 		v := url.Values{"post_logout_redirect_uri": {home}, "client_id": {a.cfg.ClientID}}
+		if idToken != "" {
+			v.Set("id_token_hint", idToken)
+		}
 		http.Redirect(w, r, p.EndSessionURL+"?"+v.Encode(), http.StatusFound)
 	})
 }

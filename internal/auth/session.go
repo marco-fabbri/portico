@@ -35,6 +35,7 @@ type Session struct {
 	Subject   string // OIDC "sub"
 	Email     string
 	CSRF      string // per-session token of the admin UI forms (unused for tenant sessions)
+	IDToken   string // raw ID token of the login, sent as id_token_hint at logout; never logged
 	CreatedAt time.Time
 	LastSeen  time.Time
 }
