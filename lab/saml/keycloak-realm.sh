@@ -5,6 +5,7 @@
 #   lab/saml/keycloak-realm.sh user EMAIL GROUP              create user in group (password in ~/portico-secrets/<local>-pw)
 #   lab/saml/keycloak-realm.sh saml-client ENTITY_ID ACS_URL create/update the SAML client for Prism Central
 #   lab/saml/keycloak-realm.sh oidc-client REDIRECT_URI     create/update the OIDC client "portico" (secret to ~/portico-secrets/portico-oidc-secret)
+#   lab/saml/keycloak-realm.sh admin-client                 create/update the confidential client "portico-admin" (service account with realm-management roles; secret to ~/portico-secrets/portico-kc-admin-secret)
 # Requires `source lab/env.sh`.
 set -euo pipefail
 cd "$(dirname "$0")/../.." || exit 1
@@ -88,6 +89,39 @@ case "${1:?subcommand}" in
     if [ ! -s "$S/portico-oidc-secret" ]; then
       kc GET "/$R/clients/$cid/client-secret" 2>/dev/null | jq -r '.value' > "$S/portico-oidc-secret"
       [ -s "$S/portico-oidc-secret" ] && echo " client secret saved to $S/portico-oidc-secret"
+    fi
+    ;;
+  admin-client)
+    # Portico's own admin identity in the realm: client credentials only,
+    # no browser flows, with the realm-management roles the tenant service
+    # needs (internal/idp/keycloak).
+    jq -n '{
+      clientId:"portico-admin", protocol:"openid-connect", enabled:true, name:"Portico admin (lab)",
+      publicClient:false, serviceAccountsEnabled:true, standardFlowEnabled:false,
+      directAccessGrantsEnabled:false, implicitFlowEnabled:false, redirectUris:[], webOrigins:[]
+      }' > "$tmp/ac.json"
+    cid=$(kc GET "/$R/clients?clientId=portico-admin" 2>/dev/null | jq -r '.[0].id // empty')
+    if [ -z "$cid" ]; then kc POST "/$R/clients" "$tmp/ac.json" 2>&1 >/dev/null | tr -d '\n'; echo " admin client created"
+    else kc PUT "/$R/clients/$cid" "$tmp/ac.json" 2>&1 >/dev/null | tr -d '\n'; echo " admin client updated"; fi
+    cid=$(kc GET "/$R/clients?clientId=portico-admin" 2>/dev/null | jq -r '.[0].id')
+    sa=$(kc GET "/$R/clients/$cid/service-account-user" 2>/dev/null | jq -r '.id')
+    rm=$(kc GET "/$R/clients?clientId=realm-management" 2>/dev/null | jq -r '.[0].id')
+    [ "$sa" != null ] && [ "$rm" != null ] || { echo "service account or realm-management client not found" >&2; exit 1; }
+    have=$(kc GET "/$R/users/$sa/role-mappings/clients/$rm" 2>/dev/null | jq -r '.[].name')
+    : > "$tmp/roles.json"
+    for role in manage-users view-users query-users query-groups view-realm; do
+      grep -qx "$role" <<<"$have" && continue
+      kc GET "/$R/clients/$rm/roles/$role" 2>/dev/null >> "$tmp/roles.json"
+    done
+    if [ -s "$tmp/roles.json" ]; then
+      jq -s '.' "$tmp/roles.json" > "$tmp/roles-arr.json"
+      kc POST "/$R/users/$sa/role-mappings/clients/$rm" "$tmp/roles-arr.json" 2>&1 >/dev/null | tr -d '\n'
+      echo " roles mapped: $(jq -r '.[].name' "$tmp/roles-arr.json" | tr '\n' ' ')"
+    else echo " roles already mapped"; fi
+    umask 077
+    if [ ! -s "$S/portico-kc-admin-secret" ]; then
+      kc GET "/$R/clients/$cid/client-secret" 2>/dev/null | jq -r '.value' > "$S/portico-kc-admin-secret"
+      [ -s "$S/portico-kc-admin-secret" ] && echo " client secret saved to $S/portico-kc-admin-secret"
     fi
     ;;
   *) echo "unknown subcommand $1" >&2; exit 2 ;;
