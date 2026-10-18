@@ -30,6 +30,7 @@ type settingsEnv struct {
 	pc        *httptest.Server
 	so        *SettingsOptions
 	kcAdmin   *fakeKCAdmin
+	pcAdmin   *fakePCAdmin
 }
 
 func sampleSettings(pcURL string) settings.Settings {
@@ -94,6 +95,7 @@ func newSettingsEnv(t *testing.T, stored bool) *settingsEnv {
 	file := sampleSettings(pc.URL)
 	e.busy = 0
 	e.kcAdmin = newFakeKCAdmin(t)
+	e.pcAdmin = newFakePCAdmin(t)
 	so := &SettingsOptions{Service: svc, File: &file, Checker: settings.NewChecker(log), KeycloakURL: e.kcAdmin.srv.URL, Restart: func() { e.restarted++ }, Busy: func() int { return e.busy }}
 	e.so = so
 	e.h = BasicAuth(st, "portico", log)(New(tsvc, st, branding.NewService(st, log), so, log))

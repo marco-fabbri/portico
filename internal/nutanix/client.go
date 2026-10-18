@@ -1,8 +1,9 @@
 // Package nutanix is Portico's Prism Central client: the v4 calls measured
 // on pc.7.6.0.6 for tenant provisioning (docs/lab write-ups 04, 05, 07).
 //
-// Authentication is only the service-account API key, sent as
-// X-ntnx-api-key (design §4.5). Every write carries NTNX-Request-Id; every
+// Authentication is the service-account API key, sent as X-ntnx-api-key
+// (design §4.5); the bootstrap alone uses an administrator's one-time
+// credentials with Basic auth (NewWithPassword), never stored. Every write carries NTNX-Request-Id; every
 // update, delete and $action carries If-Match with the ETag of a GET made
 // just before. Long-running calls return a task that WaitTask polls.
 package nutanix
@@ -57,7 +58,7 @@ func notFound(what string) error {
 // Client talks to one Prism Central.
 type Client struct {
 	base     *url.URL
-	apiKey   string
+	auth     func(*http.Request) // sets the credential header(s)
 	http     *http.Client
 	log      *slog.Logger
 	taskPoll time.Duration
@@ -66,20 +67,34 @@ type Client struct {
 // New returns a client for baseURL (scheme and host) using apiKey. tlsCfg
 // may be nil for the default verification.
 func New(baseURL, apiKey string, tlsCfg *tls.Config, log *slog.Logger) (*Client, error) {
+	if apiKey == "" {
+		return nil, errors.New("prism central: empty api key")
+	}
+	return newWithAuth(baseURL, func(r *http.Request) { r.Header.Set("X-Ntnx-Api-Key", apiKey) }, tlsCfg, log)
+}
+
+// NewWithPassword returns a client that authenticates with Basic auth:
+// the bootstrap's one-time administrator credentials (design §4.5). They
+// live in this client only, for the length of the bootstrap.
+func NewWithPassword(baseURL, username, password string, tlsCfg *tls.Config, log *slog.Logger) (*Client, error) {
+	if username == "" || password == "" {
+		return nil, errors.New("prism central: empty username or password")
+	}
+	return newWithAuth(baseURL, func(r *http.Request) { r.SetBasicAuth(username, password) }, tlsCfg, log)
+}
+
+func newWithAuth(baseURL string, auth func(*http.Request), tlsCfg *tls.Config, log *slog.Logger) (*Client, error) {
 	u, err := url.Parse(baseURL)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return nil, fmt.Errorf("prism central: invalid url %q", baseURL)
-	}
-	if apiKey == "" {
-		return nil, errors.New("prism central: empty api key")
 	}
 	if log == nil {
 		log = slog.Default()
 	}
 	tr := &http.Transport{TLSClientConfig: tlsCfg, ForceAttemptHTTP2: false, MaxIdleConnsPerHost: 4}
 	return &Client{
-		base:   &url.URL{Scheme: u.Scheme, Host: u.Host},
-		apiKey: apiKey,
+		base: &url.URL{Scheme: u.Scheme, Host: u.Host},
+		auth: auth,
 		// The lab Prism Central answered one call in 48 s (2026-10-18).
 		http:     &http.Client{Transport: tr, Timeout: 60 * time.Second},
 		log:      log,
@@ -106,7 +121,7 @@ func (c *Client) do(ctx context.Context, method, path, query string, body any, i
 		return "", err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Ntnx-Api-Key", c.apiKey)
+	c.auth(req)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

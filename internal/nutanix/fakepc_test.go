@@ -21,6 +21,7 @@ type fakePC struct {
 	etag   string
 	fail   map[string]int // "METHOD path" → status to answer with an error body
 	status string         // task status after polls
+	iamSt  *iamState      // service account, key and policy (bootstrap_test.go)
 }
 
 type recorded struct {
@@ -54,7 +55,8 @@ func (f *fakePC) handle(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	if r.Header.Get("X-Ntnx-Api-Key") != f.key {
+	user, pw, basic := r.BasicAuth()
+	if r.Header.Get("X-Ntnx-Api-Key") != f.key && !(basic && user == "admin" && pw == testAdminPW) {
 		w.WriteHeader(401)
 		json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"error": "unauthorized"}})
 		return
@@ -70,6 +72,9 @@ func (f *fakePC) handle(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "metadata": map[string]any{"totalAvailableResults": 1}})
 	}
 	p := r.URL.Path
+	if f.handleIAM(w, r, rec, reply) {
+		return
+	}
 	switch {
 	case strings.HasPrefix(p, PathTasks+"/"):
 		f.mu.Lock()
@@ -135,6 +140,7 @@ func (f *fakePC) handle(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 	case p == PathIAM1+"/authz/authorization-policies":
 		reply(200, []map[string]any{
+			{"extId": "pol-pm", "displayName": "Project Manager_acp"},
 			{"extId": "pol-1", "displayName": "Super Admin_acp", "identities": []map[string]any{{"identityFilter": map[string]any{"user": map[string]any{"uuid": map[string]any{"anyof": []string{"u-1"}}}}}}},
 			{"extId": "pol-2", "displayName": "Leaky_acp", "identities": []map[string]any{{"identityFilter": map[string]any{"group": map[string]any{"uuid": map[string]any{"anyof": []string{"g-1"}}}}}}},
 		})

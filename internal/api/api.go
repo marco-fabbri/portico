@@ -70,6 +70,7 @@ func New(svc *tenant.Service, st store.Store, brand *branding.Service, so *Setti
 	mux.HandleFunc("POST "+Prefix+"settings/check", h.checkSettings)
 	mux.HandleFunc("POST "+Prefix+"settings/apply", h.applySettings)
 	mux.HandleFunc("POST "+Prefix+"settings/bootstrap/keycloak", h.bootstrapKeycloak)
+	mux.HandleFunc("POST "+Prefix+"settings/bootstrap/prism-central", h.bootstrapPrismCentral)
 	mux.HandleFunc("GET "+Prefix+"settings/branding", h.getBranding)
 	mux.HandleFunc("PUT "+Prefix+"settings/branding", h.putBranding)
 	mux.HandleFunc("GET "+Prefix+"settings/branding/logo", h.getLogo)
