@@ -32,7 +32,7 @@ here runs on the appliance.
   (store moved aside, IdP, service account and Keycloak realm deleted,
   stale secret files removed; prints its plan and refuses without
   `--yes`), write-up 15. `undeploy.sh` restores nginx;
-  `portico-lab-logo.svg` is the lab MSP's branding logo.
+  `portico-msp-logo.svg` is the lab MSP's branding logo: Portico's own mark in white, shown on the accent colour `#a73422` (branding name `Portico MSP`).
 - `saml/keycloak-realm.sh oidc-client` registers Portico's OIDC client.
 - `saml/theme-probe.sh [reset]` writes a probe login theme and sets it on the realm (write-up 13); `auth/probe-login-request.sh` prints the login-request shape, the provider-selection PUT and `initiate-login`.
 - `tenants/api.sh METHOD PATH [JSON]` calls Portico's admin API on the lab VM with the break-glass password from `~/portico-secrets/portico-admin-pw`; `tenants/acceptance.sh [--delete]` is the Milestone 2a acceptance (write-up 11).
