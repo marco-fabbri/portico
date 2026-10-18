@@ -25,13 +25,24 @@ type fakeKCAdmin struct {
 	mapped    map[string][]string       // userID/clientUUID → roles
 	mappers   map[string][]map[string]any
 	tokens    int
+	// descriptorEntityID is what the realm's SAML descriptor names;
+	// adminSecret is the portico-admin client secret the realm token
+	// endpoint accepts.
+	descriptorEntityID, adminSecret string
 }
 
 func newFakeKCAdmin(t *testing.T) *fakeKCAdmin {
-	f := &fakeKCAdmin{realmReps: map[string]map[string]any{}, clients: map[string]map[string]any{}, mapped: map[string][]string{}, mappers: map[string][]map[string]any{}}
+	f := &fakeKCAdmin{realmReps: map[string]map[string]any{}, clients: map[string]map[string]any{}, mapped: map[string][]string{}, mappers: map[string][]map[string]any{},
+		descriptorEntityID: "https://id.example.test/realms/msp", adminSecret: "secret-of-portico-admin"}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.srv.Close)
 	return f
+}
+
+// clientUUID is the fake's internal id for a clientId: real ids are
+// UUIDs, so a clientId that is a URL must not leak slashes into paths.
+func clientUUID(clientID string) string {
+	return "cli-" + strings.NewReplacer("/", "_", ":", "_").Replace(clientID)
 }
 
 func (f *fakeKCAdmin) client(clientID string) map[string]any {
@@ -72,6 +83,25 @@ func (f *fakeKCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"access_token":"tok-%d","expires_in":60}`, f.tokens)
 		return
 	}
+	if realm, ok := strings.CutPrefix(r.URL.Path, "/realms/"); ok {
+		name, rest, _ := strings.Cut(realm, "/")
+		switch rest {
+		case "protocol/openid-connect/token":
+			r.ParseForm()
+			if _, exists := f.realmReps[name]; !exists || r.Form.Get("grant_type") != "client_credentials" || r.Form.Get("client_id") != "portico-admin" || r.Form.Get("client_secret") != f.adminSecret {
+				w.WriteHeader(401)
+				return
+			}
+			f.tokens++
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"access_token":"tok-%d","expires_in":60}`, f.tokens)
+			return
+		case "protocol/saml/descriptor":
+			w.Header().Set("Content-Type", "application/xml")
+			fmt.Fprintf(w, `<?xml version="1.0"?><EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="%s"><IDPSSODescriptor/></EntityDescriptor>`, f.descriptorEntityID)
+			return
+		}
+	}
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer tok-") {
 		w.WriteHeader(401)
 		return
@@ -106,7 +136,7 @@ func (f *fakeKCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(out)
 	case p == "clients" && r.Method == "POST":
-		id := "cli-" + body["clientId"].(string)
+		id := clientUUID(body["clientId"].(string))
 		body["id"] = id
 		f.clients[id] = body
 		w.Header().Set("Location", f.srv.URL+r.URL.Path+"/"+id)

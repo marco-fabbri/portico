@@ -472,3 +472,31 @@ func (h *handler) bootstrapPrismCentral(w http.ResponseWriter, r *http.Request) 
 	}
 	h.bootstrapAnswer(w, r, res, res.OK, out, err)
 }
+
+// bootstrapSAMLJSON is the SAML trust bootstrap request body.
+type bootstrapSAMLJSON struct {
+	Name     string `json:"name"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func (h *handler) bootstrapSAML(w http.ResponseWriter, r *http.Request) {
+	if h.settingsUnavailable(w) {
+		return
+	}
+	var in bootstrapSAMLJSON
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	cur, _, err := h.so.Current(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	res, out, err := h.so.Bootstrapper.SAML(r.Context(), h.so.KeycloakURL, cur, settings.SAMLInput{Name: in.Name, Username: in.Username, Password: in.Password})
+	if err == nil {
+		h.log.Info("bootstrap saml", "name", out.PrismCentral.SAMLIdPName, "ok", res.OK, "used_credentials", res.UsedCredentials, "created", res.Created)
+	}
+	h.bootstrapAnswer(w, r, res, res.OK, out, err)
+}

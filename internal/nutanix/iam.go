@@ -2,7 +2,11 @@ package nutanix
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/xml"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,8 +16,18 @@ import (
 type SAMLIdP struct {
 	ExtID              string   `json:"extId"`
 	Name               string   `json:"name"`
+	EntityIssuer       string   `json:"entityIssuer"`
 	SharedWithAll      bool     `json:"isSharedWithAllProjects"`
 	SharedWithProjects []string `json:"sharedWithProjects"`
+}
+
+// SAMLIdPSpec describes the identity provider to create: the IdP's
+// metadata document (the Keycloak realm descriptor) and the public name
+// Prism Central must use in its SAML redirects (write-up 04).
+type SAMLIdPSpec struct {
+	Name        string
+	MetadataXML []byte
+	RedirectURL string
 }
 
 // UserGroup is a SAML group known to Prism Central.
@@ -52,6 +66,65 @@ func (c *Client) GetSAMLIdP(ctx context.Context, extID string) (*SAMLIdP, error)
 		return nil, err
 	}
 	return &out, nil
+}
+
+// CreateSAMLIdP creates the identity provider
+// (payloads/saml-idp-create.json): username and email from the email
+// attribute, groups from the groups attribute, unsigned authn requests.
+func (c *Client) CreateSAMLIdP(ctx context.Context, spec SAMLIdPSpec) (*SAMLIdP, error) {
+	body := map[string]any{
+		"name":                    spec.Name,
+		"idpMetadataXml":          base64.StdEncoding.EncodeToString(spec.MetadataXML),
+		"usernameAttribute":       "email",
+		"emailAttribute":          "email",
+		"groupsAttribute":         "groups",
+		"isSignedAuthnReqEnabled": false,
+	}
+	if spec.RedirectURL != "" {
+		body["redirectURL"] = spec.RedirectURL
+	}
+	var out SAMLIdP
+	if _, err := c.do(ctx, http.MethodPost, PathIAM1+"/authn/saml-identity-providers", "", body, "", &out); err != nil {
+		return nil, err
+	}
+	if out.ExtID == "" {
+		idps, err := c.ListSAMLIdPs(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for i := range idps {
+			if idps[i].Name == spec.Name {
+				return &idps[i], nil
+			}
+		}
+		return nil, notFound("identity provider " + spec.Name)
+	}
+	return &out, nil
+}
+
+// SPMetadata returns the entityID and the assertion consumer URL Prism
+// Central publishes for the identity provider. The endpoint answers
+// plain XML, not the JSON envelope (measured 2026-10-18 on pc.7.6.0.6).
+func (c *Client) SPMetadata(ctx context.Context, idpExtID string) (string, string, error) {
+	raw, err := c.getRaw(ctx, PathIAM1+"/authn/saml-identity-providers/"+idpExtID+"/sp-metadata")
+	if err != nil {
+		return "", "", err
+	}
+	var doc struct {
+		EntityID string `xml:"entityID,attr"`
+		SPSSO    struct {
+			ACS []struct {
+				Location string `xml:"Location,attr"`
+			} `xml:"AssertionConsumerService"`
+		} `xml:"SPSSODescriptor"`
+	}
+	if err := xml.Unmarshal(raw, &doc); err != nil {
+		return "", "", fmt.Errorf("prism central: sp-metadata: %w", err)
+	}
+	if doc.EntityID == "" || len(doc.SPSSO.ACS) == 0 || doc.SPSSO.ACS[0].Location == "" {
+		return "", "", errors.New("prism central: sp-metadata without entityID or assertion consumer service")
+	}
+	return doc.EntityID, doc.SPSSO.ACS[0].Location, nil
 }
 
 // ShareIdP shares the identity provider with a project (singular
