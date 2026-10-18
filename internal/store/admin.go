@@ -13,6 +13,9 @@ func (s *SQLite) SetAdminPassword(ctx context.Context, name, bcryptHash string) 
 	_, err := s.db.ExecContext(ctx, `INSERT INTO admin_accounts (name, password_hash, updated_at) VALUES (?,?,?)
 		ON CONFLICT(name) DO UPDATE SET password_hash = excluded.password_hash, updated_at = excluded.updated_at`,
 		name, bcryptHash, formatTime(time.Now()))
+	if err == nil {
+		s.chmodFiles()
+	}
 	return err
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 	"time"
 )
 
@@ -33,8 +32,11 @@ func (s *SQLite) CreateTenant(ctx context.Context, t *Tenant) error {
 		t.ID, t.DisplayName, t.Contacts, string(t.Status), t.ProjectID, t.ProjectExtID, t.ResourceGroupExtID,
 		t.SAMLGroupExtID, t.KeycloakGroupID, t.RoleMembershipExtID, boolInt(t.IdPShared), t.LastError, t.LastOp,
 		formatTime(t.CreatedAt), formatTime(t.UpdatedAt))
-	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
+	if isUniqueViolation(err) {
 		return ErrExists
+	}
+	if err == nil {
+		s.chmodFiles()
 	}
 	return err
 }
