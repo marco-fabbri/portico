@@ -1,0 +1,16 @@
+{{define "content"}}
+<section class="card narrow" style="margin-top:1rem">
+  <h1>New tenant</h1>
+  <form method="post" action="/tenants">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <label>Slug <input type="text" name="slug" value="{{.Data.Slug}}" pattern="[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?" required autofocus>
+      <span class="muted">lower-case letters, digits and dashes; becomes the project name with the configured prefix</span></label>
+    <label>Display name <input type="text" name="display_name" value="{{.Data.DisplayName}}" required></label>
+    <label>Contacts <input type="text" name="contacts" value="{{.Data.Contacts}}" placeholder="ops@customer.example"></label>
+    <div class="actions">
+      <button type="submit" class="primary">Create</button>
+      <a class="button" href="/">Cancel</a>
+    </div>
+  </form>
+</section>
+{{end}}
