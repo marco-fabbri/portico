@@ -34,7 +34,7 @@ func TestWriteThemeFiles(t *testing.T) {
 		t.Errorf("css lacks the colour or the button rule: %s", css)
 	}
 	msgs := readTheme(t, dir, "login/messages/messages_en.properties")
-	if !strings.Contains(msgs, "loginTitleHtml=ACME <strong>Cloud</strong>") || !strings.Contains(msgs, "loginAccountTitle=Your VMs") {
+	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup">ACME <strong>Cloud</strong></span><span class\="portico-claim">Your VMs</span>`) || !strings.Contains(msgs, "loginAccountTitle=Sign in") {
 		t.Errorf("messages: %s", msgs)
 	}
 	for _, f := range []string{"login/theme.properties", "login/resources/css/portico.css", "login/messages/messages_en.properties"} {
@@ -53,10 +53,10 @@ func TestWriteThemeEscapesName(t *testing.T) {
 		t.Fatal(err)
 	}
 	msgs := readTheme(t, dir, "login/messages/messages_en.properties")
-	if !strings.Contains(msgs, `loginTitleHtml=A\=B\:C <strong>&lt;b&gt;x&lt;/b&gt;</strong>`) {
+	if !strings.Contains(msgs, `<span class\="portico-lockup">A\=B\:C <strong>&lt;b&gt;x&lt;/b&gt;</strong></span>`) {
 		t.Errorf("name not escaped: %s", msgs)
 	}
-	if !strings.Contains(msgs, `loginAccountTitle=line one\nline two \#tag`) {
+	if !strings.Contains(msgs, `<span class\="portico-claim">line one\nline two \#tag</span>`) {
 		t.Errorf("tagline not escaped: %s", msgs)
 	}
 	if strings.Count(msgs, "\n") != 2 {
@@ -163,14 +163,17 @@ func TestThemeCSSCentresTheLoginUnderTheLockup(t *testing.T) {
 	for _, want := range []string{
 		"body#keycloak-bg { background: var(--portico-accent); }",
 		".pf-v5-c-login__container { display: flex; flex-direction: column; align-items: center;",
-		"#kc-header-wrapper { display: flex; align-items: center;",
+		"#kc-header-wrapper { display: flex; flex-direction: column; align-items: center;",
 		".pf-v5-c-login__main { order: 1; grid-area: auto; align-self: center;",
 		".pf-v5-c-login__main-header { border-top: 0; }",
 		`font-family: "RedHatDisplay"`,
 		"color: #fff;",
-		`#kc-header-wrapper::before { content: ""; width: 56px; height: 64px;`,
+		// The mark is as tall as the capitals, the name is uppercase.
+		".portico-lockup { display: flex; align-items: center; gap: 0.6em; font-size: 2.25rem; line-height: 1; text-transform: uppercase; letter-spacing: 0.08em; }",
+		`.portico-lockup::before { content: ""; width: 0.88em; height: 1em;`,
 		"url(../img/logo.svg)",
-		"#kc-header-wrapper strong { font-weight: 700; }",
+		".portico-lockup strong { font-weight: 700; }",
+		".portico-claim { font-size: 1.05rem; font-weight: 400; opacity: 0.9; }",
 		`.pf-v5-c-login__container::after { content: "Powered by Portico";`,
 		"url(../img/portico-mark.svg)",
 	} {
@@ -182,25 +185,28 @@ func TestThemeCSSCentresTheLoginUnderTheLockup(t *testing.T) {
 		t.Fatalf("old header rules still there:\n%s", css)
 	}
 	// Without a logo the lockup is the name alone.
-	if strings.Contains(themeCSS(Default()), "#kc-header-wrapper::before") {
+	if strings.Contains(themeCSS(Default()), ".portico-lockup::before") {
 		t.Fatal("a logo rule without a logo")
 	}
 }
 
-// The last word of the MSP name is bold in the lockup ("Portico MSP"):
-// the title is HTML, escaped per word.
-func TestThemeMessagesBoldTheLastWord(t *testing.T) {
+// The title is the lockup (name, last word bold) with the tagline as a
+// claim under it; the card itself says "Sign in". Everything is HTML,
+// escaped per piece.
+func TestThemeMessagesBuildTheLockupAndClaim(t *testing.T) {
 	b := Default()
-	b.MSPName = "Portico MSP"
-	if msgs := themeMessages(b); !strings.Contains(msgs, "loginTitleHtml=Portico <strong>MSP</strong>\n") {
+	b.MSPName, b.Tagline = "Portico MSP", "One door to your Nutanix cloud."
+	msgs := themeMessages(b)
+	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup">Portico <strong>MSP</strong></span><span class\="portico-claim">One door to your Nutanix cloud.</span>`+"\n") || !strings.Contains(msgs, "loginAccountTitle=Sign in\n") {
 		t.Fatalf("messages: %q", msgs)
 	}
-	b.MSPName = "A&B <x>"
-	if msgs := themeMessages(b); !strings.Contains(msgs, "loginTitleHtml=A&amp;B <strong>&lt;x&gt;</strong>\n") {
-		t.Fatalf("escaped: %q", msgs)
+	b.MSPName, b.Tagline = "A&B <x>", ""
+	msgs = themeMessages(b)
+	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup">A&amp;B <strong>&lt;x&gt;</strong></span>`+"\n") {
+		t.Fatalf("escaped, no claim: %q", msgs)
 	}
 	b.MSPName = "Solo"
-	if msgs := themeMessages(b); !strings.Contains(msgs, "loginTitleHtml=Solo\n") {
+	if msgs := themeMessages(b); !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup">Solo</span>`+"\n") {
 		t.Fatalf("one word: %q", msgs)
 	}
 }
