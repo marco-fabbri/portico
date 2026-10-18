@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/marco-fabbri/portico/internal/nutanix"
+	"github.com/marco-fabbri/portico/internal/store"
 )
 
 // fakePCAdmin is an httptest Prism Central for the bootstrap: Basic auth
@@ -161,7 +162,7 @@ func prismInput(url string) PrismInput {
 
 func TestPrismBootstrapCreatesAccountKeyAndPolicyMember(t *testing.T) {
 	pc := newFakePCAdmin(t)
-	b := NewBootstrapper(nil)
+	b := NewBootstrapper(nil, nil)
 	s := Defaults()
 	s.PrismHost = "prism.example.test"
 	res, out, err := b.PrismCentral(context.Background(), s, prismInput(pc.srv.URL))
@@ -183,7 +184,7 @@ func TestPrismBootstrapExistingAccountGetsNewKey(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	pc.user = map[string]any{"extId": "sa-1", "username": "portico", "userType": "SERVICE_ACCOUNT"}
 	pc.inPolicy = true
-	res, _, err := NewBootstrapper(nil).PrismCentral(context.Background(), Defaults(), prismInput(pc.srv.URL))
+	res, _, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), Defaults(), prismInput(pc.srv.URL))
 	if err != nil || !res.OK || len(res.Created) != 1 || !strings.HasPrefix(res.Created[0], "api key portico-") {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -194,7 +195,7 @@ func TestPrismBootstrapWrongCredentials(t *testing.T) {
 	in := prismInput(pc.srv.URL)
 	in.Password = "wrong"
 	s := Defaults()
-	res, out, err := NewBootstrapper(nil).PrismCentral(context.Background(), s, in)
+	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), s, in)
 	if err != nil || res.OK || res.Message != "Prism Central refused the credentials (401)" || len(pc.posts) != 0 || out != s {
 		t.Fatalf("res=%+v err=%v posts=%v", res, err, pc.posts)
 	}
@@ -203,7 +204,7 @@ func TestPrismBootstrapWrongCredentials(t *testing.T) {
 func TestPrismBootstrapPolicyMissingDeletesTheKey(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	pc.noPolicy = true
-	res, _, err := NewBootstrapper(nil).PrismCentral(context.Background(), Defaults(), prismInput(pc.srv.URL))
+	res, _, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), Defaults(), prismInput(pc.srv.URL))
 	if err != nil || res.OK || res.Message != `authorization policy "Project Manager_acp" not found` || pc.keyDeleted != 1 {
 		t.Fatalf("res=%+v err=%v deleted=%d", res, err, pc.keyDeleted)
 	}
@@ -211,7 +212,7 @@ func TestPrismBootstrapPolicyMissingDeletesTheKey(t *testing.T) {
 
 func TestPrismBootstrapPreconditions(t *testing.T) {
 	pc := newFakePCAdmin(t)
-	b := NewBootstrapper(nil)
+	b := NewBootstrapper(nil, nil)
 	var se *StateError
 	for name, in := range map[string]PrismInput{
 		"empty password": {Username: "admin", URL: pc.srv.URL},
@@ -232,7 +233,7 @@ func TestPrismBootstrapRevokesAKeyLostInTransit(t *testing.T) {
 	pc.keyLost = true
 	s := Defaults()
 	s.PrismHost = "prism.example.test"
-	res, out, err := NewBootstrapper(nil).PrismCentral(context.Background(), s, prismInput(pc.srv.URL))
+	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), s, prismInput(pc.srv.URL))
 	if err != nil || res.OK || !strings.Contains(res.Message, "Prism Central") {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -250,8 +251,31 @@ func TestPrismBootstrapRevokesTheKeyWithACancelledContext(t *testing.T) {
 	pc.onPolicies = cancel
 	s := Defaults()
 	s.PrismHost = "prism.example.test"
-	res, _, err := NewBootstrapper(nil).PrismCentral(ctx, s, prismInput(pc.srv.URL))
+	res, _, err := NewBootstrapper(nil, nil).PrismCentral(ctx, s, prismInput(pc.srv.URL))
 	if err != nil || res.OK {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if pc.keyDeleted != 1 {
+		t.Fatalf("key deleted %d times", pc.keyDeleted)
+	}
+}
+
+// failingStore refuses every settings write.
+type failingStore struct{ store.Store }
+
+func (failingStore) SetSetting(context.Context, string, []byte) error {
+	return errors.New("disk full")
+}
+
+// A key that could not be stored is a key nobody holds: the bootstrap
+// revokes it and reports the failure instead of 200 with a key lost.
+func TestPrismBootstrapRevokesTheKeyWhenTheStoreFails(t *testing.T) {
+	pc := newFakePCAdmin(t)
+	svc := NewService(failingStore{newStore(t)}, sealerFor(t, 1))
+	s := Defaults()
+	s.PrismHost = "prism.example.test"
+	res, _, err := NewBootstrapper(nil, svc).PrismCentral(context.Background(), s, prismInput(pc.srv.URL))
+	if err != nil || res.OK || res.Stored || !strings.Contains(res.Message, "not stored") {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	if pc.keyDeleted != 1 {

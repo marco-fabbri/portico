@@ -37,6 +37,7 @@ type PrismResult struct {
 	KeyName             string    `json:"key_name,omitempty"`
 	KeyExpires          time.Time `json:"key_expires,omitempty"`
 	Created             []string  `json:"created"`
+	Stored              bool      `json:"stored"`
 }
 
 const (
@@ -165,8 +166,18 @@ func (b *Bootstrapper) PrismCentral(ctx context.Context, s Settings, in PrismInp
 	if !check.OK {
 		return failed("the new key was refused: " + check.Message)
 	}
-	out.PrismCentral.APIKey = Secret(key.Key)
-	res.CheckResult = check
+	patch := func(d *Settings) {
+		d.PrismCentral.URL, d.PrismCentral.TLSVerify, d.PrismCentral.CAPEM = in.URL, in.TLSVerify, in.CAPEM
+		d.PrismCentral.APIKey = Secret(key.Key)
+	}
+	patch(&out)
+	// A key that is not stored is a key nobody holds: revoke it.
+	stored, err := b.store(ctx, patch)
+	if err != nil {
+		res.CheckResult = CheckResult{Clusters: check.Clusters, Containers: check.Containers}
+		return failed("Prism Central bootstrap done but the settings were not stored, so the new key was revoked: " + err.Error())
+	}
+	res.CheckResult, res.Stored = check, stored
 	res.Message = fmt.Sprintf("Prism Central bootstrap done: created %s; %s", strings.Join(res.Created, ", "), check.Message)
 	return res, out, nil
 }

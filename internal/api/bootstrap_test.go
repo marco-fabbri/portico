@@ -269,7 +269,7 @@ func TestBootstrapKeycloakStoresAndHidesSecrets(t *testing.T) {
 		t.Fatalf("stored: %v", out)
 	}
 	rec, out = e.do("POST", "/api/v1/settings/bootstrap/keycloak", `{"admin_username":"kcadmin","admin_password":"x","realm":"msp"}`)
-	if rec.Code != 200 || out["ok"] != false || out["stored"] != nil {
+	if rec.Code != 200 || out["ok"] != false || out["stored"] != false {
 		t.Fatalf("refused bootstrap: %d %v", rec.Code, out)
 	}
 	rec, out = e.do("POST", "/api/v1/settings/bootstrap/keycloak", `{"admin_username":"kcadmin","admin_password":"adm-pw-1","realm":"msp","bogus":1}`)
@@ -306,7 +306,7 @@ func TestBootstrapPrismCentralStoresKeyAndNeverLogsPassword(t *testing.T) {
 		t.Fatalf("stored: %v", out)
 	}
 	rec, out = e.do("POST", "/api/v1/settings/bootstrap/prism-central", `{"username":"admin","password":"wrong","url":"`+e.pcAdmin.URL+`","tls_verify":false}`)
-	if rec.Code != 200 || out["ok"] != false || !strings.Contains(out["message"].(string), "refused the credentials") || out["stored"] != nil {
+	if rec.Code != 200 || out["ok"] != false || !strings.Contains(out["message"].(string), "refused the credentials") || out["stored"] != false {
 		t.Fatalf("wrong password: %d %v", rec.Code, out)
 	}
 	rec, out = e.do("POST", "/api/v1/settings/bootstrap/prism-central", `{"username":"admin","url":"`+e.pcAdmin.URL+`"}`)
