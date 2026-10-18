@@ -15,6 +15,7 @@ and how to re-measure after an upgrade. Scripts are under `lab/`.
 | 07 | [Service account role](2026-10-17-07-service-account-role.md) | service account + API key (`X-ntnx-api-key`) in `Project Manager_acp` does the whole tenant cycle |
 | 08 | [Tenant UI behaviour and WebSockets](2026-10-17-08-tenant-ui-behaviour.md) | four API generations on one page; short prefix allow-list is realistic; `/vnc/.../proxy` WebSocket 101 through the proxy |
 | 09 | [The Go proxy in the lab (Milestone 1 acceptance)](2026-10-17-09-go-proxy-acceptance.md) | probe passes on every line; alice logs in once and sees her VM; VM console through the Go proxy; fail closed with Keycloak down; 8 MiB |
+| 10 | [Bearer replay and v3 user enumeration](2026-10-18-10-bearer-and-v3-users.md) | the local-login session is two cookies, nothing replayable as Bearer (500); v3 users/list returns only the caller, leaks the count; no new deny rule |
 
 `lab-inventory.md` lists everything created in the lab and how to remove it.
 `TEMPLATE.md` is the write-up skeleton. `payloads/` holds sanitised request
