@@ -22,6 +22,9 @@ func (h *Handler) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /tenants/{id}/enable", h.tenantAction("enable"))
 	mux.HandleFunc("POST /tenants/{id}/provision", h.tenantAction("provision"))
 	mux.HandleFunc("POST /tenants/{id}/delete", h.tenantDelete)
+	mux.HandleFunc("GET /settings/branding", h.brandingPage)
+	mux.HandleFunc("POST /settings/branding", h.brandingSave)
+	mux.HandleFunc("GET /settings/branding/logo", h.brandingLogo)
 }
 
 // inProgress reports whether a status still changes on its own.

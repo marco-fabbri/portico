@@ -14,6 +14,7 @@ import (
 
 	"github.com/marco-fabbri/portico/internal/api"
 	"github.com/marco-fabbri/portico/internal/auth"
+	"github.com/marco-fabbri/portico/internal/branding"
 	"github.com/marco-fabbri/portico/internal/config"
 	"github.com/marco-fabbri/portico/internal/idp/keycloak"
 	"github.com/marco-fabbri/portico/internal/nutanix"
@@ -139,9 +140,10 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// account, one failure limiter and one authentication middleware.
 	limiter := api.NewLimiter()
 	adminSessions := auth.NewMemoryStore(8*time.Hour, 15*time.Minute)
-	ui := web.New(web.Options{Store: st, Service: tenants, Sessions: adminSessions, Limiter: limiter, Secure: internalTLS != nil, Version: version, Log: log})
+	brand := branding.NewService(st, log)
+	ui := web.New(web.Options{Store: st, Service: tenants, Branding: brand, Sessions: adminSessions, Limiter: limiter, Secure: internalTLS != nil, Version: version, Log: log})
 	guard := api.RequireAdmin(st, ui, limiter, "portico", log)
-	adminAPI := guard(api.New(tenants, st, log))
+	adminAPI := guard(api.New(tenants, st, brand, log))
 	adminUI := guard(ui)
 	newServer := func(addr string, h http.Handler) *http.Server {
 		return &http.Server{

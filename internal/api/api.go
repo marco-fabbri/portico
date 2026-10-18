@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/marco-fabbri/portico/internal/branding"
 	"github.com/marco-fabbri/portico/internal/store"
 	"github.com/marco-fabbri/portico/internal/tenant"
 )
@@ -21,18 +22,26 @@ import (
 const Prefix = "/api/v1/"
 
 type handler struct {
-	svc *tenant.Service
-	st  store.Store
-	log *slog.Logger
+	svc   *tenant.Service
+	st    store.Store
+	brand *branding.Service
+	log   *slog.Logger
 }
 
-// New returns the API handler. The caller wraps it with BasicAuth.
-func New(svc *tenant.Service, st store.Store, log *slog.Logger) http.Handler {
+// New returns the API handler. The caller wraps it with the
+// authentication middleware.
+func New(svc *tenant.Service, st store.Store, brand *branding.Service, log *slog.Logger) http.Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	h := &handler{svc: svc, st: st, log: log}
+	if brand == nil {
+		brand = branding.NewService(st, log)
+	}
+	h := &handler{svc: svc, st: st, brand: brand, log: log}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET "+Prefix+"settings/branding", h.getBranding)
+	mux.HandleFunc("PUT "+Prefix+"settings/branding", h.putBranding)
+	mux.HandleFunc("GET "+Prefix+"settings/branding/logo", h.getLogo)
 	mux.HandleFunc("GET "+Prefix+"tenants", h.listTenants)
 	mux.HandleFunc("POST "+Prefix+"tenants", h.createTenant)
 	mux.HandleFunc("GET "+Prefix+"tenants/{id}", h.getTenant)
