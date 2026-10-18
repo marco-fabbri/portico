@@ -110,7 +110,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	listeners := []listener{
 		{"public", newServer(cfg.Public.Listen, public), publicTLS},
 		{"passthrough", newServer(cfg.Internal.PassthroughListen, passthrough), internalTLS},
-		{"admin", newServer(cfg.Internal.AdminListen, proxy.NewAdmin(log)), internalTLS},
+		{"admin", newServer(cfg.Internal.AdminListen, proxy.NewAdmin(log, nil)), internalTLS},
 	}
 
 	errs := make(chan error, len(listeners))
