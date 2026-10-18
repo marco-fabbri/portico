@@ -60,11 +60,16 @@ different project model and are out of scope.
 
 ## Status
 
-**Milestone 1: the core binary runs in the lab.** `portico serve` fronts
-Prism Central and Keycloak on two public names, requires a Keycloak login
-before any request reaches Prism Central, refuses every local-login path
-measured on pc.7.6, and offers an internal pass-through for administrators.
-No tenant provisioning yet (Milestone 2), no appliance image (Milestone 3).
+**Milestone 2a: tenants are created through the API in the lab.** `portico
+serve` fronts Prism Central and Keycloak on two public names, requires a
+Keycloak login before any request reaches Prism Central, refuses every
+local-login path measured on pc.7.6, and offers an internal pass-through
+for administrators. `POST /api/v1/tenants` on the internal listener creates
+a tenant end to end (Keycloak group, Projects 2.0 project with resource
+group, SAML group, identity provider sharing, project-scoped role
+membership, visibility check) and its first user logs in once and sees only
+that project. No admin UI, landing page or Keycloak theme yet (Milestone
+2b), no appliance image (Milestone 3).
 The design document is in
 [`docs/superpowers/specs/2026-10-17-portico-design.md`](docs/superpowers/specs/2026-10-17-portico-design.md),
 lab measurements in `docs/lab/`, decisions in `docs/adr/`.
