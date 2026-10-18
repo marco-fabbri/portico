@@ -1,0 +1,128 @@
+package settings
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	"github.com/marco-fabbri/portico/internal/secrets"
+	"github.com/marco-fabbri/portico/internal/store"
+)
+
+// ErrNotStored means no settings document exists in the store.
+var ErrNotStored = errors.New("settings: nothing stored")
+
+// OpenError names the field whose sealed value did not open.
+type OpenError struct {
+	Field string
+	Err   error
+}
+
+func (e *OpenError) Error() string {
+	return fmt.Sprintf("settings: %s cannot be opened with this master key: %v", e.Field, e.Err)
+}
+
+func (e *OpenError) Unwrap() error { return e.Err }
+
+// Service reads and writes the document, sealing the secrets.
+type Service struct {
+	st     store.Store
+	sealer *secrets.Sealer
+}
+
+// NewService returns a service over the store with the sealer.
+func NewService(st store.Store, sealer *secrets.Sealer) *Service {
+	return &Service{st: st, sealer: sealer}
+}
+
+// Stored reports whether a document exists.
+func (s *Service) Stored(ctx context.Context) bool {
+	_, err := s.st.GetSetting(ctx, SettingKey)
+	return err == nil
+}
+
+// secretFields lists the sealed fields with their names for errors.
+func secretFields(s *Settings) []struct {
+	name string
+	ptr  *Secret
+} {
+	return []struct {
+		name string
+		ptr  *Secret
+	}{
+		{"prism_central.api_key", &s.PrismCentral.APIKey},
+		{"keycloak.admin_client_secret", &s.Keycloak.AdminClientSecret},
+		{"oidc.client_secret", &s.OIDC.ClientSecret},
+	}
+}
+
+// Get returns the document with its secrets opened.
+func (s *Service) Get(ctx context.Context) (Settings, error) {
+	raw, err := s.st.GetSetting(ctx, SettingKey)
+	if errors.Is(err, store.ErrNotFound) {
+		return Settings{}, ErrNotStored
+	}
+	if err != nil {
+		return Settings{}, fmt.Errorf("settings: store: %w", err)
+	}
+	var out Settings
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return Settings{}, fmt.Errorf("settings: stored document unreadable: %w", err)
+	}
+	for _, f := range secretFields(&out) {
+		if *f.ptr == "" {
+			continue
+		}
+		plain, err := s.sealer.Open(string(*f.ptr))
+		if err != nil {
+			return Settings{}, &OpenError{Field: f.name, Err: err}
+		}
+		*f.ptr = Secret(plain)
+	}
+	return out, nil
+}
+
+// Set validates and stores the document, sealing every non-empty secret.
+func (s *Service) Set(ctx context.Context, in Settings) error {
+	if err := in.Validate(); err != nil {
+		return err
+	}
+	sealed := in
+	for _, f := range secretFields(&sealed) {
+		if *f.ptr == "" {
+			continue
+		}
+		v, err := s.sealer.Seal(string(*f.ptr))
+		if err != nil {
+			return fmt.Errorf("settings: seal %s: %w", f.name, err)
+		}
+		*f.ptr = Secret(v)
+	}
+	raw, err := json.Marshal(sealed)
+	if err != nil {
+		return err
+	}
+	if err := s.st.SetSetting(ctx, SettingKey, raw); err != nil {
+		return fmt.Errorf("settings: store: %w", err)
+	}
+	return nil
+}
+
+// Update merges in onto the stored document: empty secret fields keep
+// the stored value, so a save without a password does not erase it.
+func (s *Service) Update(ctx context.Context, in Settings) error {
+	cur, err := s.Get(ctx)
+	if err != nil && !errors.Is(err, ErrNotStored) {
+		return err
+	}
+	if err == nil {
+		curFields, inFields := secretFields(&cur), secretFields(&in)
+		for i := range inFields {
+			if *inFields[i].ptr == "" {
+				*inFields[i].ptr = *curFields[i].ptr
+			}
+		}
+	}
+	return s.Set(ctx, in)
+}
