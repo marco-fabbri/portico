@@ -433,3 +433,42 @@ func (h *handler) bootstrapKeycloak(w http.ResponseWriter, r *http.Request) {
 	}
 	h.bootstrapAnswer(w, r, res, res.OK, out, err)
 }
+
+// bootstrapPrismJSON is the Prism Central bootstrap request body.
+type bootstrapPrismJSON struct {
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+	URL            string `json:"url"`
+	TLSVerify      *bool  `json:"tls_verify"`
+	CAPEM          string `json:"ca_pem"`
+	ServiceAccount string `json:"service_account"`
+}
+
+func (h *handler) bootstrapPrismCentral(w http.ResponseWriter, r *http.Request) {
+	if h.settingsUnavailable(w) {
+		return
+	}
+	var in bootstrapPrismJSON
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	cur, _, err := h.so.Current(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	pin := settings.PrismInput{Username: in.Username, Password: in.Password, URL: in.URL, TLSVerify: true, CAPEM: in.CAPEM, ServiceAccount: in.ServiceAccount}
+	if in.TLSVerify != nil {
+		pin.TLSVerify = *in.TLSVerify
+	}
+	res, out, err := h.so.Bootstrapper.PrismCentral(r.Context(), cur, pin)
+	if err == nil {
+		attrs := []any{"url", in.URL, "user", in.Username, "service_account", res.ServiceAccount, "ok", res.OK, "created", res.Created}
+		if res.OK {
+			attrs = append(attrs, "key_expires", res.KeyExpires)
+		}
+		h.log.Info("bootstrap prism central", attrs...)
+	}
+	h.bootstrapAnswer(w, r, res, res.OK, out, err)
+}

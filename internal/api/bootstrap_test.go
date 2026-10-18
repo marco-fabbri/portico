@@ -127,6 +127,73 @@ func (f *fakeKCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// fakePCAdmin is a compact Prism Central for the bootstrap route: Basic
+// auth admin/pc-pw-1 on the IAM calls, the issued key on the lists.
+type fakePCAdmin struct {
+	srv  *httptest.Server
+	URL  string
+	mu   sync.Mutex
+	user map[string]any
+	key  string
+}
+
+func newFakePCAdmin(t *testing.T) *fakePCAdmin {
+	f := &fakePCAdmin{key: "issued-key-4242"}
+	f.srv = httptest.NewServer(http.HandlerFunc(f.handle))
+	f.URL = f.srv.URL
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func (f *fakePCAdmin) issuedKey() string { return f.key }
+
+func (f *fakePCAdmin) handle(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	user, pw, basic := r.BasicAuth()
+	if r.Header.Get("X-Ntnx-Api-Key") != f.key && !(basic && user == "admin" && pw == "pc-pw-1") {
+		w.WriteHeader(401)
+		w.Write([]byte(`{"data":{"error":"unauthorized"}}`))
+		return
+	}
+	var body map[string]any
+	json.NewDecoder(r.Body).Decode(&body)
+	reply := func(code int, data any) {
+		w.WriteHeader(code)
+		json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}
+	p := r.URL.Path
+	switch {
+	case strings.HasSuffix(p, "/config/clusters"):
+		reply(200, []map[string]any{{"extId": "cl-1", "name": "NTNX-01", "config": map[string]any{"clusterFunction": []string{"AOS"}}}})
+	case strings.HasSuffix(p, "/config/storage-containers"):
+		reply(200, []map[string]any{{"containerExtId": "sc-1", "name": "default"}})
+	case strings.HasSuffix(p, "/authn/users") && r.Method == "GET":
+		out := []map[string]any{}
+		if f.user != nil {
+			out = append(out, f.user)
+		}
+		reply(200, out)
+	case strings.HasSuffix(p, "/authn/users") && r.Method == "POST":
+		f.user = map[string]any{"extId": "sa-1", "username": body["username"], "userType": "SERVICE_ACCOUNT"}
+		reply(201, f.user)
+	case strings.HasSuffix(p, "/authn/users/sa-1/keys") && r.Method == "POST":
+		reply(201, map[string]any{"extId": "key-1", "name": body["name"], "keyDetails": map[string]any{"apiKey": f.key}, "expiryTime": "2126-10-18T00:00:00Z"})
+	case strings.HasSuffix(p, "/authz/authorization-policies"):
+		reply(200, []map[string]any{{"extId": "pol-pm", "displayName": "Project Manager_acp"}})
+	case strings.HasSuffix(p, "/authz/authorization-policies/pol-pm") && r.Method == "GET":
+		w.Header().Set("ETag", `"p"`)
+		reply(200, map[string]any{"extId": "pol-pm", "displayName": "Project Manager_acp", "role": "role-pm",
+			"identities": []any{map[string]any{"identityFilter": map[string]any{"user": map[string]any{"uuid": map[string]any{"anyof": []any{"u-existing"}}}}}}})
+	case strings.HasSuffix(p, "/authz/authorization-policies/pol-pm") && r.Method == "PUT":
+		reply(200, map[string]any{"message": "updated"})
+	default:
+		w.WriteHeader(404)
+		w.Write([]byte(`{"data":{"error":"no route"}}`))
+	}
+}
+
 // putHosts stores the public names as a draft.
 func (e *settingsEnv) putHosts(t *testing.T) {
 	t.Helper()
@@ -171,5 +238,34 @@ func TestBootstrapKeycloakNeedsHosts(t *testing.T) {
 	rec, out := e.do("POST", "/api/v1/settings/bootstrap/keycloak", `{"admin_username":"kcadmin","admin_password":"adm-pw-1","realm":"msp"}`)
 	if rec.Code != 409 || !strings.Contains(out["error"].(string), "public names") {
 		t.Fatalf("%d %v", rec.Code, out)
+	}
+}
+
+func TestBootstrapPrismCentralStoresKeyAndNeverLogsPassword(t *testing.T) {
+	e := newDraftEnv(t)
+	e.putHosts(t)
+	rec, out := e.do("POST", "/api/v1/settings/bootstrap/prism-central", `{"username":"admin","password":"pc-pw-1","url":"`+e.pcAdmin.URL+`","tls_verify":false}`)
+	if rec.Code != 200 || out["ok"] != true || out["stored"] != true || out["service_account"] != "portico" || out["clusters"] == nil {
+		t.Fatalf("bootstrap: %d %v", rec.Code, out)
+	}
+	for _, secret := range []string{"pc-pw-1", e.pcAdmin.issuedKey()} {
+		if strings.Contains(rec.Body.String(), secret) || strings.Contains(e.log.String(), secret) {
+			t.Fatalf("%q leaked", secret)
+		}
+	}
+	if !strings.Contains(e.log.String(), `"msg":"bootstrap prism central"`) {
+		t.Fatalf("log lacks the bootstrap line: %s", e.log.String())
+	}
+	rec, out = e.do("GET", "/api/v1/settings", "")
+	if pc := out["prism_central"].(map[string]any); pc["api_key_set"] != true || pc["url"] != e.pcAdmin.URL || out["prism_host"] != "prism.example.test" {
+		t.Fatalf("stored: %v", out)
+	}
+	rec, out = e.do("POST", "/api/v1/settings/bootstrap/prism-central", `{"username":"admin","password":"wrong","url":"`+e.pcAdmin.URL+`","tls_verify":false}`)
+	if rec.Code != 200 || out["ok"] != false || !strings.Contains(out["message"].(string), "refused the credentials") || out["stored"] != nil {
+		t.Fatalf("wrong password: %d %v", rec.Code, out)
+	}
+	rec, out = e.do("POST", "/api/v1/settings/bootstrap/prism-central", `{"username":"admin","url":"`+e.pcAdmin.URL+`"}`)
+	if rec.Code != 409 {
+		t.Fatalf("no password: %d %v", rec.Code, out)
 	}
 }
