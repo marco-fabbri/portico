@@ -16,10 +16,11 @@ func NewPassthrough(prism http.Handler, log *slog.Logger) http.Handler {
 	return AccessLog(log, prism)
 }
 
-// NewAdmin serves the internal admin listener: GET /healthz, open, and
-// the REST API under /api/v1/ when api is not nil (the caller wraps it
-// with its authentication). The admin UI arrives in Milestone 2b.
-func NewAdmin(log *slog.Logger, api http.Handler) http.Handler {
+// NewAdmin serves the internal admin listener: GET /healthz, open; the
+// REST API under /api/v1/ when api is not nil; the admin UI on every
+// other path when ui is not nil. The caller wraps both with the
+// authentication middleware.
+func NewAdmin(log *slog.Logger, api, ui http.Handler) http.Handler {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -32,8 +33,12 @@ func NewAdmin(log *slog.Logger, api http.Handler) http.Handler {
 	if api != nil {
 		mux.Handle("/api/v1/", api)
 	}
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "not found", http.StatusNotFound)
-	})
+	if ui != nil {
+		mux.Handle("/", ui)
+	} else {
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "not found", http.StatusNotFound)
+		})
+	}
 	return AccessLog(log, mux)
 }
