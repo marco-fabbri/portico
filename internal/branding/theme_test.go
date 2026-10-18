@@ -168,3 +168,16 @@ func TestThemeCSSDrawsTheLogoAboveTheTitle(t *testing.T) {
 		t.Fatalf("the padding hack is still there:\n%s", css)
 	}
 }
+
+// keycloak.v2 paints the header text white for its dark background; the
+// Portico theme has no such background, so the realm name needs a dark
+// colour of its own (it was white on white, Marco's check in 2f).
+func TestThemeCSSGivesTheHeaderADarkColour(t *testing.T) {
+	css := themeCSS(Default())
+	for _, line := range strings.Split(css, "\n") {
+		if strings.HasPrefix(line, "#kc-header-wrapper {") && strings.Contains(line, "color: #1f2937") {
+			return
+		}
+	}
+	t.Fatalf("the header rule sets no dark colour:\n%s", css)
+}
