@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/tls"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -223,8 +224,11 @@ func TestCallbackRejectsReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != 200 || len(st.sessions) != 1 || callbackURL(*visited) != "" {
-		t.Fatalf("replayed callback: status %d, sessions %d, visited %v", resp.StatusCode, len(st.sessions), *visited)
+	// The restart ran a fresh login (a new code from the provider); the
+	// replayed code was never exchanged again (the fake provider would
+	// have refused it: codes are single-use).
+	if fresh := callbackURL(*visited); resp.StatusCode != 200 || fresh == "" || fresh == replay {
+		t.Fatalf("replayed callback: status %d, visited %v", resp.StatusCode, *visited)
 	}
 }
 
@@ -376,22 +380,72 @@ func TestCallbackWithoutStateRestartsOnce(t *testing.T) {
 	idp := newFakeIDP(t)
 	a, st := newTestAuth(t, idp)
 	client, _ := porticoServer(t, a)
+	stop := func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	follow := client.CheckRedirect
+	client.CheckRedirect = stop
+	resp, err := client.Get("https://prism.test/.portico/callback?code=x&state=y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	loc := resp.Header.Get("Location")
+	if resp.StatusCode != 303 || !strings.HasPrefix(loc, "/.portico/login?") {
+		t.Fatalf("first: %d %q, want 303 to the login", resp.StatusCode, loc)
+	}
+	if len(st.sessions) != 0 {
+		t.Error("a session was created by the stateless callback")
+	}
+	// With cookies working, the restarted login completes.
+	client.CheckRedirect = follow
+	resp, err = client.Get("https://prism.test" + loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || !strings.Contains(string(body), "console for alice@lab.portico.test") || len(st.sessions) != 1 {
+		t.Fatalf("restarted login: %d %q sessions %d", resp.StatusCode, body, len(st.sessions))
+	}
+}
+
+// With cookies blocked on the Portico host no marker cookie can exist:
+// the restart marker travels in the OIDC state instead, so the second
+// stateless callback in a row is the plain error, never another trip
+// through Keycloak.
+func TestCallbackWithoutCookiesDoesNotLoop(t *testing.T) {
+	idp := newFakeIDP(t)
+	a, st := newTestAuth(t, idp)
+	client, _ := porticoServer(t, a)
+	client.Jar = nil // cookies blocked
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := client.Get("https://prism.test/.portico/callback?code=x&state=y")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != 303 || resp.Header.Get("Location") != "/" {
-		t.Fatalf("first: %d %q, want 303 to /", resp.StatusCode, resp.Header.Get("Location"))
+	loc := resp.Header.Get("Location")
+	if resp.StatusCode != 303 || !strings.HasPrefix(loc, "/.portico/login?") || !strings.Contains(loc, "restart=1") {
+		t.Fatalf("first: %d %q, want 303 to /.portico/login with restart=1", resp.StatusCode, loc)
 	}
-	resp, err = client.Get("https://prism.test/.portico/callback?code=x&state=y")
+	// The restarted login carries the marker in its state.
+	resp, err = client.Get("https://prism.test" + loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	authz, _ := url.Parse(resp.Header.Get("Location"))
+	state := authz.Query().Get("state")
+	if resp.StatusCode != 302 || !strings.HasSuffix(state, restartMarker) {
+		t.Fatalf("restarted login: %d state %q", resp.StatusCode, state)
+	}
+	// Keycloak sends the browser back with that state and still no cookie.
+	resp, err = client.Get("https://prism.test/.portico/callback?code=x&state=" + url.QueryEscape(state))
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode != 400 {
-		t.Fatalf("second: %d, want 400", resp.StatusCode)
+		t.Fatalf("second stateless callback: %d, want 400", resp.StatusCode)
 	}
 	if len(st.sessions) != 0 {
 		t.Error("a session was created")

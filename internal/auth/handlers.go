@@ -29,12 +29,12 @@ type loginState struct {
 
 const oidcCookieMaxAge = 10 * time.Minute
 
-// restartCookie marks that a callback without its login state already
-// restarted the flow once; it lives one minute.
-const (
-	restartCookie       = "__Host-portico_restart"
-	restartCookieMaxAge = time.Minute
-)
+// restartMarker ends the OIDC state of a login that a stateless
+// callback restarted: a second stateless callback carrying it answers
+// the plain error instead of restarting again. The marker lives in the
+// state the identity provider echoes, not in a cookie, so a browser that
+// blocks cookies on this host cannot loop through Keycloak.
+const restartMarker = ".r"
 
 // SessionFromContext returns the session Require stored for the request.
 func SessionFromContext(ctx context.Context) (Session, bool) {
@@ -132,6 +132,9 @@ func (a *Authenticator) Login() http.Handler {
 			Verifier: oauth2.GenerateVerifier(),
 			Return:   SafeReturnPath(r.URL.Query().Get("rd")),
 		}
+		if r.URL.Query().Get("restart") == "1" {
+			ls.State += restartMarker
+		}
 		if err := setOIDCCookie(w, ls); err != nil {
 			writeTextError(w, http.StatusInternalServerError, "login failed")
 			return
@@ -149,18 +152,16 @@ func (a *Authenticator) Callback() http.Handler {
 		ls, ok := readOIDCCookie(r)
 		if !ok {
 			// The state cookie expired (the login page sat open) or never
-			// arrived: restart the flow from / once. The restart cookie
-			// makes a second miss in a row the plain error, so a browser
-			// that blocks cookies does not loop through Keycloak.
-			if c, err := r.Cookie(restartCookie); err == nil && c.Value != "" {
-				http.SetCookie(w, cookie(restartCookie, "", -1))
+			// arrived: restart the login once. A state that already
+			// carries the restart marker means the restarted login lost
+			// its cookie too (cookies blocked): the plain error, no loop.
+			if strings.HasSuffix(r.URL.Query().Get("state"), restartMarker) {
 				writeTextError(w, http.StatusBadRequest, "login state missing or expired, start again")
 				return
 			}
 			a.log.Info("callback: login state missing, restarting the login")
-			http.SetCookie(w, cookie(restartCookie, "1", int(restartCookieMaxAge.Seconds())))
 			w.Header().Set("Cache-Control", "no-store")
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			http.Redirect(w, r, "/.portico/login?rd=%2F&restart=1", http.StatusSeeOther)
 			return
 		}
 		q := r.URL.Query()

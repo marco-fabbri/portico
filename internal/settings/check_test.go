@@ -147,3 +147,13 @@ func TestCheckKeycloakRealmTypoNamesTheRealm(t *testing.T) {
 		t.Fatalf("realm typo: %+v", res)
 	}
 }
+
+// The check never echoes a password typed inside the URL.
+func TestCheckPrismCentralRefusesUserinfoURL(t *testing.T) {
+	s := sample()
+	s.PrismCentral.URL = "https://admin:pw-in-url@10.0.0.10:9440"
+	res := NewChecker(nil).PrismCentral(context.Background(), s, "key")
+	if res.OK || !strings.Contains(res.Message, "must not carry credentials") || strings.Contains(res.Message, "pw-in-url") {
+		t.Fatalf("userinfo URL: %+v", res)
+	}
+}
