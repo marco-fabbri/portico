@@ -113,15 +113,23 @@ func (b *Bootstrapper) PrismCentral(ctx context.Context, s Settings, in PrismInp
 
 	// API key: a new one every bootstrap, dated so the administrator can
 	// tell them apart in Prism Central.
-	key, err := pc.CreateAPIKey(ctx, user.ExtID, "portico-"+time.Now().UTC().Format("20060102-150405"), "Portico appliance")
+	keyName := "portico-" + time.Now().UTC().Format("20060102-150405")
+	key, err := pc.CreateAPIKey(ctx, user.ExtID, keyName, "Portico appliance")
 	if err != nil {
+		// The answer may have been lost after Prism Central created the
+		// key: a valid key nobody holds. Look it up by name and revoke it.
+		b.revokeByName(pc, user.ExtID, keyName)
 		return remote(err)
 	}
 	b.log.Info("bootstrap prism central: api key created", "username", name, "key", key.Name, "expires", key.ExpiryTime)
 	res.Created = append(res.Created, "api key "+key.Name)
 	res.KeyName, res.KeyExpires = key.Name, key.ExpiryTime
 	revoke := func() {
-		if err := pc.DeleteAPIKey(ctx, user.ExtID, key.ExtID); err != nil {
+		// The request's context may be what failed (deadline, client gone):
+		// the cleanup gets its own bounded one.
+		cctx, ccancel := cleanupContext(ctx)
+		defer ccancel()
+		if err := pc.DeleteAPIKey(cctx, user.ExtID, key.ExtID); err != nil {
 			b.log.Warn("bootstrap prism central: the new key could not be revoked after a failure", "key", key.Name, "err", err.Error())
 			return
 		}
@@ -161,4 +169,32 @@ func (b *Bootstrapper) PrismCentral(ctx context.Context, s Settings, in PrismInp
 	res.CheckResult = check
 	res.Message = fmt.Sprintf("Prism Central bootstrap done: created %s; %s", strings.Join(res.Created, ", "), check.Message)
 	return res, out, nil
+}
+
+// cleanupContext derives a context for cleanup calls that survives the
+// parent's cancellation or deadline, bounded on its own.
+func cleanupContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), 30*time.Second)
+}
+
+// revokeByName revokes the user's key named keyName, if Prism Central
+// created it although the creation call failed on Portico's side.
+func (b *Bootstrapper) revokeByName(pc *nutanix.Client, userExtID, keyName string) {
+	ctx, cancel := cleanupContext(context.Background())
+	defer cancel()
+	keys, err := pc.ListAPIKeys(ctx, userExtID)
+	if err != nil {
+		b.log.Warn("bootstrap prism central: could not list the keys after a failed creation", "key", keyName, "err", err.Error())
+		return
+	}
+	for _, k := range keys {
+		if k.Name != keyName {
+			continue
+		}
+		if err := pc.DeleteAPIKey(ctx, userExtID, k.ExtID); err != nil {
+			b.log.Warn("bootstrap prism central: a key created during a failed call could not be revoked", "key", keyName, "err", err.Error())
+			return
+		}
+		b.log.Info("bootstrap prism central: a key created during a failed call was revoked", "key", keyName)
+	}
 }
