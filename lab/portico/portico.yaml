@@ -44,6 +44,7 @@ log:
 
 store:
   path: /var/lib/portico/portico.db
+  master_key_file: /var/lib/portico/master.key
 
 tenants:
   project_prefix: portico-lab   # lab safety: only portico-lab-* projects are ever touched
