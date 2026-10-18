@@ -67,6 +67,8 @@ provider down.
   size: the VNC framebuffer passed through the Go proxy. The popup window
   itself is outside the automation's tab group, so the picture was not
   captured; it stayed open on Marco's screen for a visual check.
+  CONFIRMED by Marco on 2026-10-18: the popup showed the VM's own
+  `localhost login:` prompt, the Rocky console rendered through the proxy.
 - MEASURED, IdP down: with Keycloak stopped the credential lines still get
   403, `/healthz` stays 200, the service stays `active`,
   `/.portico/login` answers 302 to the identity host (discovery already
