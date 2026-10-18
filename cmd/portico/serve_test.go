@@ -195,3 +195,22 @@ func TestServeOpensStoreAndMountsAPI(t *testing.T) {
 		t.Fatal("runServe did not stop within 2s")
 	}
 }
+
+func TestServeServesLoginPage(t *testing.T) {
+	prism := httptest.NewServer(http.NotFoundHandler())
+	defer prism.Close()
+	cfg := testServeConfig(t, prism.URL)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go runServe(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	waitHealthy(t, cfg.Internal.AdminListen)
+	resp := get(t, cfg.Internal.AdminListen, "127.0.0.1", "/login", nil)
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 503 || !strings.Contains(string(b), "portico admin set-password") {
+		t.Errorf("/login with no password set: %d %q", resp.StatusCode, b)
+	}
+	resp = get(t, cfg.Internal.AdminListen, "127.0.0.1", "/static/portico.css", nil)
+	if resp.StatusCode != 200 {
+		t.Errorf("static asset: %d", resp.StatusCode)
+	}
+}

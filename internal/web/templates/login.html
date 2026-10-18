@@ -1,0 +1,12 @@
+{{define "content"}}
+<section class="card narrow">
+  <h1>Sign in</h1>
+  <p class="muted">Break-glass administrator of this Portico.</p>
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="{{.Data.Next}}">
+    <label>User <input type="text" name="user" value="admin" autocomplete="username" required></label>
+    <label>Password <input type="password" name="password" autocomplete="current-password" required autofocus></label>
+    <button type="submit" class="primary">Sign in</button>
+  </form>
+</section>
+{{end}}

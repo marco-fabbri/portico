@@ -22,6 +22,7 @@ type Session struct {
 	ID        string
 	Subject   string // OIDC "sub"
 	Email     string
+	CSRF      string // per-session token of the admin UI forms (unused for tenant sessions)
 	CreatedAt time.Time
 	LastSeen  time.Time
 }
