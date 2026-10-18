@@ -19,6 +19,12 @@ Environment=KC_PROXY_HEADERS=xforwarded
 # the request URL while the issuer stays the public name.
 Environment=KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
 Environment=KC_HEALTH_ENABLED=true
+# Portico writes the login theme here (Milestone 2c); caches off so a
+# saved theme applies without a restart (write-up 13).
+Volume=/var/lib/portico/keycloak-theme:/opt/keycloak/themes/portico:ro,z
+Environment=KC_SPI_THEME_CACHE_THEMES=false
+Environment=KC_SPI_THEME_CACHE_TEMPLATES=false
+Environment=KC_SPI_THEME_STATIC_MAX_AGE=-1
 PublishPort=127.0.0.1:8080:8080
 Exec=start
 

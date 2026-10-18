@@ -18,6 +18,7 @@ and how to re-measure after an upgrade. Scripts are under `lab/`.
 | 10 | [Bearer replay and v3 user enumeration](2026-10-18-10-bearer-and-v3-users.md) | the local-login session is two cookies, nothing replayable as Bearer (500); v3 users/list returns only the caller, leaks the count; no new deny rule |
 | 11 | [Tenant arrival through the API (Milestone 2a acceptance)](2026-10-18-11-tenant-arrival-acceptance.md) | tenant created in 77 s with seven recorded steps; carol logs in once, forced password update, sees only her project; disable locks her out; deletion clean in 28 s, `_internal` unchanged |
 | 12 | [Console headers, provider selection, Sign Out path; admin UI acceptance](2026-10-18-12-console-headers-and-provider-selection.md) | 644 console requests, none with `Authorization`: every scheme now refused; the SAML button's PUT body captured for the landing page; `/redirect` (Prism Central Sign Out) added to the allow-list; part two: tenant created, equipped, disabled, enabled and deleted from the admin UI in Chrome |
+| 13 | [Keycloak login theme, login request, `/redirect` target](2026-10-18-13-keycloak-theme-and-landing.md) | theme from a mounted directory applies without restart (file set and selectors recorded); the provider-selection PUT and `initiate-login` (200 with a self-submitting SAML form); `/redirect` ignores its parameter, no open redirect |
 
 `lab-inventory.md` lists everything created in the lab and how to remove it.
 `TEMPLATE.md` is the write-up skeleton. `payloads/` holds sanitised request
