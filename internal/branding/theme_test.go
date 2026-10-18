@@ -80,6 +80,10 @@ func TestWriteThemeLogoByType(t *testing.T) {
 		if !strings.Contains(css, "img/"+c.file) {
 			t.Errorf("%s: css lacks the logo rule: %s", c.ctype, css)
 		}
+		// A fixed height clipped the title under the logo on the lab (write-up 13).
+		if !strings.Contains(css, "min-height") || strings.Contains(css, " height:") {
+			t.Errorf("%s: the logo rule must use min-height, not height: %s", c.ctype, css)
+		}
 	}
 	dir := filepath.Join(t.TempDir(), "theme")
 	if err := WriteTheme(dir, Default()); err != nil {

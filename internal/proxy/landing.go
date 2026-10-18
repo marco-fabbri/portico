@@ -33,6 +33,7 @@ const (
 	providersPath    = "/ui/iam/providers"
 	manualMarker     = "manual"
 	samlStartPath    = "/.portico/saml-start"
+	logoPath         = "/.portico/logo"
 	initiateLogin    = "/api/iam/authn/initiate-login"
 	loginRequestPath = "/api/iam/v4.1.b3/authn/login-requests/"
 	iamCookie        = "iam-sessionid"

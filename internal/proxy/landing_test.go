@@ -216,8 +216,8 @@ func TestLogoServedWithCSP(t *testing.T) {
 		t.Fatalf("logo: %d %v", rec.Code, rec.Header())
 	}
 	rec = lh.do("GET", "https://prism.test/.portico/logo", map[string]string{"Accept": "text/html"}, false)
-	if rec.Code != 302 {
-		t.Fatalf("logo without session: %d", rec.Code)
+	if rec.Code != 200 {
+		t.Fatalf("logo without session: %d, want 200 (public asset)", rec.Code)
 	}
 }
 
@@ -226,5 +226,21 @@ func TestLandingDisabledKeepsMilestone1Behaviour(t *testing.T) {
 	rec := h.do("GET", "https://prism.test/ui/iam/providers", nil, true)
 	if rec.Code != 200 || len(*h.prism) != 1 {
 		t.Fatalf("without LandingOptions the provider page must be proxied: %d upstream %d", rec.Code, len(*h.prism))
+	}
+}
+
+// The logo is a public asset: the error pages need it on the identity
+// host (Keycloak down) and before any session exists.
+func TestLogoIsPublicOnBothHosts(t *testing.T) {
+	lh := newLandingHarness(t)
+	lh.logoData = []byte("<svg/>")
+	for _, u := range []string{"https://prism.test/.portico/logo", "https://id.test/.portico/logo"} {
+		rec := lh.do("GET", u, map[string]string{"Accept": "text/html"}, false)
+		if rec.Code != 200 || rec.Header().Get("Content-Security-Policy") != "default-src 'none'" {
+			t.Fatalf("%s without session: %d %v", u, rec.Code, rec.Header())
+		}
+	}
+	if len(*lh.keycloak) != 0 {
+		t.Fatal("the logo request reached Keycloak")
 	}
 }
