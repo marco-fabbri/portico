@@ -11,7 +11,7 @@ plug into the same identity and the same tenant model.
 Portico does not replace Nutanix Central. It fills the gap for the small MSP
 that wants to expose services to its own tenants on top of one or more Prism
 Central instances, without a hyperscaler-sized control plane. Tenants are
-created with the same primitive Nutanix's own Service Provider Central uses,
+created with the same primitive Nutanix's own SP Central uses,
 a Projects 2.0 project per tenant with group-based role mapping and no
 global roles: an MSP that later adopts SP Central finds tenants it
 recognises. Portico is the path towards it, not a detour.
@@ -45,7 +45,7 @@ word with no vendor name in it, and `portico serve` reads well.
 
 ## What it is not
 
-- Not a replacement for Nutanix Central or Service Provider Central. Portico
+- Not a replacement for Nutanix Central or SP Central. Portico
   creates tenants with the same primitive SP Central uses, so an MSP that
   later adopts Nutanix Central finds tenants it can recognise.
 - Not a second Prism Central: Portico orchestrates, it does not copy state it
