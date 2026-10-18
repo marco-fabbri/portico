@@ -13,7 +13,10 @@ cd "$(dirname "$0")/../.." || exit 1
 S="${PORTICO_SECRETS:-$HOME/portico-secrets}"
 # shellcheck source=lab/projects/lib.sh
 source lab/projects/lib.sh
-export PC_API_KEY; PC_API_KEY=$(cut -d= -f2- "$S/portico-sa-key" | tr -d '\r\n')
+# Prism Central reads as the service account when its key file exists on
+# the Mac; after the 2e bootstrap the key lives in the store only and the
+# reads fall back to the admin credentials of lab/env.sh.
+if [ -s "$S/portico-sa-key" ]; then export PC_API_KEY; PC_API_KEY=$(cut -d= -f2- "$S/portico-sa-key" | tr -d '\r\n'); fi
 slug="tenant-b"; project="portico-lab-$slug"; group="tenant-$slug"; email="carol@lab.portico.test"
 umask 077; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 fail=0

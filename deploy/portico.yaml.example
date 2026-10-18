@@ -26,7 +26,11 @@ internal:
 # so the key it creates belongs to the user that runs `portico serve`.
 # From then on the store wins and these sections, together with the
 # secret files, can be removed. The setup pages of the admin UI edit the
-# stored settings.
+# stored settings. A fresh appliance with none of these sections starts
+# in setup mode (admin listener only) and the setup page creates the
+# Keycloak realm and clients, the Prism Central service account and the
+# SAML trust from one-time administrator credentials; filling this file
+# by hand (the pre-created path below) stays possible.
 prism_central:
   url: https://10.0.0.10:9440    # required
   tls_verify: true               # false only in a lab
@@ -44,8 +48,9 @@ keycloak:
   realm: portico                 # required: the MSP realm
   # Confidential client with "service accounts" enabled and these
   # realm-management roles on its service-account user: manage-users,
-  # view-users, query-users, query-groups, view-realm, manage-realm (the
-  # last one sets the realm's login theme).
+  # view-users, query-users, query-groups, view-realm, manage-realm (sets
+  # the realm's login theme), manage-clients, view-clients (the SAML
+  # trust bootstrap registers the Prism Central SAML client).
   admin_client_id: portico-admin
   admin_client_secret_file: /etc/portico/keycloak-admin-secret  # required, mode 0600
   # Login theme generated from the branding settings. The directory is
