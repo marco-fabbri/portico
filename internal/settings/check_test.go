@@ -127,3 +127,23 @@ func TestCheckOIDCIssuerMismatch(t *testing.T) {
 		t.Fatalf("mismatch: %+v", res)
 	}
 }
+
+// A mistyped realm makes the token endpoint answer 404: the check names
+// the realm instead of blaming the client secret.
+func TestCheckKeycloakRealmTypoNamesTheRealm(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/realms/portico-typo/") {
+			w.WriteHeader(404)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"access_token":"tok","expires_in":60}`))
+	}))
+	defer srv.Close()
+	s := sample()
+	s.Keycloak.Realm = "portico-typo"
+	res := NewChecker(nil).Keycloak(context.Background(), srv.URL, s, "good-secret")
+	if res.OK || !strings.Contains(res.Message, `realm "portico-typo" not found`) {
+		t.Fatalf("realm typo: %+v", res)
+	}
+}

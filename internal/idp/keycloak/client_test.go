@@ -332,3 +332,18 @@ func TestSetRealmLoginTheme(t *testing.T) {
 		t.Fatalf("PUT body = %v", put.Body)
 	}
 }
+
+// A refused token is a typed error naming the endpoint and the status,
+// so callers classify by status instead of by error text.
+func TestTokenRefusalIsAStatusError(t *testing.T) {
+	f := newFakeKC(t)
+	c := New(f.srv.URL, "lab", "portico-admin", "bad-secret", nil, nil)
+	_, err := c.Realm(context.Background())
+	var se *StatusError
+	if !errors.As(err, &se) || se.Op != "token" || se.Status != 401 {
+		t.Fatalf("err = %v, want StatusError{token 401}", err)
+	}
+	if err.Error() != "keycloak: token: status 401" {
+		t.Fatalf("text %q", err.Error())
+	}
+}

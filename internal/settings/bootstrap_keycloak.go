@@ -3,6 +3,7 @@ package settings
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -63,10 +64,15 @@ func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Setti
 	kc := keycloak.NewWithPassword(keycloakURL, in.Realm, in.AdminUsername, in.AdminPassword, &http.Client{Timeout: 15 * time.Second}, b.log)
 	remote := func(err error) (KeycloakResult, Settings, error) {
 		res.OK = false
+		var se *keycloak.StatusError
 		switch {
-		case strings.Contains(err.Error(), "token: status"):
+		case errors.As(err, &se) && se.Op == "token" && se.Status == http.StatusUnauthorized:
 			res.Message = "Keycloak refused the administrator credentials"
-		case strings.Contains(err.Error(), "token:"):
+		case errors.As(err, &se) && se.Op == "token":
+			res.Message = fmt.Sprintf("Keycloak answered status %d at the token endpoint", se.Status)
+		case errors.As(err, &se):
+			res.Message = "Keycloak answered an error: " + strings.TrimPrefix(err.Error(), "keycloak: ")
+		case strings.HasPrefix(err.Error(), "keycloak: token:"):
 			res.Message = "Keycloak did not answer: " + errClass(err)
 		default:
 			res.Message = "Keycloak answered an error: " + strings.TrimPrefix(err.Error(), "keycloak: ")
