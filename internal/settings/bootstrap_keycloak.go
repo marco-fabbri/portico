@@ -3,6 +3,7 @@ package settings
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -47,6 +48,13 @@ var adminClientRoles = []string{"manage-users", "view-users", "query-users", "qu
 // settings with the realm, the issuer and both secrets filled in. A
 // refusal or an unreachable Keycloak is a result with OK false, not an
 // error; a precondition on the settings or the input is a *StateError.
+// RealmPasswordPolicy is set on the realm the bootstrap creates: a
+// tenant user cannot pick a short password or one made of their own
+// name at the first login. The temporary passwords Portico generates
+// (20 characters, letters and digits) satisfy it; a realm that already
+// exists keeps its own policy (adoption is step 2).
+const RealmPasswordPolicy = "length(12) and notUsername and notEmail"
+
 func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Settings, in KeycloakInput) (KeycloakResult, Settings, error) {
 	if strings.TrimSpace(s.PrismHost) == "" || strings.TrimSpace(s.IDHost) == "" {
 		return KeycloakResult{}, s, &StateError{Msg: "save the public names first: the clients need them"}
@@ -63,10 +71,15 @@ func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Setti
 	kc := keycloak.NewWithPassword(keycloakURL, in.Realm, in.AdminUsername, in.AdminPassword, &http.Client{Timeout: 15 * time.Second}, b.log)
 	remote := func(err error) (KeycloakResult, Settings, error) {
 		res.OK = false
+		var se *keycloak.StatusError
 		switch {
-		case strings.Contains(err.Error(), "token: status"):
+		case errors.As(err, &se) && se.Op == "token" && se.Status == http.StatusUnauthorized:
 			res.Message = "Keycloak refused the administrator credentials"
-		case strings.Contains(err.Error(), "token:"):
+		case errors.As(err, &se) && se.Op == "token":
+			res.Message = fmt.Sprintf("Keycloak answered status %d at the token endpoint", se.Status)
+		case errors.As(err, &se):
+			res.Message = "Keycloak answered an error: " + strings.TrimPrefix(err.Error(), "keycloak: ")
+		case strings.HasPrefix(err.Error(), "keycloak: token:"):
 			res.Message = "Keycloak did not answer: " + errClass(err)
 		default:
 			res.Message = "Keycloak answered an error: " + strings.TrimPrefix(err.Error(), "keycloak: ")
@@ -82,7 +95,7 @@ func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Setti
 	_, err := kc.Realm(ctx)
 	switch {
 	case errors.Is(err, keycloak.ErrNotFound):
-		rep := map[string]any{"realm": in.Realm, "enabled": true, "displayName": display, "loginWithEmailAllowed": true, "registrationEmailAsUsername": true}
+		rep := map[string]any{"realm": in.Realm, "enabled": true, "displayName": display, "loginWithEmailAllowed": true, "registrationEmailAsUsername": true, "passwordPolicy": RealmPasswordPolicy}
 		if err := kc.CreateRealm(ctx, rep); err != nil {
 			return remote(err)
 		}

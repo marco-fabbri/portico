@@ -150,3 +150,30 @@ func TestSetupBootstrapRequiresCSRF(t *testing.T) {
 		t.Fatal("a backend was called without CSRF")
 	}
 }
+
+// A failed bootstrap gives the typed non-secret fields back and never
+// the password.
+func TestSetupBootstrapFailureKeepsTypedFields(t *testing.T) {
+	e := newEnv(t, true)
+	withSetup(t, e, false)
+	e.web.setup.File, e.web.setup.Mode = nil, "setup"
+	_, pc := withBootstrapFakes(t, e)
+	e.login(t)
+	rec := e.do("POST", "/setup/bootstrap/prism-central", e.form("username", "admin", "password", "wrong-pw-9", "url", pc.Srv.URL, "service_account", "svc-x"), true)
+	body := rec.Body.String()
+	for _, want := range []string{"banner error", `name="username" value="admin"`, `name="service_account" value="svc-x"`, `name="password" value=""`} {
+		if rec.Code != 200 || !strings.Contains(body, want) {
+			t.Fatalf("fragment lacks %q: %d %s", want, rec.Code, body)
+		}
+	}
+	if strings.Contains(body, "wrong-pw-9") {
+		t.Fatal("the password reached the page")
+	}
+	rec = e.do("POST", "/setup/bootstrap/keycloak", e.form("admin_username", "kcadmin", "admin_password", "wrong-pw-9", "realm", "msp", "display_name", "Lab MSP"), true)
+	body = rec.Body.String()
+	for _, want := range []string{"banner error", `name="admin_username" value="kcadmin"`, `name="display_name" value="Lab MSP"`, `name="admin_password" value=""`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("keycloak fragment lacks %q: %d %s", want, rec.Code, body)
+		}
+	}
+}

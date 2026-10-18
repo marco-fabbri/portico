@@ -24,6 +24,10 @@ type setupData struct {
 	// OOB marks the inputs rendered by a bootstrap fragment, which
 	// HTMX swaps into the cards by id.
 	OOB bool
+	// Form holds the non-secret bootstrap fields as typed, so a failed
+	// attempt does not make the administrator retype them; passwords
+	// are never echoed. Empty on the page itself.
+	Form map[string]string
 }
 
 func (h *Handler) setupRoutes(mux *http.ServeMux) {
@@ -131,11 +135,28 @@ func (h *Handler) setupSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.setup.Service.Update(r.Context(), s); err != nil {
-		h.renderSetup(w, r, http.StatusBadRequest, s, source, err.Error())
+		status := http.StatusBadRequest
+		var ve *settings.ValidationError
+		if !errors.As(err, &ve) {
+			h.log.Error("settings not stored", "via", "ui", "err", err.Error())
+			status = http.StatusInternalServerError
+		}
+		h.renderSetup(w, r, status, s, source, err.Error())
 		return
 	}
 	h.log.Info("settings saved", "via", "ui", "section", section)
 	http.Redirect(w, r, "/setup", http.StatusSeeOther)
+}
+
+// pickersView feeds the "pickers" template: the choices and the current
+// selection of the two tenants-card selects.
+type pickersView struct {
+	Clusters, Containers []settings.Choice
+	Cluster, Container   string
+}
+
+func pickersData(clusters, containers []settings.Choice, cluster, container string) pickersView {
+	return pickersView{Clusters: clusters, Containers: containers, Cluster: cluster, Container: container}
 }
 
 // checkData is the check fragment: the result plus the current pickers'
@@ -253,7 +274,11 @@ func (h *Handler) setupBootstrap(w http.ResponseWriter, r *http.Request) {
 		out     settings.Settings
 		err     error
 		d       = bootData{Target: target}
+		form    = map[string]string{}
 	)
+	for _, name := range []string{"username", "service_account", "admin_username", "display_name"} {
+		form[name] = v(name)
+	}
 	switch target {
 	case "keycloak":
 		var res settings.KeycloakResult
@@ -289,7 +314,7 @@ func (h *Handler) setupBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 	h.log.Info("settings bootstrap", "via", "ui", "target", target, "ok", d.OK, "status", status)
 	d.Data = toSetupData(cur, source, h.setup.Mode)
-	d.Data.OOB = true
+	d.Data.OOB, d.Data.Form = true, form
 	if sess, ok := h.session(r); ok {
 		d.CSRF = sess.CSRF
 	}

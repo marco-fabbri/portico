@@ -60,6 +60,10 @@ func (c *Checker) PrismCentral(ctx context.Context, s Settings, apiKey string) C
 	if err != nil || u.Host == "" {
 		return fail("the Prism Central URL %q is not valid", s.PrismCentral.URL)
 	}
+	if u.User != nil {
+		// Not echoed: the userinfo is a password in clear.
+		return fail("the Prism Central URL must not carry credentials")
+	}
 	tlsCfg, err := proxy.PrismTLSPEM(u.Hostname(), []byte(s.PrismCentral.CAPEM), s.PrismCentral.TLSVerify)
 	if err != nil {
 		return fail("the CA certificate is not usable: %v", err)
@@ -136,12 +140,18 @@ func (c *Checker) Keycloak(ctx context.Context, keycloakURL string, s Settings, 
 	defer cancel()
 	rep, err := client.Realm(ctx)
 	if err != nil {
-		msg := err.Error()
+		var se *keycloak.StatusError
 		switch {
-		case strings.Contains(msg, "token"):
+		case errors.As(err, &se) && se.Op == "token" && se.Status == http.StatusNotFound:
+			return fail("realm %q not found in Keycloak", s.Keycloak.Realm)
+		case errors.As(err, &se) && se.Op == "token" && se.Status == http.StatusUnauthorized:
 			return fail("Keycloak refused the admin client secret for %q in realm %q", s.Keycloak.AdminClientID, s.Keycloak.Realm)
+		case errors.As(err, &se) && se.Op == "token":
+			return fail("Keycloak answered status %d at the token endpoint", se.Status)
 		case errors.Is(err, keycloak.ErrNotFound):
 			return fail("realm %q not found in Keycloak", s.Keycloak.Realm)
+		case errors.As(err, &se):
+			return fail("Keycloak answered an error: %s", strings.TrimPrefix(err.Error(), "keycloak: "))
 		default:
 			return fail("Keycloak did not answer: %s", errClass(err))
 		}

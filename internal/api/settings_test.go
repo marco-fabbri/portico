@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -31,6 +32,8 @@ type settingsEnv struct {
 	so        *SettingsOptions
 	kcAdmin   *fakeKCAdmin
 	pcAdmin   *fakePCAdmin
+	st        store.Store
+	sealer    *secrets.Sealer
 }
 
 func sampleSettings(pcURL string) settings.Settings {
@@ -84,7 +87,7 @@ func newSettingsEnv(t *testing.T, stored bool) *settingsEnv {
 	// A fake Prism Central for the check: accepts the key "key-secret-1".
 	pc := httptest.NewServer(fakePC("key-secret-1", nil))
 	t.Cleanup(pc.Close)
-	e := &settingsEnv{svc: svc, log: &bytes.Buffer{}, pc: pc}
+	e := &settingsEnv{svc: svc, log: &bytes.Buffer{}, pc: pc, st: st, sealer: sealer}
 	if stored {
 		if err := svc.Set(context.Background(), sampleSettings(pc.URL)); err != nil {
 			t.Fatal(err)
@@ -341,5 +344,22 @@ func TestTenantRoutesAnswer503InSetupMode(t *testing.T) {
 		if rec.Code != 503 || out["error"] != "Portico is in setup mode: complete the settings and apply them" {
 			t.Fatalf("%s %s: %d %v", c.method, c.path, rec.Code, out)
 		}
+	}
+}
+
+// failingStore refuses every write: the API must report it as its own
+// failure (500), not as a bad request.
+type failingStore struct{ store.Store }
+
+func (failingStore) SetSetting(context.Context, string, []byte) error {
+	return errors.New("disk full")
+}
+
+func TestSettingsPutStoreFailureIs500(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	e.so.Service = settings.NewService(failingStore{e.st}, e.sealer)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","saml_idp_name":"lab-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
+	if rec.Code != 500 || !strings.Contains(out["error"].(string), "disk full") {
+		t.Fatalf("PUT on a broken store: %d %v", rec.Code, out)
 	}
 }

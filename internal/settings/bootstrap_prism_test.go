@@ -204,9 +204,31 @@ func TestPrismBootstrapWrongCredentials(t *testing.T) {
 func TestPrismBootstrapPolicyMissingDeletesTheKey(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	pc.noPolicy = true
-	res, _, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), Defaults(), prismInput(pc.srv.URL))
+	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), Defaults(), prismInput(pc.srv.URL))
 	if err != nil || res.OK || res.Message != `authorization policy "Project Manager_acp" not found` || pc.keyDeleted != 1 {
 		t.Fatalf("res=%+v err=%v deleted=%d", res, err, pc.keyDeleted)
+	}
+	// The revoked key leaves no trace in the document or the result.
+	if out.PrismCentral.APIKey != "" || res.KeyName != "" || !res.KeyExpires.IsZero() {
+		t.Fatalf("revoked key still in the result: %+v", res)
+	}
+	for _, c := range res.Created {
+		if strings.HasPrefix(c, "api key") {
+			t.Fatalf("created lists the revoked key: %v", res.Created)
+		}
+	}
+	if js, _ := json.Marshal(res); strings.Contains(string(js), "key_expires") {
+		t.Fatalf("zero key_expires rendered: %s", js)
+	}
+}
+
+// A URL with credentials inside (https://user:pw@host) is refused before
+// any call, and the refusal does not repeat it.
+func TestPrismBootstrapRefusesURLWithCredentials(t *testing.T) {
+	_, _, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), Defaults(), PrismInput{Username: "admin", Password: "x", URL: "https://admin:pw-in-url@10.0.0.10:9440"})
+	var se *StateError
+	if !errors.As(err, &se) || !strings.Contains(se.Msg, "must not carry credentials") || strings.Contains(se.Msg, "pw-in-url") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

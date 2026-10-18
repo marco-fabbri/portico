@@ -80,6 +80,10 @@ if grep -q 'portico settings import -config /etc/portico/portico.import.yaml' la
 # M2d-3: the unit restarts after the exit 0 of "Apply and restart".
 if grep -q '^Restart=always' deploy/portico.service && grep -q '^RestartSec=2' deploy/portico.service; then ok "portico.service restarts always"; else ko "portico.service lacks Restart=always"; fi
 
+# Milestone 2f Task 9: an appliance recovers by itself.
+# M2f-1: no start limit, so a store that cannot open keeps the unit retrying instead of leaving it failed.
+if grep -q '^StartLimitIntervalSec=0' deploy/portico.service; then ok "portico.service has no start limit"; else ko "portico.service still has the default start limit"; fi
+
 # Milestone 2e Task 6: fresh-appliance bootstrap.
 # M2e-1: the bootstrap acceptance builds credential bodies in private files, never on a command line.
 if grep -q 'umask 077' lab/portico/bootstrap-acceptance.sh && grep -q -- '--rawfile' lab/portico/bootstrap-acceptance.sh && ! grep -nE 'password=\$|--arg (p|pw|password) "\$\(cat' lab/portico/bootstrap-acceptance.sh | grep -q .; then ok "bootstrap-acceptance.sh keeps credentials in files"; else ko "bootstrap-acceptance.sh exposes a credential"; fi

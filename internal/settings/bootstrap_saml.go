@@ -28,6 +28,7 @@ type SAMLInput struct {
 type SAMLResult struct {
 	OK               bool     `json:"ok"`
 	Message          string   `json:"message"`
+	Name             string   `json:"name"` // the identity-provider name used (input or default)
 	IdPExtID         string   `json:"idp_ext_id,omitempty"`
 	EntityID         string   `json:"entity_id,omitempty"`
 	ACSURL           string   `json:"acs_url,omitempty"`
@@ -57,7 +58,7 @@ func (b *Bootstrapper) SAML(ctx context.Context, keycloakURL string, s Settings,
 	if !reServiceAccount.MatchString(name) {
 		return SAMLResult{}, s, &StateError{Msg: "the identity provider name must be lower-case letters, digits, dots, dashes and underscores"}
 	}
-	res := SAMLResult{Created: []string{}, UsedCredentials: creds}
+	res := SAMLResult{Created: []string{}, UsedCredentials: creds, Name: name}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 

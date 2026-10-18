@@ -218,7 +218,11 @@ added later; the break-glass account stays.
    prefix `/.portico/` (`login`, `callback`, `logout`) on the Prism Central
    host. Portico talks to Keycloak on the loopback (Keycloak's dynamic
    backchannel keeps the public issuer in tokens) and discovers it lazily,
-   so Portico runs with Keycloak down and fails closed. With a session, the
+   so Portico runs with Keycloak down and fails closed. The login state
+   (`__Host-portico_oidc`) lives ten minutes; a callback that arrives
+   without it (the login page sat open longer) restarts the login once,
+   with a marker in the OIDC state so a browser that blocks cookies gets
+   the plain error instead of a loop (Milestone 2f). With a session, the
    path must be inside the allow-list measured in write-up 08 (prefixes
    `/console/`, `/static/`, `/ui/iam/`, `/api/`, `/dm/`,
    `/PrismGateway/services/rest/v1/`, `/vnc/`, plus `/`, `/auth_code`,
@@ -285,6 +289,9 @@ Step 1 scope decisions (design calls):
 - **First user**: the MSP admin creates it from the tenant page; Keycloak
   issues a temporary password shown once, with "update password" required at
   first login. Email delivery is optional (SMTP configured in Keycloak).
+  The realm Portico creates carries the password policy `length(12) and
+  notUsername and notEmail` (Milestone 2f); MFA is a realm setting the MSP
+  turns on in Keycloak.
 - **Visibility check** has two levels. Static (always, step 1): read back the
   project, the group→role mapping, and assert the group holds no global role
   and no mapping outside its project. Live (step 1 if lab item 6.4 confirms
@@ -707,6 +714,7 @@ portico/
 | 2c | Tenant arrival, tenant-facing pages | done 2026-10-18 (write-up 13): branding settings in the store, landing page that starts SAML itself, Keycloak theme, branded identity-provider-down page; a tenant user goes from the public URL to the console with one Keycloak login and no Nutanix login page |
 | 2d | Setup wizard, settings and secrets at rest | done 2026-10-18 (write-up 14): settings in the store sealed with the master key; `portico settings import` and `settings show`; setup page with connectivity checks and pickers; Apply = controlled restart; the lab runs from the store with no secret file on the VM |
 | 2e | Bootstrap and setup mode | done 2026-10-18 (write-up 15): a fresh appliance (process YAML, empty store) starts in setup mode and is configured card by card from the setup page; Portico creates the service account and its key in Prism Central, the Keycloak realm and clients, and the SAML identity provider from one-time credentials; the service account cannot create the IdP (`Project Manager_acp`), so that step asks for an administrator once; 41 s end to end on the lab |
+| 2f | Minor sweep after 2d and 2e | done 2026-10-18 (write-up 16): the deferred minors of write-ups 14 and 15 closed with a test each (password policy on the realm Portico creates, login restarted once when its state expired, logo above the realm name, URL with credentials refused, store failures as 500, typed Keycloak errors, no start limit on the service); the older deferred findings live in `docs/backlog.md` |
 | 3 | Appliance image | Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
 | 4 | First release (step 1 complete) | README, install guide, release artefacts, known limits documented |
 
