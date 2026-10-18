@@ -98,7 +98,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // parsePages builds one template set per page on top of the layout.
 func parsePages() map[string]*template.Template {
-	layout := template.Must(template.ParseFS(templatesFS, "templates/layout.html"))
+	layout := template.Must(template.New("layout.html").Funcs(template.FuncMap{"pickers": pickersData}).ParseFS(templatesFS, "templates/layout.html"))
 	pages := map[string]*template.Template{}
 	entries, err := fs.ReadDir(templatesFS, "templates")
 	if err != nil {
