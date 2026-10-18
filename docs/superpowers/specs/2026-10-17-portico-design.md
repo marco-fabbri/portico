@@ -58,6 +58,13 @@ model. Small MSPs have no turnkey answer.
   worker nodes, "real provider" style. To be measured, not designed yet.
 - Cluster-per-customer isolation (the gate must not prevent it; nothing in
   step 1 builds it).
+- A Portico-owned tenant console (VM list, create, console) that hides
+  Prism Central's UI entirely. An idea raised on 2026-10-18, not planned and
+  possibly never built. Its prerequisite is per-user identity towards the
+  v4 API (the deferred Portico-issued keys): with the service account alone,
+  Portico would decide what each user sees and the project barrier in Prism
+  Central would stop being the first control. The API boundary (section
+  4.7) keeps the option open at no cost.
 - Non-Nutanix backends (Proxmox and others). The service interface (public
   host name, upstream, access policy, tenant provisioning hooks) must not
   forbid them, but Portico's identity is "the small MSP's path to SP
@@ -205,15 +212,24 @@ break-glass account stays.
    forwarding. `lab/auth/probe-local-login.sh` is the acceptance test
    (write-up 09).
 4. Request is proxied to Prism Central on 9440 with the public host name.
-5. Prism Central's own login page offers two buttons, SAML and local account
-   (write-up 04). The user picks SAML (step 2 may send tenants straight to
-   `/api/iam/authn/initiate-login` with the IdP selected; hiding the local
-   link is cosmetic because its POST is denied) and is sent to Keycloak,
-   which already has a session → immediate return with the SAML assertion.
-   Prism Central creates its session, scoped by the user's project
-   membership.
+5. Prism Central's own login page (`/ui/iam/providers`) offers two buttons,
+   SAML and local account (write-up 04). Milestone 1 leaves the click to the
+   user. From Milestone 2 Portico answers that path on the public host with
+   its own landing page (section 4.10) which selects the SAML identity
+   provider and starts the flow by itself: the measured sequence is
+   `PUT /api/iam/v4.1.b3/authn/login-requests/{iam-sessionid}` (provider
+   selection) then `GET /api/iam/authn/initiate-login` (write-up 06; the
+   request body of the PUT is a Milestone 2 measurement). Keycloak already
+   has a session → immediate return with the SAML assertion. Prism Central
+   creates its session, scoped by the user's project membership. If the
+   selection call fails (for example after a Prism Central upgrade changes
+   the IAM API), Portico forwards the original page and the user clicks as
+   in Milestone 1: the automation is convenience, the deny list is the
+   control. Hiding the local-account link is cosmetic because its POST is
+   denied.
 
-Two protocols (OIDC for Portico, SAML for Prism Central), one user login.
+Two protocols (OIDC for Portico, SAML for Prism Central), one user login,
+and the user never sees a Nutanix login page.
 
 ### 4.4 Tenant model
 
@@ -305,7 +321,42 @@ Server-rendered Go templates with HTMX for interactivity. One language, one
 binary, no JavaScript toolchain; contributors from the infrastructure world
 can work on it. Step 1 UI scope: setup wizard (identity, Prism Central
 connection, exposure), tenant list, create tenant, tenant status with the
-visibility-check result, system status.
+visibility-check result, system status, branding (section 4.10).
+
+**The API is the boundary** (decided with Marco on 2026-10-18, ADR 0003).
+Every action the admin UI performs is a documented REST call on the
+internal listener (`/api/v1/...`, JSON, same break-glass or OIDC session as
+the UI). The HTMX handlers call the same service layer as the API handlers
+and never reach the store, Keycloak or Prism Central on their own; the plan
+for a feature defines the endpoint and its test before the page. Reasons:
+an MSP's script or Ansible creates a tenant with exactly the checks the
+page applies, so there is no second path to protect; the logic is tested
+without a browser; and the UI can be replaced, or another front end put on
+top (section 2, deferred), without touching the logic.
+
+### 4.10 Tenant-facing pages and branding
+
+Everything a tenant user sees before Prism Central is either Keycloak or
+Portico, and both carry the MSP's identity, not Nutanix's or Portico's.
+
+- **Keycloak login theme.** Portico generates a Keycloak login theme
+  (login, OTP, update-password, reset-password pages) from its branding
+  settings: MSP name, tagline, logo, background image, accent colour. The
+  theme directory is mounted into the Keycloak container; Portico writes it
+  and sets it as the realm's login theme through the admin API. The MSP
+  never edits Keycloak.
+- **Landing page.** After the Keycloak login Portico shows its own page
+  with logo and a progress indicator while the SAML round trip runs
+  (section 4.3 step 5). One Prism Central: the redirect starts at once, no
+  artificial delay; a configurable minimum display time exists with
+  default 0. Several Prism Centrals (deferred, section 2): the page is a
+  selector, one entry per Prism Central the tenant has a project in. An
+  optional banner is a link that opens in a new tab and never blocks the
+  redirect.
+- **Host names.** Prism Central uses absolute paths from `/`, so it cannot
+  live under a prefix: each Prism Central gets its own public host name
+  in front of the same Portico. Moving between them costs no password:
+  the Keycloak session is shared, the per-host OIDC round trip is silent.
 
 ### 4.8 Console wizard
 
@@ -438,7 +489,7 @@ portico/
 |---|---|---|
 | 0 | Lab measurements (section 6) | done 2026-10-17: write-ups in `docs/lab/`, design updated |
 | 1 | Core binary: proxy + OIDC session + policy + internal listener | done 2026-10-17 (write-up 09): a browser through Portico reaches Prism Central only after Keycloak login; `curl -u admin:…` through the public path gets 403 from Portico |
-| 2 | Tenant arrival | `portico provision` / UI creates project + group + mapping, visibility check passes on NTNX-01 |
+| 2 | Tenant arrival | `portico provision` / UI creates project + group + mapping, visibility check passes on NTNX-01; a tenant user goes from the public URL to the console with one Keycloak login and no Nutanix login page (landing page, Keycloak theme) |
 | 3 | Appliance image | Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
 | 4 | First release (step 1 complete) | README, install guide, release artefacts, known limits documented |
 
