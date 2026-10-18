@@ -56,7 +56,9 @@ func NewPublic(o PublicOptions) http.Handler {
 			o.Landing.Log = log
 		}
 		portico.Handle("GET "+samlStartPath, o.Auth.Require(http.HandlerFunc(o.Landing.samlStart)))
-		portico.Handle("GET /.portico/logo", o.Auth.Require(http.HandlerFunc(o.Landing.logo)))
+		// The logo is a public asset (it is on the Keycloak login page too):
+		// the error pages need it on both hosts and before any session.
+		portico.Handle("GET "+logoPath, http.HandlerFunc(o.Landing.logo))
 	}
 	portico.HandleFunc("/.portico/", func(w http.ResponseWriter, r *http.Request) {
 		setRule(r, "portico-unknown")
@@ -93,6 +95,10 @@ func NewPublic(o PublicOptions) http.Handler {
 	})
 
 	id := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if o.Landing != nil && r.Method == http.MethodGet && NormalizePath(r.URL.Path) == logoPath {
+			o.Landing.logo(w, r)
+			return
+		}
 		if rule, ok := (IDPolicy{}).Check(r); !ok {
 			setRule(r, rule)
 			Refuse(w, http.StatusForbidden, rule, "path not allowed on the public listener")
