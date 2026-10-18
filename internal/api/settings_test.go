@@ -196,3 +196,17 @@ func TestSettingsApplyNeedsStoredSettings(t *testing.T) {
 		t.Fatalf("apply: %d %v restarted=%d", rec.Code, out, e2.restarted)
 	}
 }
+
+func TestSettingsCheckUsesStoredFieldsWhenOmitted(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	// A body with the target only: every field comes from the stored document.
+	rec, out := e.do("POST", "/api/v1/settings/check", `{"target":"prism_central"}`)
+	if rec.Code != 200 || out["ok"] != true {
+		t.Fatalf("check with the stored fields: %d %v", rec.Code, out)
+	}
+	// Only the URL given: the stored key and TLS settings still apply.
+	rec, out = e.do("POST", "/api/v1/settings/check", `{"target":"prism_central","prism_central":{"url":"`+e.pc.URL+`"}}`)
+	if rec.Code != 200 || out["ok"] != true {
+		t.Fatalf("check with the URL only: %d %v", rec.Code, out)
+	}
+}

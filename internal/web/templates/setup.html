@@ -50,10 +50,11 @@
     <label>OIDC client secret <input type="password" name="client_secret" value="" autocomplete="off" placeholder="{{if .Data.ClientSecretSet}}unchanged{{else}}required{{end}}"></label>
     <div class="actions">
       <button type="button" hx-post="/setup/check" hx-include="closest form" hx-vals='{"target":"keycloak"}' hx-target="#check-keycloak">Check admin client</button>
-      <button type="button" hx-post="/setup/check" hx-include="closest form" hx-vals='{"target":"oidc"}' hx-target="#check-keycloak">Check OIDC</button>
+      <button type="button" hx-post="/setup/check" hx-include="closest form" hx-vals='{"target":"oidc"}' hx-target="#check-oidc">Check OIDC</button>
       <button type="submit" class="primary">Save</button>
     </div>
     <div id="check-keycloak" class="check-result"></div>
+    <div id="check-oidc" class="check-result"></div>
   </form>
 </section>
 
