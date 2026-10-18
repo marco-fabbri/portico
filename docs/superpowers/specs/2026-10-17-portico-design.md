@@ -218,7 +218,11 @@ added later; the break-glass account stays.
    prefix `/.portico/` (`login`, `callback`, `logout`) on the Prism Central
    host. Portico talks to Keycloak on the loopback (Keycloak's dynamic
    backchannel keeps the public issuer in tokens) and discovers it lazily,
-   so Portico runs with Keycloak down and fails closed. With a session, the
+   so Portico runs with Keycloak down and fails closed. The login state
+   (`__Host-portico_oidc`) lives ten minutes; a callback that arrives
+   without it (the login page sat open longer) restarts the login once,
+   with a marker in the OIDC state so a browser that blocks cookies gets
+   the plain error instead of a loop (Milestone 2f). With a session, the
    path must be inside the allow-list measured in write-up 08 (prefixes
    `/console/`, `/static/`, `/ui/iam/`, `/api/`, `/dm/`,
    `/PrismGateway/services/rest/v1/`, `/vnc/`, plus `/`, `/auth_code`,

@@ -60,6 +60,10 @@ func (c *Checker) PrismCentral(ctx context.Context, s Settings, apiKey string) C
 	if err != nil || u.Host == "" {
 		return fail("the Prism Central URL %q is not valid", s.PrismCentral.URL)
 	}
+	if u.User != nil {
+		// Not echoed: the userinfo is a password in clear.
+		return fail("the Prism Central URL must not carry credentials")
+	}
 	tlsCfg, err := proxy.PrismTLSPEM(u.Hostname(), []byte(s.PrismCentral.CAPEM), s.PrismCentral.TLSVerify)
 	if err != nil {
 		return fail("the CA certificate is not usable: %v", err)
