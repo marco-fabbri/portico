@@ -4,12 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} · Portico</title>
+<link rel="icon" type="image/svg+xml" href="/static/portico-mark.svg">
 <link rel="stylesheet" href="/static/portico.css">
 <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 <header class="top">
-  <a class="brand" href="/">Portico</a>
+  <a class="brand" href="/"><img class="mark" src="/static/portico-mark-white.svg" alt="">Portico</a>
   <nav>
     {{if .Admin}}
     <a href="/">Tenants</a>
