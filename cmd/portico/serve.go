@@ -141,6 +141,22 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	limiter := api.NewLimiter()
 	adminSessions := auth.NewMemoryStore(8*time.Hour, 15*time.Minute)
 	brand := branding.NewService(st, log)
+	// Saving the branding regenerates the Keycloak login theme and sets it
+	// on the realm; a failure is reported to the admin, the save stands.
+	brand.OnChange(func(ctx context.Context, b branding.Branding) error {
+		if err := branding.WriteTheme(cfg.Keycloak.ThemeDir, b); err != nil {
+			return fmt.Errorf("theme files: %w", err)
+		}
+		if err := kcClient.SetRealmLoginTheme(ctx, cfg.Keycloak.ThemeName); err != nil {
+			return fmt.Errorf("keycloak realm: %w", err)
+		}
+		return nil
+	})
+	if brand.Stored(ctx) {
+		if err := brand.Apply(ctx, brand.Hook(), brand.Get(ctx)); err != nil {
+			log.Warn("branding: theme not applied at start", "err", err.Error())
+		}
+	}
 	ui := web.New(web.Options{Store: st, Service: tenants, Branding: brand, Sessions: adminSessions, Limiter: limiter, Secure: internalTLS != nil, Version: version, Log: log})
 	guard := api.RequireAdmin(st, ui, limiter, "portico", log)
 	adminAPI := guard(api.New(tenants, st, brand, log))

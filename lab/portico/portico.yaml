@@ -27,6 +27,8 @@ keycloak:
   realm: portico-lab
   admin_client_id: portico-admin
   admin_client_secret_file: /etc/portico/keycloak-admin-secret
+  theme_dir: /var/lib/portico/keycloak-theme   # mounted as /opt/keycloak/themes/portico (lab/vm/keycloak.container)
+  theme_name: portico
 
 oidc:
   issuer: https://id.lab.portico.test/realms/portico-lab
