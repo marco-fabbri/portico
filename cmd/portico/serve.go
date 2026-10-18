@@ -120,6 +120,11 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		SAMLIdPName: cfg.PrismCentral.SAMLIdPName, ClusterExtID: cfg.Tenants.ClusterExtID,
 		StorageContainerExtID: cfg.Tenants.StorageContainerExtID, OperationTimeout: cfg.Tenants.OperationTimeout,
 	}, log)
+	if n, err := tenants.RecoverInterrupted(ctx); err != nil {
+		return fmt.Errorf("tenant recovery: %w", err)
+	} else if n > 0 {
+		log.Warn("tenants interrupted by the previous run marked failed", "count", n)
+	}
 	adminAPI := api.BasicAuth(st, "portico", log)(api.New(tenants, st, log))
 
 	publicTLS, err := serverTLS(cfg.Public.TLS)

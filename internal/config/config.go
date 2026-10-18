@@ -8,6 +8,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"regexp"
 	"strings"
@@ -193,7 +194,32 @@ func (c *Config) Validate() error {
 	if c.Tenants.OperationTimeout <= 0 {
 		errs = append(errs, errors.New("config: tenants.operation_timeout must be positive"))
 	}
+	// The admin API authenticates with HTTP Basic (the break-glass
+	// password) and the pass-through carries local Prism Central
+	// credentials: off the loopback they travel only under TLS.
+	if c.Internal.TLS.CertFile == "" {
+		for _, l := range []struct{ key, addr string }{{"internal.admin_listen", c.Internal.AdminListen}, {"internal.passthrough_listen", c.Internal.PassthroughListen}} {
+			if !isLoopbackListen(l.addr) {
+				errs = append(errs, fmt.Errorf("config: %s %q is not a loopback address and internal.tls is empty; credentials would travel in clear", l.key, l.addr))
+			}
+		}
+	}
 	return errors.Join(errs...)
+}
+
+// isLoopbackListen reports whether a listen address binds the loopback
+// only ("127.0.0.1:8443", "[::1]:8443", "localhost:8443"). An empty host
+// (":8443") binds every interface.
+func isLoopbackListen(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 var rePrefix = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)

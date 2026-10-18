@@ -58,7 +58,8 @@ if [ "${1:-}" != "--delete" ]; then
   jq -n --arg e "$email" '{email:$e, first_name:"Carol", last_name:"Lab"}' > "$tmp/user.json"
   code=$(api POST "/api/v1/tenants/$slug/users" "$tmp/user.json")
   if [ "$code" = 201 ]; then jq -r .temporary_password "$tmp/out" > "$S/carol-tmp-pw"; echo "     temporary password saved to $S/carol-tmp-pw"; fi
-  [ "$code" = 409 ] && { echo "     user exists already, continuing"; code=201; }
+  # A pre-existing user is not attached to the new group (Portico refuses
+  # with 409): run --delete first so the user is recreated.
   line "POST /users ($email)" "$code" 201
   # 6. disable / enable
   code=$(api POST "/api/v1/tenants/$slug/disable"); line "POST /disable" "$code $(jq -r .status "$tmp/out")" "200 disabled"
@@ -70,7 +71,9 @@ if [ "${1:-}" != "--delete" ]; then
   echo "browser check pending: log in as $email on https://$LAB_PRISM_HOST/ (then run with --delete)"
 else
   snap_internal "$tmp/internal-before.json"
-  code=$(api DELETE "/api/v1/tenants/$slug?delete_project=true"); line "DELETE ?delete_project=true" "$code" 202
+  code=$(api DELETE "/api/v1/tenants/$slug?delete_project=true")
+  [ "$code" = 404 ] && { echo "     tenant already absent, cleaning the rest"; code=202; }
+  line "DELETE ?delete_project=true" "$code" 202
   line "tenant row after deletion" "$(wait_status gone 900)" gone
   line "project $project in Prism Central after deletion" "$([ -z "$(project_extid "$project")" ] && echo absent || echo present)" absent
   line "SAML group $group after deletion" "$([ -z "$(user_group_extid "$group")" ] && echo absent || echo present)" absent
@@ -78,6 +81,11 @@ else
   line "Keycloak group $group after deletion" "$kg" 0
   snap_internal "$tmp/internal-after.json"
   line "_internal project unchanged" "$(diff -q "$tmp/internal-before.json" "$tmp/internal-after.json" >/dev/null && echo yes || echo no)" yes
-  rm -f "$S/carol-tmp-pw"
+  # The test user is removed too, so the next run creates her again with a
+  # fresh temporary password (Portico itself leaves tenant users in place).
+  uid=$(lab/saml/kc.sh GET "/portico-lab/users?email=$email&exact=true" 2>/dev/null | jq -r '.[0].id // empty')
+  [ -n "$uid" ] && lab/saml/kc.sh DELETE "/portico-lab/users/$uid" >/dev/null 2>&1
+  line "Keycloak test user $email removed" "$(lab/saml/kc.sh GET "/portico-lab/users?email=$email&exact=true" 2>/dev/null | jq -r 'length')" 0
+  rm -f "$S/carol-tmp-pw" "$S/carol-pw"
 fi
 if [ $fail -eq 0 ]; then echo "PASS: every line matched"; else echo "FAIL: see lines marked FAIL" >&2; exit 1; fi

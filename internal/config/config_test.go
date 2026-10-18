@@ -145,3 +145,37 @@ func TestPrefixMustBeSlugSafe(t *testing.T) {
 		t.Errorf("want a project_prefix error, got %v", err)
 	}
 }
+
+// Review fix 4: the break-glass password travels as HTTP Basic, so an
+// internal listener off the loopback must have TLS.
+func TestValidateRefusesCleartextInternalListenerOffLoopback(t *testing.T) {
+	cases := []struct {
+		admin, pass string
+		tls         bool
+		wantErr     bool
+	}{
+		{"127.0.0.1:8443", "127.0.0.1:9440", false, false},
+		{"[::1]:8443", "localhost:9440", false, false},
+		{"0.0.0.0:8443", "127.0.0.1:9440", false, true},
+		{"127.0.0.1:8443", "10.0.0.5:9440", false, true},
+		{":8443", "127.0.0.1:9440", false, true},
+		{"10.0.0.5:8443", "10.0.0.5:9440", true, false},
+	}
+	for _, c := range cases {
+		cfg, err := Load("testdata/minimal.yaml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Internal.AdminListen, cfg.Internal.PassthroughListen = c.admin, c.pass
+		if c.tls {
+			cfg.Internal.TLS = TLS{CertFile: "/c.pem", KeyFile: "/k.pem"}
+		}
+		err = cfg.Validate()
+		if c.wantErr && (err == nil || !strings.Contains(err.Error(), "internal.tls")) {
+			t.Errorf("%s/%s tls=%v: want an internal.tls error, got %v", c.admin, c.pass, c.tls, err)
+		}
+		if !c.wantErr && err != nil {
+			t.Errorf("%s/%s tls=%v: unexpected error %v", c.admin, c.pass, c.tls, err)
+		}
+	}
+}
