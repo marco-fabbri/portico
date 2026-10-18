@@ -250,3 +250,24 @@ func TestUnknownPathIs404JSON(t *testing.T) {
 		t.Fatalf("PATCH: %d %v", rec.Code, out)
 	}
 }
+
+// 2a review minor: delete_project is parsed as a boolean, garbage is 400.
+func TestDeleteProjectFlagParsing(t *testing.T) {
+	e := newEnv(t)
+	e.do("POST", "/api/v1/tenants", `{"slug":"acme","display_name":"ACME"}`, true)
+	e.svc.Wait()
+	rec, out := e.do("DELETE", "/api/v1/tenants/acme?delete_project=yes", "", true)
+	if rec.Code != 400 || out["error"] == "" {
+		t.Fatalf("delete_project=yes: %d %v", rec.Code, out)
+	}
+	rec, _ = e.do("DELETE", "/api/v1/tenants/acme?delete_project=1", "", true)
+	if rec.Code != 202 {
+		t.Fatalf("delete_project=1: %d", rec.Code)
+	}
+	e.svc.Wait()
+	for _, p := range e.pc.Projects {
+		if p.Name == "portico-acme" {
+			t.Fatal("project kept although delete_project=1")
+		}
+	}
+}

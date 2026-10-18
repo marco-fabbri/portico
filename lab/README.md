@@ -17,7 +17,8 @@ here runs on the appliance.
   shellcheck on every lab script.
 
 - `portico/` — `deploy.sh` builds the Go binary, installs it on the lab VM
-  as `portico.service` in place of nginx and waits for the health endpoint;
+  as `portico.service` in place of nginx, waits for the health endpoint and
+  prints the admin UI URL;
   `undeploy.sh` restores nginx; `portico.yaml` is the lab configuration.
 - `saml/keycloak-realm.sh oidc-client` registers Portico's OIDC client.
 - `tenants/api.sh METHOD PATH [JSON]` calls Portico's admin API on the lab VM with the break-glass password from `~/portico-secrets/portico-admin-pw`; `tenants/acceptance.sh [--delete]` is the Milestone 2a acceptance (write-up 11).

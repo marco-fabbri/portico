@@ -20,6 +20,7 @@ import (
 	"github.com/marco-fabbri/portico/internal/proxy"
 	"github.com/marco-fabbri/portico/internal/store"
 	"github.com/marco-fabbri/portico/internal/tenant"
+	"github.com/marco-fabbri/portico/internal/web"
 )
 
 // serverTLS returns the server-side TLS configuration for a listener, or
@@ -84,7 +85,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		}
 	}
 
-	store := auth.NewMemoryStore(cfg.Session.MaxAge, cfg.Session.Idle)
+	sessions := auth.NewMemoryStore(cfg.Session.MaxAge, cfg.Session.Idle)
 	authn := auth.NewAuthenticator(auth.OIDCConfig{
 		Issuer: cfg.OIDC.Issuer,
 		// The issuer's path is the realm path; the loopback base plus that
@@ -94,9 +95,9 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		ClientSecret: secret,
 		RedirectURL:  "https://" + cfg.Public.PrismHost + "/.portico/callback",
 		CookieMaxAge: cfg.Session.MaxAge,
-	}, store, &http.Client{Timeout: 15 * time.Second}, log)
+	}, sessions, &http.Client{Timeout: 15 * time.Second}, log)
 
-	stripped := []string{auth.SessionCookie, auth.OIDCCookie}
+	stripped := auth.PorticoCookies()
 	prismUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: pcURL, HostHeader: cfg.Public.PrismHost, TLS: pcTLS, StripCookies: stripped, Log: log})
 	kcUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: kcURL, HostHeader: cfg.Public.IDHost, StripCookies: stripped, Log: log})
 	public := proxy.NewPublic(proxy.PublicOptions{
@@ -125,7 +126,6 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	} else if n > 0 {
 		log.Warn("tenants interrupted by the previous run marked failed", "count", n)
 	}
-	adminAPI := api.BasicAuth(st, "portico", log)(api.New(tenants, st, log))
 
 	publicTLS, err := serverTLS(cfg.Public.TLS)
 	if err != nil {
@@ -135,6 +135,14 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("internal: %w", err)
 	}
+	// Admin listener: the REST API and the UI share the break-glass
+	// account, one failure limiter and one authentication middleware.
+	limiter := api.NewLimiter()
+	adminSessions := auth.NewMemoryStore(8*time.Hour, 15*time.Minute)
+	ui := web.New(web.Options{Store: st, Service: tenants, Sessions: adminSessions, Limiter: limiter, Secure: internalTLS != nil, Version: version, Log: log})
+	guard := api.RequireAdmin(st, ui, limiter, "portico", log)
+	adminAPI := guard(api.New(tenants, st, log))
+	adminUI := guard(ui)
 	newServer := func(addr string, h http.Handler) *http.Server {
 		return &http.Server{
 			Addr:              addr,
@@ -147,7 +155,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	listeners := []listener{
 		{"public", newServer(cfg.Public.Listen, public), publicTLS},
 		{"passthrough", newServer(cfg.Internal.PassthroughListen, passthrough), internalTLS},
-		{"admin", newServer(cfg.Internal.AdminListen, proxy.NewAdmin(log, adminAPI)), internalTLS},
+		{"admin", newServer(cfg.Internal.AdminListen, proxy.NewAdmin(log, adminAPI, adminUI)), internalTLS},
 	}
 
 	errs := make(chan error, len(listeners))
@@ -176,9 +184,11 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	for {
 		select {
 		case <-sweep.C:
-			if n := store.Sweep(time.Now()); n > 0 {
+			if n := sessions.Sweep(time.Now()); n > 0 {
 				log.Debug("sessions swept", "count", n)
 			}
+			adminSessions.Sweep(time.Now())
+			limiter.Sweep(time.Now())
 		case err := <-errs:
 			shutdown(listeners, log)
 			tenants.Wait()

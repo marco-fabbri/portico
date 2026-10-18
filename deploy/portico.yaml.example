@@ -11,7 +11,8 @@ public:
                                  # (same registrable domain as prism_host)
 
 internal:
-  admin_listen: "127.0.0.1:8443"       # Portico health and, later, the admin UI
+  admin_listen: "127.0.0.1:8443"       # health, the admin UI and the JSON API; off the
+                                       # loopback it needs internal.tls (credentials)
   passthrough_listen: "127.0.0.1:9440" # raw pass-through to Prism Central, local login allowed
   tls:
     cert_file: ""
@@ -51,6 +52,9 @@ session:
   idle: 15m
 
 policy:
+  # Not configurable: on the public name every Authorization header is
+  # refused (the console uses cookies only, measured on pc.7.6), as are
+  # X-ntnx-api-key and the local-login paths.
   allow_prefixes:                # measured on pc.7.6; an entry ending in "/" is a prefix
     - /
     - /console/
@@ -62,6 +66,7 @@ policy:
     - /vnc/
     - /auth_code
     - /favicon.ico
+    - /redirect                  # Prism Central's own Sign Out
 
 log:
   level: info                    # debug, info, warn, error

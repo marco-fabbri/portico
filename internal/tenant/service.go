@@ -315,6 +315,10 @@ func (s *Service) CreateUser(ctx context.Context, id, email, firstName, lastName
 	if t.Status != store.StatusActive {
 		return "", fmt.Errorf("%w: %s", ErrState, t.Status)
 	}
+	if !s.acquire(id) {
+		return "", ErrBusy
+	}
+	defer s.release(id)
 	if _, err := s.kc.FindUserByEmail(ctx, email); err == nil {
 		return "", ErrExists
 	} else if !errors.Is(err, keycloak.ErrNotFound) {

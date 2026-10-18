@@ -157,3 +157,28 @@ func TestOpenSQLiteRefusesUnwritableDir(t *testing.T) {
 		t.Fatalf("OpenSQLite = %v, want an error naming %s", err, path)
 	}
 }
+
+// 2a review minor: the database and its sidecars are not group/world readable.
+func TestOpenSQLiteSetsFileMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "portico.db")
+	s, err := OpenSQLite(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.SetAdminPassword(context.Background(), "admin", "h"); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{path, path + "-wal", path + "-shm"} {
+		info, err := os.Stat(f)
+		if err != nil {
+			continue // a sidecar may not exist yet
+		}
+		if mode := info.Mode().Perm(); mode != 0o600 {
+			t.Errorf("%s has mode %04o, want 0600", f, mode)
+		}
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -179,18 +179,26 @@ response is a top-level POST from the identity host to the Prism Central
 host, which a Lax cookie joins only between same-site hosts (Milestone 1).
 
 Admin authentication on the internal listener (design call): the Portico
-admin UI has a local break-glass account created at first boot (password set
-on first access from the console wizard or the internal UI), so the admin path
-does not depend on Keycloak. OIDC login for admins can be added later; the
-break-glass account stays.
+admin UI has a local break-glass account `admin`, so the admin path does
+not depend on Keycloak. Its password is set with `portico admin
+set-password` (stdin, Milestone 2a) or from the console wizard; the UI
+refuses to serve pages until it is set. The REST API authenticates with
+HTTP Basic against that account; the UI with a session cookie obtained
+from a login form on the same listener (`portico_admin`, HttpOnly,
+SameSite=Strict, Secure when the listener has TLS, 8 h, 15 min idle), a
+per-session CSRF token on every state-changing form, and a delay after
+failed logins shared with the API's Basic check. Off the loopback the
+listener must have TLS (enforced since 2a). OIDC login for admins can be
+added later; the break-glass account stays.
 
 ### 4.3 Request flow on the public path
 
 1. Browser hits `https://prism.<msp>.example` → Cloudflare edge → tunnel →
    Portico, or directly → Portico `:443`.
 2. Portico applies the deny list first, before looking for a session
-   (measured on pc.7.6, write-up 06): `Authorization: Basic` and
-   `X-ntnx-api-key` headers, any method on
+   (measured on pc.7.6, write-ups 06 and 12): every `Authorization`
+   header, whatever its scheme (the console authenticates with cookies
+   only), `X-ntnx-api-key`, any method on
    `/api/iam/*/authn/login-requests/*/$actions/validate-credentials` and on
    `/PrismGateway/j_spring_security_check`, `GET /api/iam/*/authn/users`
    (a Project Admin can enumerate all accounts). Paths are matched after
@@ -208,7 +216,8 @@ break-glass account stays.
    path must be inside the allow-list measured in write-up 08 (prefixes
    `/console/`, `/static/`, `/ui/iam/`, `/api/`, `/dm/`,
    `/PrismGateway/services/rest/v1/`, `/vnc/`, plus `/`, `/auth_code`,
-   `/favicon.ico`; configurable). Portico's cookies are stripped before
+   `/favicon.ico`, `/redirect` (Prism Central's own Sign Out, write-up 12);
+   configurable). Portico's cookies are stripped before
    forwarding. `lab/auth/probe-local-login.sh` is the acceptance test
    (write-up 09).
 4. Request is proxied to Prism Central on 9440 with the public host name.
@@ -322,6 +331,17 @@ binary, no JavaScript toolchain; contributors from the infrastructure world
 can work on it. Step 1 UI scope: setup wizard (identity, Prism Central
 connection, exposure), tenant list, create tenant, tenant status with the
 visibility-check result, system status, branding (section 4.10).
+
+**Settings: file and store** (design call for Milestone 2). The YAML file
+keeps only what the process needs before it can open its store: listeners,
+TLS files, store path, master key path, log level. Everything an MSP
+decides after installation lives in the store and is entered through the
+UI and API: public host names, Prism Central connection and service
+account key, Keycloak realm and admin client, OIDC client, tenant naming
+and placement, branding. Secrets in the store are encrypted with the
+master key (section 4.6). Until the setup wizard exists (Milestone 2d) the
+YAML carries those values too, as it does since Milestone 1; branding is
+the first store-held setting (Milestone 2c).
 
 **The API is the boundary** (decided with Marco on 2026-10-18, ADR 0003).
 Every action the admin UI performs is a documented REST call on the
@@ -553,7 +573,9 @@ portico/
 | 0 | Lab measurements (section 6) | done 2026-10-17: write-ups in `docs/lab/`, design updated |
 | 1 | Core binary: proxy + OIDC session + policy + internal listener | done 2026-10-17 (write-up 09): a browser through Portico reaches Prism Central only after Keycloak login; `curl -u admin:…` through the public path gets 403 from Portico |
 | 2a | Tenant arrival, API | done 2026-10-18 (write-up 11): `POST /api/v1/tenants` creates project + resource group + SAML group + IdP sharing + role membership + Keycloak group, records every step, visibility check passes on NTNX-01; first user, disable/enable, clean deletion |
-| 2b | Tenant arrival, UI and branding | admin UI over the API with the break-glass login, landing page that starts SAML itself, Keycloak theme, setup wizard with secrets at rest; a tenant user goes from the public URL to the console with one Keycloak login and no Nutanix login page |
+| 2b | Tenant arrival, admin UI | done 2026-10-18 (write-up 12): admin UI over the API with the break-glass login (tenant list, create, detail with steps and visibility, users, disable/enable, delete), the 2a review minors absorbed, every `Authorization` scheme refused on the public name after measuring the console, Prism Central's Sign Out path allowed |
+| 2c | Tenant arrival, tenant-facing pages | branding settings in the store, landing page that starts SAML itself, Keycloak theme, friendlier identity-provider-down page: a tenant user goes from the public URL to the console with one Keycloak login and no Nutanix login page |
+| 2d | Setup wizard | settings move to the store with secrets at rest (master key), service-account bootstrap path, SAML identity provider created by Portico, Keycloak clients registered by Portico |
 | 3 | Appliance image | Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
 | 4 | First release (step 1 complete) | README, install guide, release artefacts, known limits documented |
 
