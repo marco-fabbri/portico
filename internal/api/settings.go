@@ -219,23 +219,34 @@ type checkJSON struct {
 }
 
 // candidate overlays the target section of the request on the current
-// document; an empty secret means the current one.
+// document: an empty field (a secret above all) means the current value,
+// so a body with the target alone checks what is stored. The TLS flag
+// and the CA travel with the URL, since a boolean has no "absent".
 func candidate(cur settings.Settings, target string, in settings.Settings) settings.Settings {
 	out := cur
+	pick := func(dst *string, v string) {
+		if v != "" {
+			*dst = v
+		}
+	}
 	switch target {
 	case "prism_central":
-		out.PrismCentral.URL, out.PrismCentral.TLSVerify, out.PrismCentral.CAPEM = in.PrismCentral.URL, in.PrismCentral.TLSVerify, in.PrismCentral.CAPEM
-		out.PrismCentral.SAMLIdPName = in.PrismCentral.SAMLIdPName
+		if in.PrismCentral.URL != "" {
+			out.PrismCentral.URL, out.PrismCentral.TLSVerify, out.PrismCentral.CAPEM = in.PrismCentral.URL, in.PrismCentral.TLSVerify, in.PrismCentral.CAPEM
+		}
+		pick(&out.PrismCentral.SAMLIdPName, in.PrismCentral.SAMLIdPName)
 		if in.PrismCentral.APIKey != "" {
 			out.PrismCentral.APIKey = in.PrismCentral.APIKey
 		}
 	case "keycloak":
-		out.Keycloak.Realm, out.Keycloak.AdminClientID = in.Keycloak.Realm, in.Keycloak.AdminClientID
+		pick(&out.Keycloak.Realm, in.Keycloak.Realm)
+		pick(&out.Keycloak.AdminClientID, in.Keycloak.AdminClientID)
 		if in.Keycloak.AdminClientSecret != "" {
 			out.Keycloak.AdminClientSecret = in.Keycloak.AdminClientSecret
 		}
 	case "oidc":
-		out.OIDC.Issuer, out.OIDC.ClientID = in.OIDC.Issuer, in.OIDC.ClientID
+		pick(&out.OIDC.Issuer, in.OIDC.Issuer)
+		pick(&out.OIDC.ClientID, in.OIDC.ClientID)
 	}
 	return out
 }
