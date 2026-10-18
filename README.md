@@ -26,6 +26,19 @@ Central instances, without a hyperscaler-sized control plane.
   automated visibility check.
 - Keeps platform administration on an internal listener only.
 
+## Why "Portico"
+
+A portico stands in front of private buildings and makes them reachable
+from the public space. It is not the building, it does not replace it, and
+it does not change who owns it; it has its own rules about who walks in
+and what they see, and one covered walk can join several buildings. That
+is Portico's relationship with Prism Central: Prism Central stays the
+house, Portico is the way the tenants reach it.
+
+The project is written in Bologna, whose porticoes are a UNESCO World
+Heritage Site. The word is the same in Italian and in English, it is one
+word with no vendor name in it, and `portico serve` reads well.
+
 ## What it is not
 
 - Not a replacement for Nutanix Central or Service Provider Central. Portico
