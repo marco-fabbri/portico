@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -195,7 +196,15 @@ func (h *handler) retry(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) deleteTenant(w http.ResponseWriter, r *http.Request) {
-	deleteProject := r.URL.Query().Get("delete_project") == "true"
+	deleteProject := false
+	if v := r.URL.Query().Get("delete_project"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "delete_project must be true or false")
+			return
+		}
+		deleteProject = b
+	}
 	if err := h.svc.Delete(r.Context(), r.PathValue("id"), deleteProject); err != nil {
 		h.fail(w, err)
 		return

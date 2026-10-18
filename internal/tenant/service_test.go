@@ -476,3 +476,27 @@ func TestRetryRefusedAfterFailedDelete(t *testing.T) {
 		t.Fatalf("row after second delete: %v", err)
 	}
 }
+
+// 2a review minor: CreateUser holds the per-tenant lock like every other
+// operation, so it cannot interleave with a run that is about to change
+// the tenant (the status check alone leaves a window before the status
+// is written).
+func TestCreateUserIsBusyWhileLocked(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.create(t, "acme")
+	e.svc.Wait()
+	if !e.svc.acquire("acme") {
+		t.Fatal("could not take the lock")
+	}
+	if _, err := e.svc.CreateUser(ctx, "acme", "x@acme.test", "X", "Y"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("CreateUser while locked = %v, want ErrBusy", err)
+	}
+	if e.kc.Creates["CreateUser"] != 0 {
+		t.Fatal("a user was created while the tenant was locked")
+	}
+	e.svc.release("acme")
+	if _, err := e.svc.CreateUser(ctx, "acme", "x@acme.test", "X", "Y"); err != nil {
+		t.Fatalf("CreateUser after release: %v", err)
+	}
+}
