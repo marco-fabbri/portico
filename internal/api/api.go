@@ -30,9 +30,26 @@ type handler struct {
 	log   *slog.Logger
 }
 
+// SetupModeMessage is the answer of every tenant route while Portico
+// runs in setup mode (design §4.7): the service that would act on
+// Prism Central and Keycloak does not exist yet.
+const SetupModeMessage = "Portico is in setup mode: complete the settings and apply them"
+
+// running refuses the route with 503 while the tenant service is nil.
+func (h *handler) running(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.svc == nil {
+			writeError(w, http.StatusServiceUnavailable, SetupModeMessage)
+			return
+		}
+		next(w, r)
+	}
+}
+
 // New returns the API handler. The caller wraps it with the
 // authentication middleware. so may be nil: the settings routes then
-// answer 501.
+// answer 501. svc may be nil (setup mode): the tenant routes then
+// answer 503.
 func New(svc *tenant.Service, st store.Store, brand *branding.Service, so *SettingsOptions, log *slog.Logger) http.Handler {
 	if log == nil {
 		log = slog.Default()
@@ -52,16 +69,16 @@ func New(svc *tenant.Service, st store.Store, brand *branding.Service, so *Setti
 	mux.HandleFunc("GET "+Prefix+"settings/branding", h.getBranding)
 	mux.HandleFunc("PUT "+Prefix+"settings/branding", h.putBranding)
 	mux.HandleFunc("GET "+Prefix+"settings/branding/logo", h.getLogo)
-	mux.HandleFunc("GET "+Prefix+"tenants", h.listTenants)
-	mux.HandleFunc("POST "+Prefix+"tenants", h.createTenant)
-	mux.HandleFunc("GET "+Prefix+"tenants/{id}", h.getTenant)
-	mux.HandleFunc("GET "+Prefix+"tenants/{id}/steps", h.listSteps)
-	mux.HandleFunc("POST "+Prefix+"tenants/{id}/provision", h.retry)
-	mux.HandleFunc("DELETE "+Prefix+"tenants/{id}", h.deleteTenant)
-	mux.HandleFunc("POST "+Prefix+"tenants/{id}/disable", h.disable)
-	mux.HandleFunc("POST "+Prefix+"tenants/{id}/enable", h.enable)
-	mux.HandleFunc("POST "+Prefix+"tenants/{id}/users", h.createUser)
-	mux.HandleFunc("GET "+Prefix+"tenants/{id}/visibility", h.visibility)
+	mux.HandleFunc("GET "+Prefix+"tenants", h.running(h.listTenants))
+	mux.HandleFunc("POST "+Prefix+"tenants", h.running(h.createTenant))
+	mux.HandleFunc("GET "+Prefix+"tenants/{id}", h.running(h.getTenant))
+	mux.HandleFunc("GET "+Prefix+"tenants/{id}/steps", h.running(h.listSteps))
+	mux.HandleFunc("POST "+Prefix+"tenants/{id}/provision", h.running(h.retry))
+	mux.HandleFunc("DELETE "+Prefix+"tenants/{id}", h.running(h.deleteTenant))
+	mux.HandleFunc("POST "+Prefix+"tenants/{id}/disable", h.running(h.disable))
+	mux.HandleFunc("POST "+Prefix+"tenants/{id}/enable", h.running(h.enable))
+	mux.HandleFunc("POST "+Prefix+"tenants/{id}/users", h.running(h.createUser))
+	mux.HandleFunc("GET "+Prefix+"tenants/{id}/visibility", h.running(h.visibility))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})

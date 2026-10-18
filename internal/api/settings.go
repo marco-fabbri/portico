@@ -24,6 +24,9 @@ type SettingsOptions struct {
 	KeycloakURL string     // backchannel URL for the Keycloak and OIDC checks
 	Restart     func()     // asks serve to restart; nil when not available
 	Busy        func() int // tenant operations in progress; apply is refused while any runs
+	// Mode is "setup" when the process serves the admin listener only
+	// (design §4.7) and "running" otherwise.
+	Mode string
 
 	restarting atomic.Bool
 }
@@ -39,7 +42,7 @@ func (o *SettingsOptions) Current(ctx context.Context) (settings.Settings, strin
 	if o.File != nil {
 		return *o.File, "file", nil
 	}
-	return settings.Settings{}, "none", nil
+	return settings.Defaults(), "none", nil
 }
 
 // BusyError says how many tenant operations stop an apply.
@@ -55,6 +58,13 @@ func (e *BusyError) Error() string {
 func (o *SettingsOptions) Apply(ctx context.Context) error {
 	if o.Service == nil || !o.Service.Stored(ctx) {
 		return settings.ErrNotStored
+	}
+	cur, err := o.Service.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if err := cur.Validate(); err != nil {
+		return err
 	}
 	if o.Restart == nil {
 		return errRestartUnavailable
@@ -104,10 +114,13 @@ func sameHost(a, b string) bool {
 // on input and never written on output; the *_set booleans say whether
 // one is held.
 type settingsJSON struct {
-	Stored       bool   `json:"stored"`
-	Source       string `json:"source"`
-	PrismHost    string `json:"prism_host"`
-	IDHost       string `json:"id_host"`
+	Stored       bool     `json:"stored"`
+	Source       string   `json:"source"`
+	Mode         string   `json:"mode,omitempty"`
+	Complete     bool     `json:"complete"`
+	Missing      []string `json:"missing"`
+	PrismHost    string   `json:"prism_host"`
+	IDHost       string   `json:"id_host"`
 	PrismCentral struct {
 		URL         string `json:"url"`
 		TLSVerify   *bool  `json:"tls_verify"` // absent keeps the current value
@@ -138,9 +151,14 @@ type settingsJSON struct {
 	} `json:"tenants"`
 }
 
-func toSettingsJSON(s settings.Settings, source string) settingsJSON {
+func toSettingsJSON(s settings.Settings, source, mode string) settingsJSON {
 	var j settingsJSON
-	j.Stored, j.Source = source == "store", source
+	j.Stored, j.Source, j.Mode = source == "store", source, mode
+	j.Missing = s.Missing()
+	if j.Missing == nil {
+		j.Missing = []string{}
+	}
+	j.Complete = len(j.Missing) == 0
 	j.PrismHost, j.IDHost = s.PrismHost, s.IDHost
 	tlsVerify := s.PrismCentral.TLSVerify
 	j.PrismCentral.URL, j.PrismCentral.TLSVerify, j.PrismCentral.CAPEM = s.PrismCentral.URL, &tlsVerify, s.PrismCentral.CAPEM
@@ -228,7 +246,7 @@ func (h *handler) getSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toSettingsJSON(s, source))
+	writeJSON(w, http.StatusOK, toSettingsJSON(s, source, h.so.Mode))
 }
 
 func (h *handler) putSettings(w http.ResponseWriter, r *http.Request) {
@@ -267,7 +285,7 @@ func (h *handler) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toSettingsJSON(cur, source))
+	writeJSON(w, http.StatusOK, toSettingsJSON(cur, source, h.so.Mode))
 }
 
 // checkJSON is the check request: the target plus candidate settings.
@@ -339,9 +357,12 @@ func (h *handler) applySettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var busy *BusyError
+	var inc *settings.IncompleteError
 	switch err := h.so.Apply(r.Context()); {
 	case errors.Is(err, settings.ErrNotStored):
 		writeError(w, http.StatusConflict, "no settings are stored: save them first")
+	case errors.As(err, &inc):
+		writeError(w, http.StatusConflict, err.Error())
 	case errors.As(err, &busy):
 		writeError(w, http.StatusConflict, err.Error())
 	case err != nil:

@@ -18,6 +18,9 @@ type setupData struct {
 	Stored                                     bool
 	APIKeySet, AdminSecretSet, ClientSecretSet bool
 	OperationTimeout                           string
+	Mode                                       string
+	Missing                                    []string
+	Complete                                   bool
 }
 
 func (h *Handler) setupRoutes(mux *http.ServeMux) {
@@ -44,9 +47,10 @@ func (h *Handler) current(w http.ResponseWriter, r *http.Request) (settings.Sett
 	return s, source, true
 }
 
-func toSetupData(s settings.Settings, source string) setupData {
-	d := setupData{Source: source, Stored: source == "store",
+func toSetupData(s settings.Settings, source, mode string) setupData {
+	d := setupData{Source: source, Stored: source == "store", Mode: mode, Missing: s.Missing(),
 		APIKeySet: s.PrismCentral.APIKey != "", AdminSecretSet: s.Keycloak.AdminClientSecret != "", ClientSecretSet: s.OIDC.ClientSecret != ""}
+	d.Complete = len(d.Missing) == 0
 	s.PrismCentral.APIKey, s.Keycloak.AdminClientSecret, s.OIDC.ClientSecret = "", "", ""
 	d.S = s
 	if s.Tenants.OperationTimeout > 0 {
@@ -56,7 +60,7 @@ func toSetupData(s settings.Settings, source string) setupData {
 }
 
 func (h *Handler) renderSetup(w http.ResponseWriter, r *http.Request, status int, s settings.Settings, source, errMsg string) {
-	h.render(w, r, status, "setup", "Setup", toSetupData(s, source), errMsg)
+	h.render(w, r, status, "setup", "Setup", toSetupData(s, source, h.setup.Mode), errMsg)
 }
 
 func (h *Handler) setupPage(w http.ResponseWriter, r *http.Request) {
@@ -180,9 +184,12 @@ func (h *Handler) setupApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var busy *api.BusyError
+	var inc *settings.IncompleteError
 	switch err := h.setup.Apply(r.Context()); {
 	case errors.Is(err, settings.ErrNotStored):
 		h.renderSetup(w, r, http.StatusConflict, cur, source, "no settings are stored yet: save them first")
+	case errors.As(err, &inc):
+		h.renderSetup(w, r, http.StatusConflict, cur, source, err.Error())
 	case errors.As(err, &busy):
 		h.renderSetup(w, r, http.StatusConflict, cur, source, "Apply refused: "+err.Error())
 	case err != nil:

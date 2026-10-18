@@ -115,6 +115,8 @@ func parsePages() map[string]*template.Template {
 	// A minimal not-found page shares the layout.
 	nf := template.Must(layout.Clone())
 	pages["notfound"] = template.Must(nf.Parse(`{{define "content"}}<section class="card"><h1>Not found</h1><p><a href="/">Back to the tenants</a></p></section>{{end}}`))
+	sm := template.Must(layout.Clone())
+	pages["setupmode"] = template.Must(sm.Parse(`{{define "content"}}<section class="card"><h1>Setup mode</h1><p>` + api.SetupModeMessage + `. <a href="/setup">Open the setup page</a></p></section>{{end}}`))
 	return pages
 }
 
