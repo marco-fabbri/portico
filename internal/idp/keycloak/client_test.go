@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -28,11 +29,13 @@ type fakeKC struct {
 	revoked   map[string]bool // tokens that no longer work
 	members   int             // number of members GroupMembers pages through
 	realm     map[string]any  // realm representation served on GET /admin/realms/lab
+	adm       *adminState     // realm administration (admin_test.go)
 }
 
 type recorded struct {
 	Method, Path, Query, Auth string
 	Body                      map[string]any
+	Raw                       []byte
 }
 
 const (
@@ -49,6 +52,9 @@ func newFakeKC(t *testing.T) *fakeKC {
 
 func (f *fakeKC) handle(w http.ResponseWriter, r *http.Request) {
 	rec := recorded{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Auth: r.Header.Get("Authorization")}
+	if f.handleUnauthenticated(w, r) {
+		return
+	}
 	if r.URL.Path == "/realms/lab/protocol/openid-connect/token" {
 		r.ParseForm()
 		f.mu.Lock()
@@ -64,7 +70,8 @@ func (f *fakeKC) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Body != nil {
-		json.NewDecoder(r.Body).Decode(&rec.Body)
+		rec.Raw, _ = io.ReadAll(r.Body)
+		json.Unmarshal(rec.Raw, &rec.Body)
 	}
 	f.mu.Lock()
 	f.reqs = append(f.reqs, rec)
@@ -83,9 +90,16 @@ func (f *fakeKC) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if f.handleAdmin(w, r, rec) {
+		return
+	}
 	p := strings.TrimPrefix(r.URL.Path, "/admin/realms/lab")
 	switch {
 	case p == "" && r.Method == "GET":
+		if f.realm == nil {
+			w.WriteHeader(404)
+			return
+		}
 		json.NewEncoder(w).Encode(f.realm)
 	case p == "" && r.Method == "PUT":
 		w.WriteHeader(204)

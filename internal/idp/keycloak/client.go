@@ -43,12 +43,12 @@ type User struct {
 
 // Client talks to one realm through the admin API.
 type Client struct {
-	base         string
-	realm        string
-	clientID     string
-	clientSecret string
-	http         *http.Client
-	log          *slog.Logger
+	base     string
+	realm    string
+	tokenURL string     // where the access token is requested
+	form     url.Values // the grant: client credentials or password
+	http     *http.Client
+	log      *slog.Logger
 
 	mu     sync.Mutex
 	token  string
@@ -64,19 +64,33 @@ func New(baseURL, realm, clientID, clientSecret string, httpc *http.Client, log 
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Client{base: strings.TrimSuffix(baseURL, "/"), realm: realm, clientID: clientID, clientSecret: clientSecret, http: httpc, log: log}
+	base := strings.TrimSuffix(baseURL, "/")
+	return &Client{base: base, realm: realm, http: httpc, log: log,
+		tokenURL: base + "/realms/" + realm + "/protocol/openid-connect/token",
+		form:     url.Values{"grant_type": {"client_credentials"}, "client_id": {clientID}, "client_secret": {clientSecret}}}
 }
 
-// accessToken returns a cached client-credentials token, refreshing it 30 s
-// before expiry.
+// NewWithPassword returns a client that administers realm with a
+// Keycloak administrator's one-time credentials: a password grant on the
+// master realm through admin-cli (design §4.5, Keycloak bootstrap). The
+// password lives in the client for the length of the bootstrap and is
+// never stored or logged.
+func NewWithPassword(baseURL, realm, username, password string, httpc *http.Client, log *slog.Logger) *Client {
+	c := New(baseURL, realm, "", "", httpc, log)
+	c.tokenURL = c.base + "/realms/master/protocol/openid-connect/token"
+	c.form = url.Values{"grant_type": {"password"}, "client_id": {"admin-cli"}, "username": {username}, "password": {password}}
+	return c
+}
+
+// accessToken returns a cached access token, refreshing it 30 s before
+// expiry.
 func (c *Client) accessToken(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.token != "" && time.Now().Before(c.expiry.Add(-30*time.Second)) {
 		return c.token, nil
 	}
-	form := url.Values{"grant_type": {"client_credentials"}, "client_id": {c.clientID}, "client_secret": {c.clientSecret}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/realms/"+c.realm+"/protocol/openid-connect/token", strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.tokenURL, strings.NewReader(c.form.Encode()))
 	if err != nil {
 		return "", err
 	}
@@ -104,8 +118,10 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 	return c.token, nil
 }
 
-// do performs one admin call on a path relative to /admin/realms/<realm>.
-// out (nil to discard) receives the JSON body. The Location header is
+// do performs one admin call on a path relative to /admin/realms/<realm>,
+// or on an absolute admin path when it starts with /admin/ (the realm
+// root, used to create realms). out (nil to discard) receives the JSON
+// body. The Location header is
 // returned for creates. A 401 (token invalidated server-side, for example
 // after a Keycloak restart) drops the cached token and retries once.
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body any, out any) (string, int, error) {
@@ -125,6 +141,9 @@ func (c *Client) doOnce(ctx context.Context, method, path string, query url.Valu
 		return "", 0, err
 	}
 	u := c.base + "/admin/realms/" + c.realm + path
+	if strings.HasPrefix(path, "/admin/") {
+		u = c.base + path
+	}
 	if len(query) > 0 {
 		u += "?" + query.Encode()
 	}
