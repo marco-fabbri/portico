@@ -196,8 +196,9 @@ added later; the break-glass account stays.
 1. Browser hits `https://prism.<msp>.example` → Cloudflare edge → tunnel →
    Portico, or directly → Portico `:443`.
 2. Portico applies the deny list first, before looking for a session
-   (measured on pc.7.6, write-up 06): `Authorization: Basic` and
-   `X-ntnx-api-key` headers, any method on
+   (measured on pc.7.6, write-ups 06 and 12): every `Authorization`
+   header, whatever its scheme (the console authenticates with cookies
+   only), `X-ntnx-api-key`, any method on
    `/api/iam/*/authn/login-requests/*/$actions/validate-credentials` and on
    `/PrismGateway/j_spring_security_check`, `GET /api/iam/*/authn/users`
    (a Project Admin can enumerate all accounts). Paths are matched after
@@ -215,7 +216,8 @@ added later; the break-glass account stays.
    path must be inside the allow-list measured in write-up 08 (prefixes
    `/console/`, `/static/`, `/ui/iam/`, `/api/`, `/dm/`,
    `/PrismGateway/services/rest/v1/`, `/vnc/`, plus `/`, `/auth_code`,
-   `/favicon.ico`; configurable). Portico's cookies are stripped before
+   `/favicon.ico`, `/redirect` (Prism Central's own Sign Out, write-up 12);
+   configurable). Portico's cookies are stripped before
    forwarding. `lab/auth/probe-local-login.sh` is the acceptance test
    (write-up 09).
 4. Request is proxied to Prism Central on 9440 with the public host name.
@@ -571,7 +573,7 @@ portico/
 | 0 | Lab measurements (section 6) | done 2026-10-17: write-ups in `docs/lab/`, design updated |
 | 1 | Core binary: proxy + OIDC session + policy + internal listener | done 2026-10-17 (write-up 09): a browser through Portico reaches Prism Central only after Keycloak login; `curl -u admin:…` through the public path gets 403 from Portico |
 | 2a | Tenant arrival, API | done 2026-10-18 (write-up 11): `POST /api/v1/tenants` creates project + resource group + SAML group + IdP sharing + role membership + Keycloak group, records every step, visibility check passes on NTNX-01; first user, disable/enable, clean deletion |
-| 2b | Tenant arrival, admin UI | admin UI over the API with the break-glass login: tenant list, create, detail with steps and visibility, users, disable/enable, delete; the 2a review minors absorbed; the console's `Authorization` usage measured |
+| 2b | Tenant arrival, admin UI | done 2026-10-18 (write-up 12): admin UI over the API with the break-glass login (tenant list, create, detail with steps and visibility, users, disable/enable, delete), the 2a review minors absorbed, every `Authorization` scheme refused on the public name after measuring the console, Prism Central's Sign Out path allowed |
 | 2c | Tenant arrival, tenant-facing pages | branding settings in the store, landing page that starts SAML itself, Keycloak theme, friendlier identity-provider-down page: a tenant user goes from the public URL to the console with one Keycloak login and no Nutanix login page |
 | 2d | Setup wizard | settings move to the store with secrets at rest (master key), service-account bootstrap path, SAML identity provider created by Portico, Keycloak clients registered by Portico |
 | 3 | Appliance image | Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |

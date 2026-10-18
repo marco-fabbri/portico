@@ -68,7 +68,7 @@ REMOTE
 # 4. Wait for the admin listener
 for _ in $(seq 1 30); do
   code=$(curl -sk -o /dev/null -w '%{http_code}' "https://$LAB_VM_IP:8443/healthz" || true)
-  [ "$code" = 200 ] && { echo "portico ready"; exit 0; }
+  [ "$code" = 200 ] && { echo "portico ready"; echo "admin UI: https://$LAB_PRISM_HOST:8443/ (resolve the name to $LAB_VM_IP; user admin, password in $S/portico-admin-pw)"; exit 0; }
   sleep 1
 done
 echo "portico did not become ready; last lines of the journal:" >&2

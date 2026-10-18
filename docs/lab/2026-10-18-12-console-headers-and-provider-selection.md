@@ -85,3 +85,43 @@ answer is a single `none` line per host. Re-capture the PUT with the
 wrapper (the snippet is in the Milestone 2b plan, Task 0 Step 5).
 `lab/auth/probe-local-login.sh` covers the Bearer refusal and the console
 Sign Out stays a browser check.
+
+## Part two: the admin UI in the browser (Milestone 2b acceptance)
+
+Measured on 2026-10-18 with Chrome on the Mac against
+`https://prism.lab.portico.test:8443/` (build of branch `m2b-admin-ui`
+deployed by `lab/portico/deploy.sh`, NTNX-01 pc.7.6.0.6).
+
+- MEASURED: `/` without a session redirects to `/login?next=%2F`. A wrong
+  password answers the form again with the banner "Wrong user or
+  password"; the right one lands on the empty tenant list ("No tenants
+  yet."), with the administrator name and a Log out button in the header
+  and the build version in the footer.
+- MEASURED: "New tenant" → slug `tenant-b`, display name "Tenant B (lab)",
+  contacts → the detail page opens at once with the badge `creating`, an
+  empty steps table and the line "Running… this page refreshes by
+  itself". The steps table filled in by itself every 5 s
+  (`keycloak-group` first); when the run ended the whole page reloaded
+  once: badge `active`, seven `ok` steps with their extIds, visibility
+  "OK: the group holds one project-scoped role in this project and
+  nothing else". Provisioning took **67 s** (05:31:38 → 05:32:45 on the
+  VM's clock).
+- MEASURED: "Add a user" with `carol@lab.portico.test` → the "User
+  created" page shows the 20-character temporary password once in a
+  selectable box; "Copied, continue" returns to the detail page, where it
+  appears nowhere.
+- MEASURED: Disable → badge `disabled` (amber) and the Enable button
+  replaces Disable; Enable → `active` again.
+- MEASURED: "delete the project too" ticked + Delete tenant → the list
+  shows `tenant-b` as `deleting` (grey) and polls every 10 s; after the
+  run (journal: `tenant operation done delete`, 106 s on the nested lab)
+  the row is gone and the list says "No tenants yet." The API confirms
+  `[]`; `lab/tenants/acceptance.sh --delete` then found the project and
+  the groups absent and removed carol from Keycloak.
+- MEASURED: Log out → `/login`, and `/` redirects to the login page again.
+- MEASURED on the way: a GET of a deep link while logged out lands on
+  `/login?next=<path>` and returns there after the login.
+
+Re-measure: `source lab/env.sh && lab/portico/deploy.sh`, open the URL
+it prints, repeat the sequence above; `lab/tenants/acceptance.sh --delete`
+cleans up.
