@@ -234,7 +234,10 @@ added later; the break-glass account stays.
    `GET` then `PUT /api/iam/v4.1.b3/authn/login-requests/{iam-sessionid}`
    with the console's own body and `loginProviderId` set, then
    `GET /api/iam/authn/initiate-login`, which answers a self-submitting
-   SAML form (write-ups 12 and 13; 1.2 s on the lab). Keycloak already
+   SAML form (write-ups 12 and 13; 1.2 s on the lab). The console's own
+   Sign Out ends on `/redirect?logout=…`; Portico turns it into its own
+   logout, so signing out of Prism Central also ends the Keycloak session
+   instead of signing the tenant straight back in. Keycloak already
    has a session → immediate return with the SAML assertion. Prism Central
    creates its session, scoped by the user's project membership. If the
    selection call fails (for example after a Prism Central upgrade changes
@@ -387,7 +390,9 @@ Portico, and both carry the MSP's identity, not Nutanix's or Portico's.
   the user clicks as in Milestone 1.
 - **Branding settings** are the first store-held settings (section 4.7):
   MSP name, tagline, accent colour, logo (PNG, JPEG or SVG, at most
-  256 KiB), minimum landing display time. Edited on the admin UI and the
+  256 KiB; an SVG with scripts, event handlers, `javascript:` links or
+  `foreignObject` is refused, because Keycloak serves the theme's copy
+  from the login origin), minimum landing display time. Edited on the admin UI and the
   API; applied to Portico's pages at once and to the Keycloak theme on
   save. Several Prism Centrals (deferred, section 2): the page is a
   selector, one entry per Prism Central the tenant has a project in. An

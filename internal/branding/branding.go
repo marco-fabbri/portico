@@ -40,7 +40,19 @@ func Default() Branding {
 var (
 	reColor   = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 	logoTypes = map[string]string{"image/png": "png", "image/jpeg": "jpg", "image/svg+xml": "svg"}
+	// reSVGEvent matches an event-handler attribute such as onload="...".
+	reSVGEvent = regexp.MustCompile(`(?i)[\s"'/]on[a-z]+\s*=`)
 )
+
+// svgHasActiveContent reports scripts, event handlers, javascript: URLs
+// or foreignObject in an SVG. Portico serves logos under a CSP that
+// forbids scripts, but Keycloak serves the theme's copy from the login
+// origin with its own headers, so active content is refused outright.
+func svgHasActiveContent(data []byte) bool {
+	s := strings.ToLower(string(data))
+	return strings.Contains(s, "<script") || strings.Contains(s, "javascript:") ||
+		strings.Contains(s, "<foreignobject") || reSVGEvent.MatchString(s)
+}
 
 // LogoExt returns the file extension of the logo type ("" without a logo).
 func (b Branding) LogoExt() string { return logoTypes[b.LogoType] }
@@ -68,6 +80,8 @@ func (b Branding) Validate() error {
 		errs = append(errs, errors.New("logo_type must be image/png, image/jpeg or image/svg+xml"))
 	case len(b.LogoData) > MaxLogoBytes:
 		errs = append(errs, fmt.Errorf("logo must be at most %d bytes", MaxLogoBytes))
+	case b.LogoType == "image/svg+xml" && svgHasActiveContent(b.LogoData):
+		errs = append(errs, errors.New("logo SVG must not contain scripts, event handlers, javascript: links or foreignObject"))
 	}
 	if b.MinDisplayMs < 0 || b.MinDisplayMs > MaxDisplayMs {
 		errs = append(errs, fmt.Errorf("min_display_ms must be between 0 and %d", MaxDisplayMs))
