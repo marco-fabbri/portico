@@ -62,5 +62,15 @@ if grep -q 'KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true' lab/vm/keycloak.container; the
 # M1-5: the Keycloak admin helper uses the VM loopback over SSH, never the public name (Portico refuses /realms/master).
 if grep -q 'realms/master' lab/saml/kc.sh && ! grep -q 'LAB_ID_HOST' lab/saml/kc.sh && grep -q '127.0.0.1:8080' lab/saml/kc.sh; then ok "kc.sh talks to Keycloak on the VM loopback"; else ko "kc.sh still uses the public identity name"; fi
 
+# Milestone 2a Task 6: tenant API deployment.
+# M2-1: the break-glass password reaches the binary on stdin, never on a command line.
+if grep -q 'admin set-password -config /etc/portico/portico.yaml < ' lab/portico/deploy.sh && ! grep -qE 'set-password.*\$\(cat' lab/portico/deploy.sh; then ok "deploy.sh passes the admin password on stdin"; else ko "deploy.sh puts the admin password on a command line"; fi
+# M2-2: only the key part of the service-account file is staged.
+if grep -q 'cut -d= -f2- "\$S/portico-sa-key"' lab/portico/deploy.sh; then ok "deploy.sh stages the API key only"; else ko "deploy.sh stages the whole portico-sa-key file"; fi
+# M2-3: the lab project prefix keeps the portico-lab-* safety rule.
+if grep -q '^  project_prefix: portico-lab' lab/portico/portico.yaml; then ok "portico.yaml keeps the portico-lab prefix"; else ko "portico.yaml prefix is not portico-lab"; fi
+# M2-4: the Bearer/v3 probe keeps bob's credentials in curl config files.
+if ! grep -nE -- '-u "portico-lab-bob|Bearer \$' lab/auth/probe-bearer-and-v3-users.sh | grep -q .; then ok "probe-bearer-and-v3-users.sh keeps credentials off the command line"; else ko "probe-bearer-and-v3-users.sh puts credentials on the command line"; fi
+
 if shellcheck -x lab/*.sh lab/*/*.sh; then ok "shellcheck"; else ko "shellcheck"; fi
 if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi

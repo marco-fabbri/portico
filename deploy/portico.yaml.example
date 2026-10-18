@@ -21,9 +21,22 @@ prism_central:
   url: https://10.0.0.10:9440    # required
   tls_verify: true               # false only in a lab
   ca_file: ""                    # CA that signed Prism Central's certificate
+  # Service account "portico" (userType SERVICE_ACCOUNT, member of the
+  # predefined Project Manager_acp policy) and its API key, one line in a
+  # file with mode 0600 owned by the portico user.
+  api_key_file: /etc/portico/prism-api-key        # required
+  # The SAML identity provider in Prism Central that tenant projects are
+  # shared with (exactly one with this name must exist).
+  saml_idp_name: portico-keycloak                 # required
 
 keycloak:
   url: http://127.0.0.1:8080     # backchannel; the browser uses id_host
+  realm: portico                 # required: the MSP realm
+  # Confidential client with "service accounts" enabled and these
+  # realm-management roles on its service-account user: manage-users,
+  # view-users, query-users, query-groups, view-realm.
+  admin_client_id: portico-admin
+  admin_client_secret_file: /etc/portico/keycloak-admin-secret  # required, mode 0600
 
 oidc:
   # Keycloak client: confidential, standard flow, PKCE S256,
@@ -52,3 +65,20 @@ policy:
 
 log:
   level: info                    # debug, info, warn, error
+
+store:
+  path: /var/lib/portico/portico.db  # SQLite, WAL; backup = copy of /var/lib/portico
+
+tenants:
+  project_prefix: portico        # project name and id = <prefix>-<slug>; SP Central uses "sp"
+  group_prefix: tenant-          # Keycloak and SAML group = <group_prefix><slug>
+  role: Project Admin            # role bound inside the project, never a global role
+  # Placement of each tenant's resource group. Ext ids from
+  # GET /api/clustermgmt/v4.0/config/clusters and
+  # GET /api/clustermgmt/v4.0/config/storage-containers.
+  cluster_ext_id: 00000000-0000-0000-0000-000000000000           # required
+  storage_container_ext_id: 00000000-0000-0000-0000-000000000000 # required
+  operation_timeout: 10m         # one provisioning or deletion run
+
+# The break-glass account of the admin API ("admin") is set once with:
+#   printf '%s\n' "$PW" | sudo -u portico portico admin set-password -config /etc/portico/portico.yaml

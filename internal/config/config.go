@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -36,16 +37,33 @@ type Internal struct {
 	TLS               TLS    `yaml:"tls"`
 }
 
-// PrismCentral is the upstream Prism Central.
+// PrismCentral is the upstream Prism Central and Portico's service
+// account on it (design §4.5): an API key in a file with mode 0600.
 type PrismCentral struct {
-	URL       string `yaml:"url"`
-	TLSVerify bool   `yaml:"tls_verify"`
-	CAFile    string `yaml:"ca_file"`
+	URL         string `yaml:"url"`
+	TLSVerify   bool   `yaml:"tls_verify"`
+	CAFile      string `yaml:"ca_file"`
+	APIKeyFile  string `yaml:"api_key_file"`
+	SAMLIdPName string `yaml:"saml_idp_name"`
 }
 
-// Keycloak is the backchannel address of the identity provider.
+// Keycloak is the backchannel address of the identity provider and the
+// confidential client Portico uses on its admin API.
 type Keycloak struct {
-	URL string `yaml:"url"`
+	URL                   string `yaml:"url"`
+	Realm                 string `yaml:"realm"`
+	AdminClientID         string `yaml:"admin_client_id"`
+	AdminClientSecretFile string `yaml:"admin_client_secret_file"`
+}
+
+// Tenants holds naming and placement for tenant provisioning (design §4.4).
+type Tenants struct {
+	ProjectPrefix         string        `yaml:"project_prefix"`
+	GroupPrefix           string        `yaml:"group_prefix"`
+	Role                  string        `yaml:"role"`
+	ClusterExtID          string        `yaml:"cluster_ext_id"`
+	StorageContainerExtID string        `yaml:"storage_container_ext_id"`
+	OperationTimeout      time.Duration `yaml:"operation_timeout"`
 }
 
 // OIDC is Portico's own client registration in Keycloak.
@@ -87,6 +105,7 @@ type Config struct {
 	Policy       Policy       `yaml:"policy"`
 	Log          Log          `yaml:"log"`
 	Store        Store        `yaml:"store"`
+	Tenants      Tenants      `yaml:"tenants"`
 }
 
 // DefaultAllowPrefixes are the path families the Prism Central console uses
@@ -104,11 +123,12 @@ func Default() Config {
 		Public:       Public{Listen: ":443"},
 		Internal:     Internal{AdminListen: "127.0.0.1:8443", PassthroughListen: "127.0.0.1:9440"},
 		PrismCentral: PrismCentral{TLSVerify: true},
-		Keycloak:     Keycloak{URL: "http://127.0.0.1:8080"},
+		Keycloak:     Keycloak{URL: "http://127.0.0.1:8080", AdminClientID: "portico-admin"},
 		Session:      Session{MaxAge: 8 * time.Hour, Idle: 15 * time.Minute},
 		Policy:       Policy{AllowPrefixes: append([]string(nil), DefaultAllowPrefixes...)},
 		Log:          Log{Level: "info"},
 		Store:        Store{Path: "/var/lib/portico/portico.db"},
+		Tenants:      Tenants{ProjectPrefix: "portico", GroupPrefix: "tenant-", Role: "Project Admin", OperationTimeout: 10 * time.Minute},
 	}
 }
 
@@ -138,6 +158,14 @@ func (c *Config) Validate() error {
 		{"oidc.issuer", c.OIDC.Issuer},
 		{"oidc.client_id", c.OIDC.ClientID},
 		{"oidc.client_secret_file", c.OIDC.ClientSecretFile},
+		{"prism_central.api_key_file", c.PrismCentral.APIKeyFile},
+		{"prism_central.saml_idp_name", c.PrismCentral.SAMLIdPName},
+		{"keycloak.realm", c.Keycloak.Realm},
+		{"keycloak.admin_client_id", c.Keycloak.AdminClientID},
+		{"keycloak.admin_client_secret_file", c.Keycloak.AdminClientSecretFile},
+		{"store.path", c.Store.Path},
+		{"tenants.cluster_ext_id", c.Tenants.ClusterExtID},
+		{"tenants.storage_container_ext_id", c.Tenants.StorageContainerExtID},
 	}
 	for _, r := range required {
 		if strings.TrimSpace(r.value) == "" {
@@ -155,7 +183,29 @@ func (c *Config) Validate() error {
 	if c.Session.MaxAge <= 0 || c.Session.Idle <= 0 {
 		errs = append(errs, errors.New("config: session.max_age and session.idle must be positive"))
 	}
+	// The prefix becomes part of a project id and a group name.
+	if !rePrefix.MatchString(c.Tenants.ProjectPrefix) {
+		errs = append(errs, fmt.Errorf("config: tenants.project_prefix %q must be lower-case letters, digits and dashes", c.Tenants.ProjectPrefix))
+	}
+	if !rePrefix.MatchString(strings.TrimSuffix(c.Tenants.GroupPrefix, "-")) {
+		errs = append(errs, fmt.Errorf("config: tenants.group_prefix %q must be lower-case letters, digits and dashes", c.Tenants.GroupPrefix))
+	}
+	if c.Tenants.OperationTimeout <= 0 {
+		errs = append(errs, errors.New("config: tenants.operation_timeout must be positive"))
+	}
 	return errors.Join(errs...)
+}
+
+var rePrefix = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+// PrismAPIKey reads the service-account API key file (mode 0600).
+func (c *Config) PrismAPIKey() (string, error) {
+	return readSecretFile(c.PrismCentral.APIKeyFile)
+}
+
+// KeycloakAdminSecret reads the admin client secret file (mode 0600).
+func (c *Config) KeycloakAdminSecret() (string, error) {
+	return readSecretFile(c.Keycloak.AdminClientSecretFile)
 }
 
 // ClientSecret reads the OIDC client secret file. The file must not be
