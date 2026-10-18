@@ -136,9 +136,27 @@ func TestSettingsImportRefusesOverwrite(t *testing.T) {
 	if code := run([]string{"settings", "import", "-config", cfgPath}, strings.NewReader(""), &out, &errOut); code != 2 || !strings.Contains(errOut.String(), "-force") {
 		t.Fatalf("second import: %d %q", code, errOut.String())
 	}
+	// The refusal left the stored document as it was: a changed file is
+	// not imported without -force.
+	cfg, _ := os.ReadFile(cfgPath)
+	if err := os.WriteFile(cfgPath, []byte(strings.Replace(string(cfg), "https://pc.example.test:9440", "https://pc-moved.example.test:9440", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	errOut.Reset()
+	if code := run([]string{"settings", "import", "-config", cfgPath}, strings.NewReader(""), &out, &errOut); code != 2 {
+		t.Fatalf("third import: %d %q", code, errOut.String())
+	}
+	out.Reset()
+	if code := run([]string{"settings", "show", "-config", cfgPath}, strings.NewReader(""), &out, &errOut); code != 0 || !strings.Contains(out.String(), "https://pc.example.test:9440") || strings.Contains(out.String(), "pc-moved") {
+		t.Fatalf("show after a refused import: %d %q", code, out.String())
+	}
 	errOut.Reset()
 	if code := run([]string{"settings", "import", "-config", cfgPath, "-force"}, strings.NewReader(""), &out, &errOut); code != 0 {
 		t.Fatalf("forced import: %d %q", code, errOut.String())
+	}
+	out.Reset()
+	if code := run([]string{"settings", "show", "-config", cfgPath}, strings.NewReader(""), &out, &errOut); code != 0 || !strings.Contains(out.String(), "pc-moved") {
+		t.Fatalf("show after -force: %d %q", code, out.String())
 	}
 }
 

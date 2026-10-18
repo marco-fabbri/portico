@@ -255,3 +255,18 @@ func TestValidateFormatRefusesUserinfoURL(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// A document whose secret is not sealed (written by hand, or by a build
+// that did not seal) is reported as that field failing to open.
+func TestServiceGetNamesAPlaintextSecret(t *testing.T) {
+	st := newStore(t)
+	raw := []byte(`{"prism_central":{"url":"https://pc.example.test:9440","api_key":"plain-text-key"}}`)
+	if err := st.SetSetting(context.Background(), SettingKey, raw); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewService(st, sealerFor(t, 1)).Get(context.Background())
+	var oe *OpenError
+	if !errors.As(err, &oe) || oe.Field != "prism_central.api_key" {
+		t.Fatalf("Get on a plaintext secret = %v, want *OpenError naming prism_central.api_key", err)
+	}
+}
