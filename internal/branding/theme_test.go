@@ -164,6 +164,8 @@ func TestThemeCSSCentresTheLoginUnderTheLockup(t *testing.T) {
 		"body#keycloak-bg { background: var(--portico-accent); }",
 		".pf-v5-c-login__container { display: flex; flex-direction: column; align-items: center;",
 		"#kc-header-wrapper { display: flex; align-items: center;",
+		".pf-v5-c-login__main { order: 1; grid-area: auto; align-self: center;",
+		".pf-v5-c-login__main-header { border-top: 0; }",
 		`font-family: "RedHatDisplay"`,
 		"color: #fff;",
 		`#kc-header-wrapper::before { content: ""; width: 56px; height: 64px;`,
