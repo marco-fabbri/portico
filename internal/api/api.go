@@ -1,0 +1,263 @@
+// Package api is Portico's administration REST API on the internal
+// listener. It is the boundary between any front end and the logic (ADR
+// 0003): the admin UI, a script or Ansible all go through these calls.
+package api
+
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/marco-fabbri/portico/internal/store"
+	"github.com/marco-fabbri/portico/internal/tenant"
+)
+
+// Prefix is where the API lives on the admin listener.
+const Prefix = "/api/v1/"
+
+type handler struct {
+	svc *tenant.Service
+	st  store.Store
+	log *slog.Logger
+}
+
+// New returns the API handler. The caller wraps it with BasicAuth.
+func New(svc *tenant.Service, st store.Store, log *slog.Logger) http.Handler {
+	if log == nil {
+		log = slog.Default()
+	}
+	h := &handler{svc: svc, st: st, log: log}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET "+Prefix+"tenants", h.listTenants)
+	mux.HandleFunc("POST "+Prefix+"tenants", h.createTenant)
+	mux.HandleFunc("GET "+Prefix+"tenants/{id}", h.getTenant)
+	mux.HandleFunc("GET "+Prefix+"tenants/{id}/steps", h.listSteps)
+	mux.HandleFunc("POST "+Prefix+"tenants/{id}/provision", h.retry)
+	mux.HandleFunc("DELETE "+Prefix+"tenants/{id}", h.deleteTenant)
+	mux.HandleFunc("POST "+Prefix+"tenants/{id}/disable", h.disable)
+	mux.HandleFunc("POST "+Prefix+"tenants/{id}/enable", h.enable)
+	mux.HandleFunc("POST "+Prefix+"tenants/{id}/users", h.createUser)
+	mux.HandleFunc("GET "+Prefix+"tenants/{id}/visibility", h.visibility)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, http.StatusNotFound, "not found")
+	})
+	return mux
+}
+
+// tenantJSON is the wire shape of a tenant.
+type tenantJSON struct {
+	ID                  string    `json:"id"`
+	DisplayName         string    `json:"display_name"`
+	Status              string    `json:"status"`
+	Contacts            string    `json:"contacts"`
+	ProjectID           string    `json:"project_id"`
+	ProjectExtID        string    `json:"project_ext_id"`
+	ResourceGroupExtID  string    `json:"resource_group_ext_id"`
+	SAMLGroupExtID      string    `json:"saml_group_ext_id"`
+	KeycloakGroupID     string    `json:"keycloak_group_id"`
+	RoleMembershipExtID string    `json:"role_membership_ext_id"`
+	IdPShared           bool      `json:"idp_shared"`
+	LastError           string    `json:"last_error"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+func toJSON(t *store.Tenant) tenantJSON {
+	return tenantJSON{
+		ID: t.ID, DisplayName: t.DisplayName, Status: string(t.Status), Contacts: t.Contacts,
+		ProjectID: t.ProjectID, ProjectExtID: t.ProjectExtID, ResourceGroupExtID: t.ResourceGroupExtID,
+		SAMLGroupExtID: t.SAMLGroupExtID, KeycloakGroupID: t.KeycloakGroupID, RoleMembershipExtID: t.RoleMembershipExtID,
+		IdPShared: t.IdPShared, LastError: t.LastError, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+	}
+}
+
+type stepJSON struct {
+	Name   string    `json:"name"`
+	OK     bool      `json:"ok"`
+	Detail string    `json:"detail"`
+	At     time.Time `json:"at"`
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
+
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// fail maps service and store errors to statuses. Messages come from the
+// errors themselves, which never carry secrets.
+func (h *handler) fail(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "tenant not found")
+	case errors.Is(err, store.ErrExists), errors.Is(err, tenant.ErrExists):
+		writeError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, tenant.ErrBusy), errors.Is(err, tenant.ErrState):
+		writeError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, tenant.ErrInvalidSlug):
+		writeError(w, http.StatusBadRequest, err.Error())
+	default:
+		h.log.Error("api request failed", "err", err.Error())
+		writeError(w, http.StatusInternalServerError, err.Error())
+	}
+}
+
+func decode(r *http.Request, v any) error {
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (h *handler) listTenants(w http.ResponseWriter, r *http.Request) {
+	ts, err := h.st.ListTenants(r.Context())
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	out := make([]tenantJSON, 0, len(ts))
+	for i := range ts {
+		out = append(out, toJSON(&ts[i]))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *handler) createTenant(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Slug        string `json:"slug"`
+		DisplayName string `json:"display_name"`
+		Contacts    string `json:"contacts"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	if !tenant.ValidSlug(in.Slug) {
+		writeError(w, http.StatusBadRequest, tenant.ErrInvalidSlug.Error())
+		return
+	}
+	t, err := h.svc.Create(r.Context(), tenant.CreateRequest{Slug: in.Slug, DisplayName: strings.TrimSpace(in.DisplayName), Contacts: strings.TrimSpace(in.Contacts)})
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, toJSON(t))
+}
+
+func (h *handler) getTenant(w http.ResponseWriter, r *http.Request) {
+	t, err := h.st.GetTenant(r.Context(), r.PathValue("id"))
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toJSON(t))
+}
+
+func (h *handler) listSteps(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.st.GetTenant(r.Context(), r.PathValue("id")); err != nil {
+		h.fail(w, err)
+		return
+	}
+	steps, err := h.st.ListSteps(r.Context(), r.PathValue("id"))
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	out := make([]stepJSON, 0, len(steps))
+	for _, s := range steps {
+		out = append(out, stepJSON{Name: s.Name, OK: s.OK, Detail: s.Detail, At: s.At})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *handler) retry(w http.ResponseWriter, r *http.Request) {
+	if err := h.svc.Retry(r.Context(), r.PathValue("id")); err != nil {
+		h.fail(w, err)
+		return
+	}
+	t, err := h.st.GetTenant(r.Context(), r.PathValue("id"))
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, toJSON(t))
+}
+
+func (h *handler) deleteTenant(w http.ResponseWriter, r *http.Request) {
+	deleteProject := r.URL.Query().Get("delete_project") == "true"
+	if err := h.svc.Delete(r.Context(), r.PathValue("id"), deleteProject); err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"id": r.PathValue("id"), "status": string(store.StatusDeleting), "delete_project": deleteProject})
+}
+
+func (h *handler) disable(w http.ResponseWriter, r *http.Request) {
+	h.setEnabled(w, r, false)
+}
+
+func (h *handler) enable(w http.ResponseWriter, r *http.Request) {
+	h.setEnabled(w, r, true)
+}
+
+func (h *handler) setEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
+	var err error
+	if enabled {
+		err = h.svc.Enable(r.Context(), r.PathValue("id"))
+	} else {
+		err = h.svc.Disable(r.Context(), r.PathValue("id"))
+	}
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	t, err := h.st.GetTenant(r.Context(), r.PathValue("id"))
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toJSON(t))
+}
+
+func (h *handler) createUser(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Email     string `json:"email"`
+		FirstName string `json:"first_name"`
+		LastName  string `json:"last_name"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	in.Email = strings.TrimSpace(strings.ToLower(in.Email))
+	if in.Email == "" || !strings.Contains(in.Email, "@") {
+		writeError(w, http.StatusBadRequest, "email is required")
+		return
+	}
+	pw, err := h.svc.CreateUser(r.Context(), r.PathValue("id"), in.Email, strings.TrimSpace(in.FirstName), strings.TrimSpace(in.LastName))
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"id": r.PathValue("id"), "email": in.Email, "temporary_password": pw})
+}
+
+func (h *handler) visibility(w http.ResponseWriter, r *http.Request) {
+	v, err := h.svc.Visibility(r.Context(), r.PathValue("id"))
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
