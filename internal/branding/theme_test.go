@@ -34,7 +34,7 @@ func TestWriteThemeFiles(t *testing.T) {
 		t.Errorf("css lacks the colour or the button rule: %s", css)
 	}
 	msgs := readTheme(t, dir, "login/messages/messages_en.properties")
-	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup">ACME<strong>Cloud</strong></span><span class\="portico-claim">Your VMs</span>`) || !strings.Contains(msgs, "loginAccountTitle=Sign in") {
+	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup"><span class\="portico-name">ACME<strong>Cloud</strong></span></span><span class\="portico-claim">Your VMs</span>`) || !strings.Contains(msgs, "loginAccountTitle=Sign in") {
 		t.Errorf("messages: %s", msgs)
 	}
 	for _, f := range []string{"login/theme.properties", "login/resources/css/portico.css", "login/messages/messages_en.properties"} {
@@ -53,7 +53,7 @@ func TestWriteThemeEscapesName(t *testing.T) {
 		t.Fatal(err)
 	}
 	msgs := readTheme(t, dir, "login/messages/messages_en.properties")
-	if !strings.Contains(msgs, `<span class\="portico-lockup">A\=B\:C<strong>&lt;b&gt;x&lt;/b&gt;</strong></span>`) {
+	if !strings.Contains(msgs, `<span class\="portico-lockup"><span class\="portico-name">A\=B\:C<strong>&lt;b&gt;x&lt;/b&gt;</strong></span></span>`) {
 		t.Errorf("name not escaped: %s", msgs)
 	}
 	if !strings.Contains(msgs, `<span class\="portico-claim">line one\nline two \#tag</span>`) {
@@ -197,16 +197,16 @@ func TestThemeMessagesBuildTheLockupAndClaim(t *testing.T) {
 	b := Default()
 	b.MSPName, b.Tagline = "Portico MSP", "The single, authenticated entry point to your Nutanix services."
 	msgs := themeMessages(b)
-	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup">Portico<strong>MSP</strong></span><span class\="portico-claim">The single, authenticated entry point to your Nutanix services.</span>`+"\n") || !strings.Contains(msgs, "loginAccountTitle=Sign in\n") {
+	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup"><span class\="portico-name">Portico<strong>MSP</strong></span></span><span class\="portico-claim">The single, authenticated entry point to your Nutanix services.</span>`+"\n") || !strings.Contains(msgs, "loginAccountTitle=Sign in\n") {
 		t.Fatalf("messages: %q", msgs)
 	}
 	b.MSPName, b.Tagline = "A&B <x>", ""
 	msgs = themeMessages(b)
-	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup">A&amp;B<strong>&lt;x&gt;</strong></span>`+"\n") {
+	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup"><span class\="portico-name">A&amp;B<strong>&lt;x&gt;</strong></span></span>`+"\n") {
 		t.Fatalf("escaped, no claim: %q", msgs)
 	}
 	b.MSPName = "Solo"
-	if msgs := themeMessages(b); !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup">Solo</span>`+"\n") {
+	if msgs := themeMessages(b); !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup"><span class\="portico-name">Solo</span></span>`+"\n") {
 		t.Fatalf("one word: %q", msgs)
 	}
 }

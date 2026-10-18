@@ -116,7 +116,7 @@ func themeMessages(b Branding) string {
 		// A wordmark: no space before the bold last word (PORTICO**MSP**).
 		lockup = html.EscapeString(name[:i]) + "<strong>" + html.EscapeString(strings.TrimSpace(name[i+1:])) + "</strong>"
 	}
-	title := `<span class="portico-lockup">` + lockup + `</span>`
+	title := `<span class="portico-lockup"><span class="portico-name">` + lockup + `</span></span>`
 	if claim := strings.TrimSpace(b.Tagline); claim != "" {
 		title += `<span class="portico-claim">` + html.EscapeString(claim) + `</span>`
 	}
