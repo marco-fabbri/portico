@@ -142,6 +142,15 @@ deployed by `lab/portico/deploy.sh`, branding set through the API (name
   Prism Central's public name shows the Keycloak login page again.
   Journal: `302 sign-out GET /redirect` → `302 GET /.portico/logout` →
   `200 GET /realms/portico-lab/protocol/openid-connect/logout`.
+  Found on the way: the lab's SAML client had front-channel logout on
+  with `/api/iam/authn/callback` as single-logout URL, so confirming the
+  Keycloak logout posted a SAML LogoutRequest to Prism Central's callback
+  through the public name, where no Portico session exists any more:
+  `{"error":"portico session required"}` instead of the login page.
+  That SLO is pointless (Portico's logout already expired the Prism
+  Central cookies): `lab/saml/keycloak-realm.sh saml-client` now sets
+  `frontchannelLogout:false` and clears the single-logout URLs; the
+  Keycloak clients Portico registers in Milestone 2d must do the same.
 - MEASURED after the review (branding form): the logo was uploaded from
   `https://prism.lab.portico.test:8443/settings/branding` in Chrome (a
   240×60 PNG): preview on the page, `logo.png` (247 bytes) in the theme
