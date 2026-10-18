@@ -61,6 +61,14 @@ type Tenant struct {
 	CreatedAt, UpdatedAt                                 time.Time
 }
 
+// DisplayNameOr returns the display name, or the id when it is empty.
+func (t *Tenant) DisplayNameOr() string {
+	if t.DisplayName != "" {
+		return t.DisplayName
+	}
+	return t.ID
+}
+
 // Step is one recorded provisioning or deletion step of a tenant.
 type Step struct {
 	TenantID, Name string
