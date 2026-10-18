@@ -112,7 +112,9 @@ case "${1:?subcommand}" in
     [ "$sa" != null ] && [ "$rm" != null ] || { echo "service account or realm-management client not found" >&2; exit 1; }
     have=$(kc GET "/$R/users/$sa/role-mappings/clients/$rm" 2>/dev/null | jq -r '.[].name')
     : > "$tmp/roles.json"
-    for role in manage-users view-users query-users query-groups view-realm manage-realm; do
+    # manage-clients and view-clients: the SAML trust bootstrap registers
+    # the Prism Central SAML client with this admin client (Milestone 2e).
+    for role in manage-users view-users query-users query-groups view-realm manage-realm manage-clients view-clients; do
       grep -qx "$role" <<<"$have" && continue
       kc GET "/$R/clients/$rm/roles/$role" 2>/dev/null >> "$tmp/roles.json"
     done

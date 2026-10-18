@@ -11,6 +11,9 @@
 # portico-kc-admin-secret (keycloak-realm.sh admin-client) and portico-sa-key
 # (lab/auth/create-service-account.sh). Generates portico-admin-pw (the
 # break-glass password of the admin API) when missing.
+# With --fresh (Milestone 2e) no secret file is needed and nothing is
+# imported: the service starts in setup mode on an empty store and the
+# setup page (or lab/portico/bootstrap-acceptance.sh) creates everything.
 set -euo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 : "${LAB_VM_IP:?source lab/env.sh first}"
@@ -18,9 +21,12 @@ S="${PORTICO_SECRETS:-$HOME/portico-secrets}"
 # shellcheck source=lab/lib.sh
 source lab/lib.sh
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=5 "lab@$LAB_VM_IP")
-[ -s "$S/portico-oidc-secret" ] || { echo "deploy.sh: $S/portico-oidc-secret missing; run lab/saml/keycloak-realm.sh oidc-client first" >&2; exit 1; }
-[ -s "$S/portico-kc-admin-secret" ] || { echo "deploy.sh: $S/portico-kc-admin-secret missing; run lab/saml/keycloak-realm.sh admin-client first" >&2; exit 1; }
-[ -s "$S/portico-sa-key" ] || { echo "deploy.sh: $S/portico-sa-key missing; run lab/auth/create-service-account.sh first" >&2; exit 1; }
+fresh=0; [ "${1:-}" = "--fresh" ] && fresh=1
+if [ $fresh -eq 0 ]; then
+  [ -s "$S/portico-oidc-secret" ] || { echo "deploy.sh: $S/portico-oidc-secret missing; run lab/saml/keycloak-realm.sh oidc-client first (or deploy with --fresh)" >&2; exit 1; }
+  [ -s "$S/portico-kc-admin-secret" ] || { echo "deploy.sh: $S/portico-kc-admin-secret missing; run lab/saml/keycloak-realm.sh admin-client first (or deploy with --fresh)" >&2; exit 1; }
+  [ -s "$S/portico-sa-key" ] || { echo "deploy.sh: $S/portico-sa-key missing; run lab/auth/create-service-account.sh first (or deploy with --fresh)" >&2; exit 1; }
+fi
 umask 077
 [ -s "$S/portico-admin-pw" ] || { openssl rand -base64 18 | tr -d '/+=' > "$S/portico-admin-pw"; echo "generated $S/portico-admin-pw"; }
 
@@ -36,16 +42,19 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-X main.versi
 echo "built portico $version"
 
 # 2. Stage files in a private directory on the VM. The service-account
-#    file is "NAME=key": only the key travels.
-cut -d= -f2- "$S/portico-sa-key" | tr -d '\r\n' > "$tmp/prism-api-key"
-scp -q -o BatchMode=yes "$tmp/portico" lab/portico/portico.yaml lab/portico/portico.store.yaml deploy/portico.service \
-  "$S/portico-oidc-secret" "$S/portico-kc-admin-secret" "$tmp/prism-api-key" "$S/portico-admin-pw" \
-  "$S/lab-ca.crt" "$S/lab-ca.key" "lab@$LAB_VM_IP:$stage/"
+#    file is "NAME=key": only the key travels. A fresh deploy stages no
+#    secret at all.
+files=("$tmp/portico" lab/portico/portico.store.yaml deploy/portico.service "$S/portico-admin-pw" "$S/lab-ca.crt" "$S/lab-ca.key")
+if [ $fresh -eq 0 ]; then
+  cut -d= -f2- "$S/portico-sa-key" | tr -d '\r\n' > "$tmp/prism-api-key"
+  files+=(lab/portico/portico.yaml "$S/portico-oidc-secret" "$S/portico-kc-admin-secret" "$tmp/prism-api-key")
+fi
+scp -q -o BatchMode=yes "${files[@]}" "lab@$LAB_VM_IP:$stage/"
 
-# 3. Install on the VM ($1 = staging directory)
-"${SSH[@]}" sudo bash -s -- "$stage" <<'REMOTE'
+# 3. Install on the VM ($1 = staging directory, $2 = 1 for a fresh deploy)
+"${SSH[@]}" sudo bash -s -- "$stage" "$fresh" <<'REMOTE'
 set -euo pipefail
-st="$1"
+st="$1"; fresh="$2"
 id -u portico >/dev/null 2>&1 || useradd -r -s /sbin/nologin -d /var/lib/portico portico
 install -d -m 0750 -o root -g portico /etc/portico /etc/portico/tls
 # Keycloak login theme written by Portico, mounted read-only in the container.
@@ -59,7 +68,9 @@ install -d -m 0750 -o portico -g portico /var/lib/portico
 # and the secrets are in the store (sealed with the master key, created by
 # the binary at its first run as the service user).
 install -m 0640 -o root -g portico "$st/portico.store.yaml" /etc/portico/portico.yaml
-if sudo -u portico /usr/local/bin/portico settings show -config /etc/portico/portico.yaml >/dev/null 2>&1; then
+if [ "$fresh" = 1 ]; then
+  echo "fresh deploy: import skipped, the service starts in setup mode"
+elif sudo -u portico /usr/local/bin/portico settings show -config /etc/portico/portico.yaml >/dev/null 2>&1; then
   echo "settings already in the store; import skipped"
 else
   # First deploy: the full YAML and the secret files exist only for the
@@ -81,13 +92,18 @@ firewall-cmd -q --permanent --add-port=8443/tcp --add-port=9440/tcp && firewall-
 systemctl disable --now nginx >/dev/null 2>&1 || true
 systemctl daemon-reload
 systemctl enable portico >/dev/null 2>&1
+systemctl reset-failed portico >/dev/null 2>&1 || true
 systemctl restart portico
 REMOTE
 
 # 4. Wait for the admin listener
 for _ in $(seq 1 30); do
   code=$(curl -sk -o /dev/null -w '%{http_code}' "https://$LAB_VM_IP:8443/healthz" || true)
-  [ "$code" = 200 ] && { echo "portico ready"; echo "admin UI: https://$LAB_PRISM_HOST:8443/ (resolve the name to $LAB_VM_IP; user admin, password in $S/portico-admin-pw)"; exit 0; }
+  if [ "$code" = 200 ]; then
+    echo "portico ready"
+    [ $fresh -eq 1 ] && "${SSH[@]}" sudo journalctl -u portico -n 20 --no-pager | grep -o 'setup mode.*' | head -1
+    echo "admin UI: https://$LAB_PRISM_HOST:8443/ (resolve the name to $LAB_VM_IP; user admin, password in $S/portico-admin-pw)"; exit 0
+  fi
   sleep 1
 done
 echo "portico did not become ready; last lines of the journal:" >&2
