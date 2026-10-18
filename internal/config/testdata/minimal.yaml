@@ -3,7 +3,15 @@ public:
   id_host: id.example.test
 prism_central:
   url: https://pc.example.test:9440
+  api_key_file: /nonexistent-key
+  saml_idp_name: lab-idp
+keycloak:
+  realm: portico
+  admin_client_secret_file: /nonexistent-kc
 oidc:
   issuer: https://id.example.test/realms/portico
   client_id: portico
   client_secret_file: /nonexistent
+tenants:
+  cluster_ext_id: cl-1
+  storage_container_ext_id: sc-1
