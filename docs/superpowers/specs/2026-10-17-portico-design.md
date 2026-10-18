@@ -296,7 +296,22 @@ Step 1 scope decisions (design calls):
 - **SAML trust in Prism Central is configured by Portico** through the API
   during setup. Prism Central accepts a single SAML identity provider: if one
   already exists, Portico refuses to overwrite it and explains (adoption of an
-  existing IdP is a brownfield feature, step 2). Lab item 6.8.
+  existing IdP is a brownfield feature, step 2). Lab item 6.8. Details
+  (Milestone 2e, `POST /api/v1/settings/bootstrap/saml`): Portico fetches
+  the realm's SAML descriptor on the Keycloak backchannel (measured: with
+  a fixed `KC_HOSTNAME` it already carries the public URLs) and refuses
+  when its entityID is not `https://<id_host>/realms/<realm>`; creates the
+  identity provider with the descriptor inline (`idpMetadataXml`,
+  base64), `redirectURL=https://<prism_host>`, username and email
+  attribute `email`, groups attribute `groups`; reads the per-IdP SP
+  metadata (plain XML on `.../sp-metadata`) for the entityID and the ACS
+  URL; and registers the SAML client in Keycloak with that entityID as
+  `clientId`, the ACS as redirect URI, assertions and responses signed,
+  POST binding, name id format `email`, no single logout (write-up 13),
+  `frontchannelLogout: false`, and the `email` and `groups` mappers. The
+  step runs with the service account; when Prism Central refuses it
+  (403), the response says so and the step accepts the one-time
+  credentials of section 4.5 instead.
 
 ### 4.5 Service account in Prism Central
 
@@ -322,6 +337,39 @@ creation; no custom role in step 1. This mirrors SP Central's
 Key rotation (create second key, switch, revoke first) is a step 2 UI
 feature; step 1 logs the key expiry. The UI says "an account that can
 create users and edit authorization policies", not "the admin account".
+
+Bootstrap details (Milestone 2e). The bootstrap is one call,
+`POST /api/v1/settings/bootstrap/prism-central`, carrying the one-time
+credentials, the Prism Central URL and its TLS settings. Portico opens a
+Basic-auth client for that call only; the credentials live in the request
+and in that client, and the log records the username at most. Steps, each
+idempotent: find or create the service account (`username` as given,
+default `portico`, `userType: SERVICE_ACCOUNT`); create an API key named
+`portico-<yyyymmdd-hhmmss>` (a key is shown once by Prism Central, so an
+existing account gets a new key and the old ones stay until an
+administrator revokes them); find the predefined `Project Manager_acp`
+policy and add the account's extId to its user identity filter when
+missing (PUT with the read-back body stripped of its read-only fields,
+`If-Match` with the ETag); verify the new key by listing clusters with
+the ordinary API-key client; store URL, TLS settings and key. A failure
+after the key was created deletes that key (best effort) so a retry does
+not leave unused keys behind. The same one-time credentials may be offered
+to the SAML step (section 4.4) when the service account is refused there.
+
+The Keycloak side has the same shape: `POST /api/v1/settings/bootstrap/keycloak`
+takes the one-time credentials of a Keycloak administrator (the master
+realm's bootstrap admin created with the appliance, or any user allowed to
+create realms) and the realm name. Portico creates the realm when missing
+(`loginWithEmailAllowed`, `registrationEmailAsUsername`), the confidential
+admin client `portico-admin` with a service account holding the
+realm-management roles `manage-users view-users query-users query-groups
+view-realm manage-realm manage-clients view-clients`, and the OIDC client
+`portico` (standard flow, PKCE S256, redirect
+`https://<prism_host>/.portico/callback`, post-logout redirect
+`https://<prism_host>/`); it reads both client secrets and stores realm,
+client ids, issuer `https://<id_host>/realms/<realm>` and secrets. Every
+client Portico creates has `frontchannelLogout: false`. The Keycloak
+administrator's credentials are never stored.
 
 ### 4.6 Data and secrets
 
@@ -378,7 +426,23 @@ stored service-account key only to the stored Prism Central host: a
 check against another URL must carry its own key. The bootstrap
 paths (service account created by Portico, Keycloak realm and clients
 registered by Portico, SAML identity provider created by Portico) are
-Milestone 2e: in 2d the wizard takes the values the MSP already has.
+Milestone 2e (sections 4.4 and 4.5): in 2d the wizard takes the values
+the MSP already has.
+
+**Setup mode and drafts** (Milestone 2e). A fresh appliance has a YAML
+with process settings only and an empty store. `portico serve` then
+starts in *setup mode*: only the admin listener is up, serving the login,
+the setup page, the settings and branding API and the health endpoint;
+the public and pass-through listeners are not started (nothing can reach
+Prism Central, fail closed) and the tenant routes answer 503 "setup
+mode". The stored document may be incomplete: a card is saved on its own,
+the bootstrap calls fill the fields they produce, and the setup page lists
+what is still missing. Apply is refused (409) while a required field is
+missing, naming the fields; after Apply the restart finds a complete
+document and starts in running mode. A store whose document is incomplete
+at start (an interrupted setup) also starts in setup mode, logged once.
+The YAML path keeps its own rule: a file-based installation must be
+complete, as since Milestone 1.
 
 **The API is the boundary** (decided with Marco on 2026-10-18, ADR 0003).
 Every action the admin UI performs is a documented REST call on the
@@ -612,7 +676,10 @@ portico/
 - Exact OpenSCAP tailoring file and partition sizes within 40 GiB.
 - Packer vs kickstart for the image build.
 - Keycloak realm layout (one realm for the MSP, groups per tenant, brokered
-  IdPs per customer) and how Portico bootstraps it on first run.
+  IdPs per customer); Portico bootstraps it from the setup page (section
+  4.5). Keycloak's own hostname setting (`KC_HOSTNAME=https://<id_host>`)
+  must match the identity public name: the lab sets it by hand, the
+  appliance image writes it from the settings (Milestone 3).
 - Session cookie parameters, CSRF handling, rate limiting on the public
   listener.
 - Test strategy: unit tests for policy and provisioning; integration tests
@@ -629,7 +696,7 @@ portico/
 | 2b | Tenant arrival, admin UI | done 2026-10-18 (write-up 12): admin UI over the API with the break-glass login (tenant list, create, detail with steps and visibility, users, disable/enable, delete), the 2a review minors absorbed, every `Authorization` scheme refused on the public name after measuring the console, Prism Central's Sign Out path allowed |
 | 2c | Tenant arrival, tenant-facing pages | done 2026-10-18 (write-up 13): branding settings in the store, landing page that starts SAML itself, Keycloak theme, branded identity-provider-down page; a tenant user goes from the public URL to the console with one Keycloak login and no Nutanix login page |
 | 2d | Setup wizard, settings and secrets at rest | done 2026-10-18 (write-up 14): settings in the store sealed with the master key; `portico settings import` and `settings show`; setup page with connectivity checks and pickers; Apply = controlled restart; the lab runs from the store with no secret file on the VM |
-| 2e | Bootstrap | service-account bootstrap path in Prism Central, Keycloak realm and clients registered by Portico, SAML identity provider created by Portico |
+| 2e | Bootstrap and setup mode | service-account bootstrap path in Prism Central, Keycloak realm and clients registered by Portico, SAML identity provider created by Portico; a fresh appliance (process YAML, empty store) starts in setup mode and is configured card by card from the setup page, then applied |
 | 3 | Appliance image | Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
 | 4 | First release (step 1 complete) | README, install guide, release artefacts, known limits documented |
 
