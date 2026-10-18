@@ -43,3 +43,6 @@ dt { color: var(--muted); } dd { margin: 0; word-break: break-all; }
 
 .check-result { margin-top: .8rem; }
 .check-result .banner { margin-bottom: 0; }
+label.inline { display: flex; align-items: center; gap: .5rem; }
+label.inline input { display: inline; width: auto; margin: 0; }
+label textarea { font-family: ui-monospace, monospace; font-size: .85rem; }
