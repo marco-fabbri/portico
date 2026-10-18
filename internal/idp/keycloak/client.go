@@ -265,6 +265,18 @@ func (c *Client) GroupMembers(ctx context.Context, groupID string) ([]User, erro
 	}
 }
 
+// SetRealmLoginTheme sets the realm's login theme, preserving the rest
+// of the realm representation (GET, edit, PUT).
+func (c *Client) SetRealmLoginTheme(ctx context.Context, theme string) error {
+	var rep map[string]any
+	if _, _, err := c.do(ctx, http.MethodGet, "", nil, nil, &rep); err != nil {
+		return err
+	}
+	rep["loginTheme"] = theme
+	_, _, err := c.do(ctx, http.MethodPut, "", nil, rep, nil)
+	return err
+}
+
 // SetUserEnabled enables or disables a user.
 func (c *Client) SetUserEnabled(ctx context.Context, userID string, enabled bool) error {
 	var rep map[string]any
