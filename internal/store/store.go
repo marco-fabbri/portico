@@ -41,6 +41,12 @@ const (
 	StatusDeleting Status = "deleting"
 )
 
+// Op names the operation recorded in Tenant.LastOp.
+const (
+	OpProvision = "provision"
+	OpDelete    = "delete"
+)
+
 // Tenant ties a Keycloak group to a Projects 2.0 project (design §4.4).
 type Tenant struct {
 	ID, DisplayName, Contacts                            string
@@ -49,6 +55,7 @@ type Tenant struct {
 	SAMLGroupExtID, KeycloakGroupID, RoleMembershipExtID string
 	IdPShared                                            bool
 	LastError                                            string
+	LastOp                                               string // OpProvision or OpDelete
 	CreatedAt, UpdatedAt                                 time.Time
 }
 

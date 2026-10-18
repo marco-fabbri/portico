@@ -78,7 +78,9 @@ tenants:
   # GET /api/clustermgmt/v4.0/config/storage-containers.
   cluster_ext_id: 00000000-0000-0000-0000-000000000000           # required
   storage_container_ext_id: 00000000-0000-0000-0000-000000000000 # required
-  operation_timeout: 10m         # one provisioning or deletion run
+  operation_timeout: 10m         # one provisioning or deletion run; a run cut by a
+                                 # restart (TimeoutStopSec=30 in the unit) is marked
+                                 # failed at the next start, retry or delete it
 
 # The break-glass account of the admin API ("admin") is set once with:
 #   printf '%s\n' "$PW" | sudo -u portico portico admin set-password -config /etc/portico/portico.yaml
