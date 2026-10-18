@@ -83,7 +83,8 @@ func TestSetupSaveSectionAndSecretsStayHidden(t *testing.T) {
 	// Save the four sections one by one, as the page does.
 	for _, f := range []url.Values{
 		e.form("section", "hosts", "prism_host", "prism.example.test", "id_host", "id.example.test"),
-		e.form("section", "prism_central", "url", pc.URL, "tls_verify", "", "api_key", "key-secret-2", "saml_idp_name", "lab-idp"),
+		e.form("section", "prism_central", "url", pc.URL, "tls_verify", "", "api_key", "key-secret-2"),
+		e.form("section", "saml", "saml_idp_name", "lab-idp"),
 		e.form("section", "keycloak", "realm", "portico", "admin_client_id", "portico-admin", "admin_client_secret", "admin-secret-1", "issuer", "https://id.example.test/realms/portico", "client_id", "portico", "client_secret", "client-secret-1"),
 		e.form("section", "tenants", "project_prefix", "portico", "group_prefix", "tenant-", "role", "Project Admin", "cluster_ext_id", "cl-1", "storage_container_ext_id", "sc-1", "operation_timeout", "10m"),
 	} {
@@ -102,9 +103,13 @@ func TestSetupSaveSectionAndSecretsStayHidden(t *testing.T) {
 		t.Fatalf("page after save: %s", body)
 	}
 	// Saving a section without the secret keeps it.
-	rec = e.do("POST", "/setup/save", e.form("section", "prism_central", "url", pc.URL, "tls_verify", "", "saml_idp_name", "lab-idp-2"), true)
+	rec = e.do("POST", "/setup/save", e.form("section", "prism_central", "url", pc.URL, "tls_verify", ""), true)
 	if rec.Code != 303 {
 		t.Fatalf("second save: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = e.do("POST", "/setup/save", e.form("section", "saml", "saml_idp_name", "lab-idp-2"), true)
+	if rec.Code != 303 {
+		t.Fatalf("saml save: %d %s", rec.Code, rec.Body.String())
 	}
 	got, _ = svc.Get(context.Background())
 	if got.PrismCentral.APIKey != "key-secret-2" || got.PrismCentral.SAMLIdPName != "lab-idp-2" {
