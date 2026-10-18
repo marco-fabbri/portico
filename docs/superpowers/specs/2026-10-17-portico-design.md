@@ -165,6 +165,12 @@ the only way administrators reach Prism Central (design call).
 Internal pass-through detail (design call): it listens on Portico's internal
 IP on port 9440, so Prism Central's absolute paths work unchanged, with
 Portico's internal certificate. The Portico admin UI stays on `:8443`.
+Recommended (2b review): give the admin listener its own host name
+(`portico-admin.<msp>.example`) rather than the Prism Central name on
+another port. Cookies and `SameSite` are port-blind, so a shared name
+makes the admin session same-site with the tenant pages; Portico strips
+its own cookies before forwarding and accepts the UI session on UI paths
+only, but a separate name removes the relation altogether.
 
 Keycloak exposure (design call): Keycloak gets its own public host name
 (`id.<msp>.example`), fronted by Portico like any other service. Policy for
@@ -222,13 +228,16 @@ added later; the break-glass account stays.
    (write-up 09).
 4. Request is proxied to Prism Central on 9440 with the public host name.
 5. Prism Central's own login page (`/ui/iam/providers`) offers two buttons,
-   SAML and local account (write-up 04). Milestone 1 leaves the click to the
-   user. From Milestone 2 Portico answers that path on the public host with
-   its own landing page (section 4.10) which selects the SAML identity
-   provider and starts the flow by itself: the measured sequence is
-   `PUT /api/iam/v4.1.b3/authn/login-requests/{iam-sessionid}` (provider
-   selection) then `GET /api/iam/authn/initiate-login` (write-up 06; the
-   request body of the PUT is a Milestone 2 measurement). Keycloak already
+   SAML and local account (write-up 04). Since Milestone 2c Portico answers
+   that path on the public host with its own landing page (section 4.10)
+   which selects the SAML identity provider and starts the flow by itself:
+   `GET` then `PUT /api/iam/v4.1.b3/authn/login-requests/{iam-sessionid}`
+   with the console's own body and `loginProviderId` set, then
+   `GET /api/iam/authn/initiate-login`, which answers a self-submitting
+   SAML form (write-ups 12 and 13; 1.2 s on the lab). The console's own
+   Sign Out ends on `/redirect?logout=…`; Portico turns it into its own
+   logout, so signing out of Prism Central also ends the Keycloak session
+   instead of signing the tenant straight back in. Keycloak already
    has a session → immediate return with the SAML assertion. Prism Central
    creates its session, scoped by the user's project membership. If the
    selection call fails (for example after a Prism Central upgrade changes
@@ -369,7 +378,23 @@ Portico, and both carry the MSP's identity, not Nutanix's or Portico's.
   with logo and a progress indicator while the SAML round trip runs
   (section 4.3 step 5). One Prism Central: the redirect starts at once, no
   artificial delay; a configurable minimum display time exists with
-  default 0. Several Prism Centrals (deferred, section 2): the page is a
+  default 0. Mechanics (measured in write-up 12): Portico answers
+  `GET /ui/iam/providers` on the public host with the landing page, which
+  sends the browser to `/.portico/saml-start`; that handler reads the
+  login request Prism Central created for this browser
+  (`GET /api/iam/v4.1.b3/authn/login-requests/{iam-sessionid}`, with the
+  browser's cookie), writes it back with `loginProviderId` set to the
+  SAML identity provider, and redirects to `/api/iam/authn/initiate-login`.
+  If any step fails, the browser is sent to the original provider page
+  with a one-shot marker so Portico forwards it unchanged (no loop) and
+  the user clicks as in Milestone 1.
+- **Branding settings** are the first store-held settings (section 4.7):
+  MSP name, tagline, accent colour, logo (PNG, JPEG or SVG, at most
+  256 KiB; an SVG with scripts, event handlers, `javascript:` links or
+  `foreignObject` is refused, because Keycloak serves the theme's copy
+  from the login origin), minimum landing display time. Edited on the admin UI and the
+  API; applied to Portico's pages at once and to the Keycloak theme on
+  save. Several Prism Centrals (deferred, section 2): the page is a
   selector, one entry per Prism Central the tenant has a project in. An
   optional banner is a link that opens in a new tab and never blocks the
   redirect.
@@ -574,7 +599,7 @@ portico/
 | 1 | Core binary: proxy + OIDC session + policy + internal listener | done 2026-10-17 (write-up 09): a browser through Portico reaches Prism Central only after Keycloak login; `curl -u admin:…` through the public path gets 403 from Portico |
 | 2a | Tenant arrival, API | done 2026-10-18 (write-up 11): `POST /api/v1/tenants` creates project + resource group + SAML group + IdP sharing + role membership + Keycloak group, records every step, visibility check passes on NTNX-01; first user, disable/enable, clean deletion |
 | 2b | Tenant arrival, admin UI | done 2026-10-18 (write-up 12): admin UI over the API with the break-glass login (tenant list, create, detail with steps and visibility, users, disable/enable, delete), the 2a review minors absorbed, every `Authorization` scheme refused on the public name after measuring the console, Prism Central's Sign Out path allowed |
-| 2c | Tenant arrival, tenant-facing pages | branding settings in the store, landing page that starts SAML itself, Keycloak theme, friendlier identity-provider-down page: a tenant user goes from the public URL to the console with one Keycloak login and no Nutanix login page |
+| 2c | Tenant arrival, tenant-facing pages | done 2026-10-18 (write-up 13): branding settings in the store, landing page that starts SAML itself, Keycloak theme, branded identity-provider-down page; a tenant user goes from the public URL to the console with one Keycloak login and no Nutanix login page |
 | 2d | Setup wizard | settings move to the store with secrets at rest (master key), service-account bootstrap path, SAML identity provider created by Portico, Keycloak clients registered by Portico |
 | 3 | Appliance image | Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
 | 4 | First release (step 1 complete) | README, install guide, release artefacts, known limits documented |

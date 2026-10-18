@@ -3,7 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marco-fabbri/portico/internal/branding"
 	"github.com/marco-fabbri/portico/internal/store"
 	"github.com/marco-fabbri/portico/internal/tenant"
 	"github.com/marco-fabbri/portico/internal/tenant/tenanttest"
@@ -22,12 +25,13 @@ import (
 const adminPassword = "correct-horse-7"
 
 type env struct {
-	h   http.Handler
-	svc *tenant.Service
-	st  *store.SQLite
-	pc  *tenanttest.PC
-	kc  *tenanttest.KC
-	log *bytes.Buffer
+	h     http.Handler
+	svc   *tenant.Service
+	st    *store.SQLite
+	pc    *tenanttest.PC
+	kc    *tenanttest.KC
+	brand *branding.Service
+	log   *bytes.Buffer
 }
 
 func newEnv(t *testing.T) *env {
@@ -46,8 +50,9 @@ func newEnv(t *testing.T) *env {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	svc := tenant.NewService(st, pc, kc, tenant.Config{SAMLIdPName: "lab-idp", ClusterExtID: "cl", StorageContainerExtID: "sc", OperationTimeout: 5 * time.Second}, log)
-	h := BasicAuth(st, "portico", log)(New(svc, st, log))
-	return &env{h: h, svc: svc, st: st, pc: pc, kc: kc, log: &buf}
+	brand := branding.NewService(st, log)
+	h := BasicAuth(st, "portico", log)(New(svc, st, brand, log))
+	return &env{h: h, svc: svc, st: st, pc: pc, kc: kc, brand: brand, log: &buf}
 }
 
 func (e *env) do(method, path, body string, auth bool) (*httptest.ResponseRecorder, map[string]any) {
@@ -269,5 +274,70 @@ func TestDeleteProjectFlagParsing(t *testing.T) {
 		if p.Name == "portico-acme" {
 			t.Fatal("project kept although delete_project=1")
 		}
+	}
+}
+
+const pngBytes = "\x89PNG\r\n\x1a\n"
+
+func TestBrandingGetDefault(t *testing.T) {
+	e := newEnv(t)
+	rec, out := e.do("GET", "/api/v1/settings/branding", "", true)
+	if rec.Code != 200 || out["msp_name"] != "Portico" || out["accent_color"] != "#1f5f8b" {
+		t.Fatalf("GET branding: %d %v", rec.Code, out)
+	}
+	rec, _ = e.do("GET", "/api/v1/settings/branding/logo", "", true)
+	if rec.Code != 404 {
+		t.Fatalf("logo without one: %d", rec.Code)
+	}
+}
+
+func TestBrandingPutValidatesAndStores(t *testing.T) {
+	e := newEnv(t)
+	rec, out := e.do("PUT", "/api/v1/settings/branding", `{"msp_name":"ACME","accent_color":"blue"}`, true)
+	if rec.Code != 400 || !strings.Contains(out["error"].(string), "accent_color") {
+		t.Fatalf("bad colour: %d %v", rec.Code, out)
+	}
+	logo := base64.StdEncoding.EncodeToString([]byte(pngBytes))
+	rec, out = e.do("PUT", "/api/v1/settings/branding", `{"msp_name":"ACME Cloud","tagline":"Your VMs","accent_color":"#8b1f5f","logo_type":"image/png","logo_data":"`+logo+`","min_display_ms":500}`, true)
+	if rec.Code != 200 || out["msp_name"] != "ACME Cloud" || out["logo_type"] != "image/png" || out["warning"] != nil {
+		t.Fatalf("PUT: %d %v", rec.Code, out)
+	}
+	rec, out = e.do("GET", "/api/v1/settings/branding", "", true)
+	if rec.Code != 200 || out["accent_color"] != "#8b1f5f" || out["min_display_ms"] != float64(500) {
+		t.Fatalf("GET after PUT: %d %v", rec.Code, out)
+	}
+	rec, _ = e.do("GET", "/api/v1/settings/branding/logo", "", true)
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "image/png" || rec.Body.String() != pngBytes {
+		t.Fatalf("logo: %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	if rec.Header().Get("Content-Security-Policy") != "default-src 'none'" || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("logo headers: %v", rec.Header())
+	}
+}
+
+func TestBrandingLogoSVGHeaders(t *testing.T) {
+	e := newEnv(t)
+	active := base64.StdEncoding.EncodeToString([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`))
+	rec, out := e.do("PUT", "/api/v1/settings/branding", `{"msp_name":"ACME","accent_color":"#000000","logo_type":"image/svg+xml","logo_data":"`+active+`"}`, true)
+	if rec.Code != 400 || !strings.Contains(out["error"].(string), "logo") {
+		t.Fatalf("PUT active svg: %d %v", rec.Code, out)
+	}
+	svg := base64.StdEncoding.EncodeToString([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>`))
+	rec, _ = e.do("PUT", "/api/v1/settings/branding", `{"msp_name":"ACME","accent_color":"#000000","logo_type":"image/svg+xml","logo_data":"`+svg+`"}`, true)
+	if rec.Code != 200 {
+		t.Fatalf("PUT svg: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, _ = e.do("GET", "/api/v1/settings/branding/logo", "", true)
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "image/svg+xml" || rec.Header().Get("Content-Security-Policy") != "default-src 'none'" {
+		t.Fatalf("svg logo: %d %v", rec.Code, rec.Header())
+	}
+}
+
+func TestBrandingPutWarningWhenApplyFails(t *testing.T) {
+	e := newEnv(t)
+	e.brand.OnChange(func(ctx context.Context, b branding.Branding) error { return errors.New("keycloak realm: status 500") })
+	rec, out := e.do("PUT", "/api/v1/settings/branding", `{"msp_name":"ACME","accent_color":"#000000"}`, true)
+	if rec.Code != 200 || out["msp_name"] != "ACME" || !strings.Contains(out["warning"].(string), "keycloak realm") {
+		t.Fatalf("PUT with a failing hook: %d %v", rec.Code, out)
 	}
 }

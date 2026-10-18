@@ -182,3 +182,23 @@ func TestOpenSQLiteSetsFileMode(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSettingsRoundTripAndNotFound(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	if _, err := s.GetSetting(ctx, "branding"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetSetting unknown = %v, want ErrNotFound", err)
+	}
+	if err := s.SetSetting(ctx, "branding", []byte(`{"a":1}`)); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := s.GetSetting(ctx, "branding"); err != nil || string(v) != `{"a":1}` {
+		t.Fatalf("GetSetting = %q, %v", v, err)
+	}
+	if err := s.SetSetting(ctx, "branding", []byte(`{"a":2}`)); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := s.GetSetting(ctx, "branding"); string(v) != `{"a":2}` {
+		t.Fatalf("GetSetting after overwrite = %q", v)
+	}
+}

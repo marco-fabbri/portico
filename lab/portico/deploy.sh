@@ -43,6 +43,8 @@ set -euo pipefail
 st="$1"
 id -u portico >/dev/null 2>&1 || useradd -r -s /sbin/nologin -d /var/lib/portico portico
 install -d -m 0750 -o root -g portico /etc/portico /etc/portico/tls
+# Keycloak login theme written by Portico, mounted read-only in the container.
+install -d -m 0755 -o portico -g portico /var/lib/portico/keycloak-theme
 install -m 0640 -o root -g portico "$st/portico.yaml" /etc/portico/portico.yaml
 # Secrets and keys: owned by the service user, mode 0600 (the binary refuses wider modes).
 install -m 0600 -o portico -g portico "$st/portico-oidc-secret" /etc/portico/oidc-client-secret

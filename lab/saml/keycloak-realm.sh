@@ -45,14 +45,17 @@ case "${1:?subcommand}" in
     jq -n --arg e "$entity" --arg a "$acs" '{
       clientId:$e, protocol:"saml", enabled:true, name:"Prism Central (lab)",
       redirectUris:[$a], baseUrl:$a, adminUrl:$a,
-      frontchannelLogout:true,
+      frontchannelLogout:false,
       attributes:{
         "saml.assertion.signature":"true", "saml.server.signature":"true",
         "saml.client.signature":"false", "saml.force.post.binding":"true",
         "saml.authnstatement":"true", "saml_name_id_format":"email",
         "saml_force_name_id_format":"true", "saml.signature.algorithm":"RSA_SHA256",
-        "saml_assertion_consumer_url_post":$a, "saml_single_logout_service_url_post":$a
+        "saml_assertion_consumer_url_post":$a, "saml_single_logout_service_url_post":"", "saml_single_logout_service_url_redirect":""
       }}' > "$tmp/c.json"
+    # No SAML single logout towards Prism Central: Portico's own logout
+    # already expires the Prism Central cookies, and the SLO request would
+    # reach the public name without a Portico session (write-up 13).
     q=$(jq -rn --arg e "$entity" '$e|@uri')
     cid=$(kc GET "/$R/clients?clientId=$q" 2>/dev/null | jq -r '.[0].id // empty')
     if [ -z "$cid" ]; then kc POST "/$R/clients" "$tmp/c.json" 2>&1 >/dev/null | tr -d '\n'; echo " saml client created"
@@ -109,7 +112,7 @@ case "${1:?subcommand}" in
     [ "$sa" != null ] && [ "$rm" != null ] || { echo "service account or realm-management client not found" >&2; exit 1; }
     have=$(kc GET "/$R/users/$sa/role-mappings/clients/$rm" 2>/dev/null | jq -r '.[].name')
     : > "$tmp/roles.json"
-    for role in manage-users view-users query-users query-groups view-realm; do
+    for role in manage-users view-users query-users query-groups view-realm manage-realm; do
       grep -qx "$role" <<<"$have" && continue
       kc GET "/$R/clients/$rm/roles/$role" 2>/dev/null >> "$tmp/roles.json"
     done

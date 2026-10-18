@@ -35,9 +35,17 @@ keycloak:
   realm: portico                 # required: the MSP realm
   # Confidential client with "service accounts" enabled and these
   # realm-management roles on its service-account user: manage-users,
-  # view-users, query-users, query-groups, view-realm.
+  # view-users, query-users, query-groups, view-realm, manage-realm (the
+  # last one sets the realm's login theme).
   admin_client_id: portico-admin
   admin_client_secret_file: /etc/portico/keycloak-admin-secret  # required, mode 0600
+  # Login theme generated from the branding settings. The directory is
+  # owned by the portico user and mounted read-only into the Keycloak
+  # container as /opt/keycloak/themes/<theme_name>; Keycloak runs with
+  # KC_SPI_THEME_CACHE_THEMES=false, KC_SPI_THEME_CACHE_TEMPLATES=false
+  # and KC_SPI_THEME_STATIC_MAX_AGE=-1 so a saved theme applies at once.
+  theme_dir: /var/lib/portico/keycloak-theme
+  theme_name: portico
 
 oidc:
   # Keycloak client: confidential, standard flow, PKCE S256,
