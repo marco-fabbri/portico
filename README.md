@@ -82,6 +82,11 @@ listener only) and is configured card by card: Portico creates the
 with its two clients, and the SAML trust between the two, each from
 one-time credentials it never stores; then "Apply and restart" opens the
 public path. Measured on the lab: 41 s from empty store to running.
+Milestone 2f closed the small findings left by the reviews (password
+policy on the realm Portico creates, login restarted when its state
+expired, logo above the realm name, store failures reported as the
+appliance's, no start limit on the service); the older ones are listed
+in [`docs/backlog.md`](docs/backlog.md).
 Next: the appliance image (Milestone 3).
 The design document is in
 [`docs/superpowers/specs/2026-10-17-portico-design.md`](docs/superpowers/specs/2026-10-17-portico-design.md),
