@@ -71,6 +71,11 @@ type Log struct {
 	Level string `yaml:"level"`
 }
 
+// Store locates Portico's own database (design §4.6).
+type Store struct {
+	Path string `yaml:"path"`
+}
+
 // Config is the whole settings file.
 type Config struct {
 	Public       Public       `yaml:"public"`
@@ -81,6 +86,7 @@ type Config struct {
 	Session      Session      `yaml:"session"`
 	Policy       Policy       `yaml:"policy"`
 	Log          Log          `yaml:"log"`
+	Store        Store        `yaml:"store"`
 }
 
 // DefaultAllowPrefixes are the path families the Prism Central console uses
@@ -102,6 +108,7 @@ func Default() Config {
 		Session:      Session{MaxAge: 8 * time.Hour, Idle: 15 * time.Minute},
 		Policy:       Policy{AllowPrefixes: append([]string(nil), DefaultAllowPrefixes...)},
 		Log:          Log{Level: "info"},
+		Store:        Store{Path: "/var/lib/portico/portico.db"},
 	}
 }
 
