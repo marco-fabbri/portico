@@ -85,12 +85,17 @@ func themeCSS(b Branding) string {
 	// band on the card header goes too.
 	sb.WriteString(".pf-v5-c-login__main { order: 1; grid-area: auto; align-self: center; width: 100%; max-width: 480px; margin: 0; border-radius: 14px; overflow: hidden; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28); }\n")
 	sb.WriteString(".pf-v5-c-login__main-header { border-top: 0; }\n")
-	sb.WriteString("#kc-header-wrapper { display: flex; align-items: center; gap: 1rem; padding: 0; text-transform: none; letter-spacing: normal; color: #fff; font-family: \"RedHatDisplay\", \"Helvetica Neue\", Arial, sans-serif; font-weight: 300; font-size: 2.25rem; line-height: 1; }\n")
-	sb.WriteString("#kc-header-wrapper strong { font-weight: 700; }\n")
+	// The header is a column: the lockup (mark as tall as the capitals,
+	// name in uppercase, last word bold) and the claim under it.
+	sb.WriteString("#kc-header-wrapper { display: flex; flex-direction: column; align-items: center; gap: 0.7rem; padding: 0; text-transform: none; letter-spacing: normal; color: #fff; font-family: \"RedHatDisplay\", \"Helvetica Neue\", Arial, sans-serif; font-weight: 300; }\n")
+	sb.WriteString(".portico-lockup { display: flex; align-items: center; gap: 0.6em; font-size: 2.25rem; line-height: 1; text-transform: uppercase; letter-spacing: 0.08em; }\n")
+	sb.WriteString(".portico-lockup strong { font-weight: 700; }\n")
+	sb.WriteString(".portico-claim { font-size: 1.05rem; font-weight: 400; opacity: 0.9; }\n")
 	if b.HasLogo() {
-		// A generated block in the flex row sits left of the name; the
-		// logo is a background so any image type works (write-up 13).
-		fmt.Fprintf(&sb, "#kc-header-wrapper::before { content: \"\"; width: 56px; height: 64px; flex: none; background: url(../img/logo.%s) no-repeat center; background-size: contain; }\n", b.LogoExt())
+		// A generated block in the flex row sits left of the name, one
+		// em tall (the mark is 600 by 680); the logo is a background so
+		// any image type works (write-up 13).
+		fmt.Fprintf(&sb, ".portico-lockup::before { content: \"\"; width: 0.88em; height: 1em; flex: none; background: url(../img/logo.%s) no-repeat center; background-size: contain; }\n", b.LogoExt())
 	}
 	sb.WriteString(".pf-v5-c-login__container::after { content: \"Powered by Portico\"; order: 2; color: #fff; opacity: 0.75; font-size: 0.8rem; padding-left: 1.4rem; background: url(../img/portico-mark.svg) no-repeat left center; background-size: contain; line-height: 1.2rem; }\n")
 	sb.WriteString(".pf-v5-c-button.pf-m-primary { background-color: var(--portico-accent); border-color: var(--portico-accent); border-radius: 8px; }\n")
@@ -100,22 +105,21 @@ func themeCSS(b Branding) string {
 	return sb.String()
 }
 
-// themeMessages sets the texts of the login page. The name and the
-// tagline are HTML-escaped (loginTitleHtml renders HTML) and then
-// escaped for the properties syntax; the last word of the name is bold
-// in the lockup ("Portico <strong>MSP</strong>").
+// themeMessages sets the texts of the login page. loginTitleHtml renders
+// HTML: it carries the lockup (the MSP name, last word bold) and, under
+// it, the tagline as the claim; every piece is HTML-escaped and then
+// escaped for the properties syntax. The card itself says "Sign in".
 func themeMessages(b Branding) string {
 	name := strings.TrimSpace(b.MSPName)
-	title := html.EscapeString(name)
+	lockup := html.EscapeString(name)
 	if i := strings.LastIndex(name, " "); i > 0 {
-		title = html.EscapeString(name[:i]) + " <strong>" + html.EscapeString(strings.TrimSpace(name[i+1:])) + "</strong>"
+		lockup = html.EscapeString(name[:i]) + " <strong>" + html.EscapeString(strings.TrimSpace(name[i+1:])) + "</strong>"
 	}
-	title = PropertiesEscape(title)
-	account := b.Tagline
-	if account == "" {
-		account = "Sign in"
+	title := `<span class="portico-lockup">` + lockup + `</span>`
+	if claim := strings.TrimSpace(b.Tagline); claim != "" {
+		title += `<span class="portico-claim">` + html.EscapeString(claim) + `</span>`
 	}
-	return "loginTitleHtml=" + title + "\n" + "loginAccountTitle=" + PropertiesEscape(html.EscapeString(account)) + "\n"
+	return "loginTitleHtml=" + PropertiesEscape(title) + "\n" + "loginAccountTitle=Sign in\n"
 }
 
 // PropertiesEscape escapes a value for a Java .properties file: backslash,
