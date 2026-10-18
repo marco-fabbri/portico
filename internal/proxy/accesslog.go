@@ -99,6 +99,17 @@ func AccessLog(log *slog.Logger, next http.Handler) http.Handler {
 			"duration_ms", time.Since(start).Milliseconds(),
 			"rule", rule,
 			"session", hasSession == nil,
+			"auth_scheme", authScheme(r),
 		)
 	})
+}
+
+// authScheme returns the lower-cased scheme of the first Authorization
+// value ("basic", "bearer", ...) or "none"; the credential itself is never
+// returned.
+func authScheme(r *http.Request) string {
+	if f := strings.Fields(r.Header.Get("Authorization")); len(f) > 0 {
+		return strings.ToLower(f[0])
+	}
+	return "none"
 }

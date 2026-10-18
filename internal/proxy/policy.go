@@ -44,10 +44,22 @@ type PrismPolicy struct {
 func (p PrismPolicy) Deny(r *http.Request) (rule string, denied bool) {
 	// Every Authorization value counts, and any whitespace separates the
 	// scheme: the deny list must be broader than the upstream's parser.
+	// The console never sends an Authorization header (write-up 12: 644
+	// requests, none), so every scheme is refused: Basic by name, the
+	// rest as deny-authorization. A tenant's browser has only cookies.
+	other := false
 	for _, auth := range r.Header.Values("Authorization") {
-		if f := strings.Fields(auth); len(f) > 0 && strings.EqualFold(f[0], "basic") {
+		f := strings.Fields(auth)
+		if len(f) == 0 {
+			continue
+		}
+		if strings.EqualFold(f[0], "basic") {
 			return "deny-basic-auth", true
 		}
+		other = true
+	}
+	if other {
+		return "deny-authorization", true
 	}
 	if _, present := r.Header["X-Ntnx-Api-Key"]; present {
 		return "deny-api-key", true

@@ -116,6 +116,9 @@ type Config struct {
 var DefaultAllowPrefixes = []string{
 	"/", "/console/", "/static/", "/ui/iam/", "/api/", "/dm/",
 	"/PrismGateway/services/rest/v1/", "/vnc/", "/auth_code", "/favicon.ico",
+	// Prism Central's own Sign Out ends on /redirect?logout=<url> (measured
+	// 2026-10-18, write-up 12); exact match, the query is not part of policy.
+	"/redirect",
 }
 
 // Default returns the settings used when the file leaves a key out.

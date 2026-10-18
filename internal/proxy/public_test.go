@@ -224,3 +224,26 @@ func TestAccessLogNeverContainsSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestAccessLogRecordsAuthSchemeOnly(t *testing.T) {
+	cases := []struct{ header, want, secret string }{
+		{"", "none", ""},
+		{"Bearer abc.def", "bearer", "abc.def"},
+		{"Basic YWJj", "basic", "YWJj"},
+	}
+	for _, c := range cases {
+		h := newPublicHarness(t)
+		hdr := map[string]string{}
+		if c.header != "" {
+			hdr["Authorization"] = c.header
+		}
+		h.do("GET", "https://prism.test/console/", hdr, false)
+		out := h.logBuf.String()
+		if !strings.Contains(out, `"auth_scheme":"`+c.want+`"`) {
+			t.Errorf("header %q: log lacks auth_scheme %q: %s", c.header, c.want, out)
+		}
+		if c.secret != "" && strings.Contains(out, c.secret) {
+			t.Errorf("header %q: log contains the value: %s", c.header, out)
+		}
+	}
+}
