@@ -71,7 +71,9 @@ func themeCSS(b Branding) string {
 	sb.WriteString(".pf-v5-c-button.pf-m-primary { background-color: var(--portico-accent); border-color: var(--portico-accent); }\n")
 	sb.WriteString(".pf-v5-c-button.pf-m-primary:hover { filter: brightness(1.1); }\n")
 	sb.WriteString("a, .pf-v5-c-button.pf-m-link { color: var(--portico-accent); }\n")
-	sb.WriteString("#kc-header-wrapper { text-transform: none; letter-spacing: normal; }\n")
+	// keycloak.v2 paints the header white for a dark background the
+	// Portico theme does not have: the realm name gets a dark colour.
+	sb.WriteString("#kc-header-wrapper { text-transform: none; letter-spacing: normal; color: #1f2937; }\n")
 	if b.HasLogo() {
 		// A generated block in normal flow sits above the title whatever
 		// the wrapper's own padding or line-height: a background with a
