@@ -73,8 +73,10 @@ func themeCSS(b Branding) string {
 	sb.WriteString("a, .pf-v5-c-button.pf-m-link { color: var(--portico-accent); }\n")
 	sb.WriteString("#kc-header-wrapper { text-transform: none; letter-spacing: normal; }\n")
 	if b.HasLogo() {
-		// min-height, not height: a fixed height clipped the title (lab, write-up 13).
-		fmt.Fprintf(&sb, "#kc-header-wrapper { background: url(../img/logo.%s) no-repeat center top; background-size: contain; min-height: 96px; padding-top: 104px; box-sizing: content-box; }\n", b.LogoExt())
+		// A generated block in normal flow sits above the title whatever
+		// the wrapper's own padding or line-height: a background with a
+		// top padding drew the title across the logo (write-ups 13, 15).
+		fmt.Fprintf(&sb, "#kc-header-wrapper::before { content: \"\"; display: block; height: 96px; margin: 0 auto 12px; background: url(../img/logo.%s) no-repeat center; background-size: contain; }\n", b.LogoExt())
 	}
 	return sb.String()
 }

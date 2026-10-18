@@ -80,9 +80,13 @@ func TestWriteThemeLogoByType(t *testing.T) {
 		if !strings.Contains(css, "img/"+c.file) {
 			t.Errorf("%s: css lacks the logo rule: %s", c.ctype, css)
 		}
-		// A fixed height clipped the title under the logo on the lab (write-up 13).
-		if !strings.Contains(css, "min-height") || strings.Contains(css, " height:") {
-			t.Errorf("%s: the logo rule must use min-height, not height: %s", c.ctype, css)
+		// A fixed height on the wrapper clipped the title under the logo
+		// (write-up 13): the height belongs to the logo block only, never
+		// to #kc-header-wrapper itself.
+		for _, line := range strings.Split(css, "\n") {
+			if strings.HasPrefix(line, "#kc-header-wrapper {") && strings.Contains(line, "height") {
+				t.Errorf("%s: the wrapper rule sets a height: %s", c.ctype, line)
+			}
 		}
 	}
 	dir := filepath.Join(t.TempDir(), "theme")
@@ -145,5 +149,22 @@ func TestPropertiesEscape(t *testing.T) {
 		if got := PropertiesEscape(in); got != want {
 			t.Errorf("PropertiesEscape(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// The logo is a generated block above the title, not a background with
+// a padding that keycloak.v2's header rules override (the realm name was
+// drawn across the logo, write-up 15).
+func TestThemeCSSDrawsTheLogoAboveTheTitle(t *testing.T) {
+	b := Default()
+	b.LogoType, b.LogoData = "image/svg+xml", []byte("data")
+	css := themeCSS(b)
+	for _, want := range []string{"#kc-header-wrapper::before", `content: ""`, "display: block", "url(../img/logo.svg)"} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("css lacks %q:\n%s", want, css)
+		}
+	}
+	if strings.Contains(css, "padding-top") {
+		t.Fatalf("the padding hack is still there:\n%s", css)
 	}
 }
