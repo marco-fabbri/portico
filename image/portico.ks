@@ -113,7 +113,9 @@ network:
 disable_root: true
 ssh_pwauth: false
 CI
-systemctl enable qemu-guest-agent cloud-init cloud-init-local cloud-config cloud-final
+# The target that pulls the four cloud-init services into the boot: the
+# GenericCloud image enables it by preset, a kickstart does not.
+systemctl enable qemu-guest-agent cloud-init.target cloud-init cloud-init-local cloud-config cloud-final
 # Logging: journald alone, persistent (CIS 4.2: not both journald and
 # rsyslog); the remote journal socket is masked.
 mkdir -p /etc/systemd/journald.conf.d

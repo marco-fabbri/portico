@@ -58,6 +58,7 @@ echo "boottest: SSH up after $((i * 5)) s"
 "${SSH[@]}" 'sudo cloud-init status --wait >/dev/null 2>&1; echo "cloud-init: $(cloud-init status 2>/dev/null | head -1)"; for _ in $(seq 1 60); do systemctl is-active -q portico-firstboot && break; sleep 2; done' || true
 fail=0; ok() { echo "ok   $1"; }; ko() { echo "FAIL $1"; fail=1; }
 check() { local label=$1 cmd=$2; if "${SSH[@]}" "$cmd" >/dev/null 2>&1; then ok "$label"; else ko "$label"; fi; }
+check "cloud-init target enabled and ran" 'systemctl is-enabled -q cloud-init.target && cloud-init status 2>/dev/null | grep -q done'
 check "first boot ran once (unit active, condition now false)" 'systemctl is-active -q portico-firstboot && sudo test -s /etc/portico/keycloak.env'
 check "TLS pairs generated at first boot" 'sudo test -s /etc/portico/tls/internal.key && sudo test -s /etc/portico/tls/public.key'
 check "keycloak.env is 0600 root" '[ "$(sudo stat -c %a:%U /etc/portico/keycloak.env)" = "600:root" ]'
