@@ -4,3 +4,5 @@ output-install/
 packer_cache/
 serial-*.log
 boottest-serial-*.log
+scripts/render-user-data/.terraform/
+scripts/render-user-data/.terraform.lock.hcl
