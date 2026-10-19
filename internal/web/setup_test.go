@@ -243,3 +243,34 @@ func TestSetupSecretInputsStopPasswordManagers(t *testing.T) {
 		t.Fatalf("%d new-password inputs, want at least 6:\n%s", n, page)
 	}
 }
+
+// Every card says whether it is configured, and the bootstrap forms are
+// folded away once it is (Marco, 2026-10-19: with the fields filled and
+// an open "let Portico create it" form, the page did not say Prism
+// Central was done). The Apply card states the whole.
+func TestSetupPageStatesWhatIsConfigured(t *testing.T) {
+	e := newEnv(t, true)
+	withSetup(t, e, true)
+	e.login(t)
+	body := e.do("GET", "/setup", nil, true).Body.String()
+	if n := strings.Count(body, `<p class="state done">`); n != 6 {
+		t.Fatalf("%d configured states, want 6 (five cards and Apply):\n%s", n, body)
+	}
+	if strings.Contains(body, `class="state todo"`) || strings.Contains(body, `<details open>`) {
+		t.Fatalf("a to-do state or an open bootstrap form on a complete store:\n%s", body)
+	}
+	for _, want := range []string{`<summary>Let Portico create the service account</summary>`, `<summary>Let Portico create the realm and clients</summary>`, `<summary>Let Portico create the SAML trust</summary>`, `<code>lab-idp</code>`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("setup page lacks %q:\n%s", want, body)
+		}
+	}
+
+	e = newEnv(t, true)
+	withSetup(t, e, false)
+	e.web.setup.File, e.web.setup.Mode = nil, "setup"
+	e.login(t)
+	body = e.do("GET", "/setup", nil, true).Body.String()
+	if n, o := strings.Count(body, `<p class="state todo">`), strings.Count(body, `<details open>`); n != 6 || o != 3 {
+		t.Fatalf("%d to-do states and %d open bootstrap forms on an empty store, want 6 and 3:\n%s", n, o, body)
+	}
+}
