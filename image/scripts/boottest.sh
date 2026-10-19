@@ -99,6 +99,7 @@ check "every LVM volume mounted" 'for m in /var /var/log /var/log/audit /var/tmp
 check "/tmp noexec tmpfs, /dev/shm noexec" 'findmnt -no OPTIONS /tmp | grep -q noexec && findmnt -no OPTIONS /dev/shm | grep -q noexec'
 check "SELinux enforcing" '[ "$(getenforce)" = Enforcing ]'
 check "no root password, no password SSH" 'sudo grep -q "^root:[!*]" /etc/shadow && sudo sshd -T 2>/dev/null | grep -qi "^passwordauthentication no"'
+check "the build user is gone (no account, no sudoers file, no home)" '! id build >/dev/null 2>&1 && ! sudo test -e /etc/sudoers.d/build && ! sudo test -d /home/build'
 check "postgres and keycloak units present (containers pull at first start)" 'systemctl list-unit-files postgres.service keycloak.service | grep -c service | grep -q 2'
 "${SSH[@]}" 'echo "== units:"; for u in portico-firstboot portico keycloak postgres firewalld getty@tty1 cloud-init; do printf "%s=%s " "$u" "$(systemctl is-active $u)"; done; echo; echo "== journal errors:"; sudo journalctl -p err -b --no-pager | tail -n 12' 2>/dev/null | cut -c1-160 || true
 "${SSH[@]}" 'sudo shutdown -P now' >/dev/null 2>&1 || true
