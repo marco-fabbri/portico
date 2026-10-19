@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -268,5 +269,49 @@ func TestServiceGetNamesAPlaintextSecret(t *testing.T) {
 	var oe *OpenError
 	if !errors.As(err, &oe) || oe.Field != "prism_central.api_key" {
 		t.Fatalf("Get on a plaintext secret = %v, want *OpenError naming prism_central.api_key", err)
+	}
+}
+
+// A change hook runs after every successful save with the document as
+// saved (the appliance writes Keycloak's public hostname from it as soon
+// as id_host is known: the SAML bootstrap needs it before Apply).
+func TestSetRunsTheChangeHooks(t *testing.T) {
+	svc := NewService(newStore(t), sealerFor(t, 1))
+	var seen []string
+	svc.OnChange(func(ctx context.Context, s Settings) error { seen = append(seen, s.IDHost); return nil })
+	in := sample()
+	in.IDHost = "id.example.test"
+	if err := svc.Set(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 1 || seen[0] != "id.example.test" {
+		t.Fatalf("hook calls: %v", seen)
+	}
+	// A hook error is the save's error, and the document is stored anyway.
+	svc.OnChange(func(ctx context.Context, s Settings) error { return errors.New("disk full") })
+	if err := svc.Set(context.Background(), in); err == nil || !strings.Contains(err.Error(), "disk full") {
+		t.Fatalf("hook error not returned: %v", err)
+	}
+	if !svc.Stored(context.Background()) {
+		t.Fatal("document not stored")
+	}
+}
+
+func TestWriteKeycloakHostnameFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "keycloak.hostname.env")
+	if err := WriteKeycloakHostname(p, "id.example.test"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	if string(b) != "KC_HOSTNAME=https://id.example.test\nKC_HOSTNAME_BACKCHANNEL_DYNAMIC=true\n" {
+		t.Fatalf("content %q", b)
+	}
+	// No host yet: nothing written, no error (the hosts card is not saved).
+	p2 := filepath.Join(t.TempDir(), "x.env")
+	if err := WriteKeycloakHostname(p2, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p2); !os.IsNotExist(err) {
+		t.Fatal("a file was written without a host")
 	}
 }

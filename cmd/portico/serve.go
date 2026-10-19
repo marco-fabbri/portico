@@ -110,6 +110,13 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// Settings: the API and the setup page edit the stored document.
 	restart := make(chan struct{})
 	var restartOnce sync.Once
+	// The appliance's Keycloak learns its public name from the hosts card
+	// (the SAML bootstrap needs it before Apply, measured on NTNX-01).
+	if hf := cfg.Keycloak.HostnameFile; hf != "" {
+		settingsSvc.OnChange(func(ctx context.Context, s settings.Settings) error {
+			return settings.WriteKeycloakHostname(hf, s.IDHost)
+		})
+	}
 	setup := &api.SettingsOptions{Service: settingsSvc, Checker: settings.NewChecker(log), Bootstrapper: settings.NewBootstrapper(log, settingsSvc), KeycloakURL: cfg.Keycloak.URL, HostnameFile: cfg.Keycloak.HostnameFile,
 		Restart: func() { restartOnce.Do(func() { close(restart) }) }}
 	if setupMode {

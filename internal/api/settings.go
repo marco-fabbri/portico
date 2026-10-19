@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -84,7 +83,7 @@ func (o *SettingsOptions) Apply(ctx context.Context) error {
 		}
 	}
 	if o.HostnameFile != "" {
-		if err := writeHostnameFile(o.HostnameFile, cur.IDHost); err != nil {
+		if err := settings.WriteKeycloakHostname(o.HostnameFile, cur.IDHost); err != nil {
 			return err
 		}
 	}
@@ -502,19 +501,4 @@ func (h *handler) bootstrapSAML(w http.ResponseWriter, r *http.Request) {
 		h.log.Info("bootstrap saml", "name", res.Name, "ok", res.OK, "used_credentials", res.UsedCredentials, "created", res.Created)
 	}
 	h.bootstrapAnswer(w, r, res, err)
-}
-
-// writeHostnameFile writes the Keycloak hostname environment for the
-// identity host, atomically, world-readable (systemd reads it as root).
-func writeHostnameFile(path, idHost string) error {
-	content := "KC_HOSTNAME=https://" + idHost + "\nKC_HOSTNAME_BACKCHANNEL_DYNAMIC=true\n"
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
-		return fmt.Errorf("keycloak hostname file: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("keycloak hostname file: %w", err)
-	}
-	return nil
 }
