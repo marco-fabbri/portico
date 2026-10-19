@@ -78,6 +78,9 @@ shows the Keycloak administrator credentials from
 current values as defaults; a wrong entry is refused with the field
 named. Nothing else is configurable from the console.
 
-On Apply, Portico writes `KC_HOSTNAME` for the identity host into
+Whenever the settings are saved with an identity host (the public names
+card, and Apply), Portico writes `KC_HOSTNAME` for it into
 `/var/lib/portico/keycloak.hostname.env`; the unit
-`keycloak-hostname.path` restarts Keycloak with it.
+`keycloak-hostname.path` restarts Keycloak with it (about a minute). The
+Keycloak bootstrap waits for Keycloak to answer again, up to two minutes,
+and says so when it does not.

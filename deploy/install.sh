@@ -165,7 +165,22 @@ put 0644 root root "$HERE/cloudflared.service" /etc/systemd/system/cloudflared.s
 put 0644 root root "$HERE/keycloak-hostname.path" /etc/systemd/system/keycloak-hostname.path
 put 0644 root root "$HERE/keycloak-hostname.service" /etc/systemd/system/keycloak-hostname.service
 put 0644 root root "$HERE/firewalld/portico.xml" /etc/firewalld/services/portico.xml
-put 0600 root root "$HERE/sshd/00-portico.conf" /etc/ssh/sshd_config.d/00-portico.conf
+# SSH: keys only, wheel only. On a host of your own the policy would lock
+# out a session that came in with a password or as a user outside wheel:
+# it is installed there only when a wheel user already has a key.
+ssh_policy_safe() {
+  local u home
+  for u in $(getent group wheel | cut -d: -f4 | tr ',' ' '); do
+    home=$(getent passwd "$u" | cut -d: -f6)
+    [ -n "$home" ] && [ -s "$home/.ssh/authorized_keys" ] && return 0
+  done
+  return 1
+}
+if [ $START -eq 0 ] || ssh_policy_safe; then
+  put 0600 root root "$HERE/sshd/00-portico.conf" /etc/ssh/sshd_config.d/00-portico.conf
+else
+  log "warning: no user in wheel has an SSH key: the SSH policy (keys only, wheel only) is NOT installed, so this session is not locked out; add a key to a wheel user and run install.sh again"
+fi
 put 0644 root root "$HERE/sysctl/60-portico.conf" /etc/sysctl.d/60-portico.conf
 # This script itself, for the first boot of an appliance.
 put 0755 root root "$0" /usr/local/sbin/portico-install

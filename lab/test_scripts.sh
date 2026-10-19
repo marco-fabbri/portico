@@ -115,6 +115,8 @@ bash deploy/install.sh --render-only "$d" --render-secrets --binary "$bin" >/dev
 if [ "$(grep KC_BOOTSTRAP_ADMIN_PASSWORD "$d/etc/portico/keycloak.env")" = "$first" ] && [ "$(cat "$d/etc/portico/tls/internal.key")" = "$firstkey" ]; then ok "install.sh keeps the secrets on a second run"; else ko "install.sh regenerated a secret"; fi
 if grep -q 'ConditionPathExists=!/etc/portico/keycloak.env' "$d/etc/systemd/system/portico-firstboot.service" && grep -q 'portico-install --first-boot' "$d/etc/systemd/system/portico-firstboot.service"; then ok "first-boot unit runs once, before the services"; else ko "first-boot unit"; fi
 if grep -q 'rm -f /etc/portico/keycloak.env /etc/portico/tls/\*' image/scripts/cleanup.sh; then ok "the image cleanup removes every secret"; else ko "cleanup leaves secrets in the image"; fi
+# An existing host keeps SSH open to its current session: the policy needs a wheel user with a key (review of Milestone 3).
+if grep -q 'ssh_policy_safe' deploy/install.sh && grep -q 'if \[ \$START -eq 0 \] || ssh_policy_safe; then' deploy/install.sh; then ok "install.sh installs the SSH policy on an existing host only when a wheel user has a key"; else ko "install.sh may lock SSH out"; fi
 # The first boot must work offline: its block comes before any dnf in install.sh (measured on NTNX-01).
 if [ "$(grep -n 'FIRSTBOOT -eq 1 \]; then' deploy/install.sh | head -1 | cut -d: -f1)" -lt "$(grep -n 'dnf -y -q install' deploy/install.sh | head -1 | cut -d: -f1)" ]; then ok "install.sh --first-boot runs before any package install"; else ko "install.sh --first-boot would run dnf"; fi
 # Milestone 3 Task 5: the appliance lab scripts keep the Prism password off the command line and off the tfvars file.

@@ -87,7 +87,9 @@ tar -xzf install-<version>.tar.gz
 
 The installer (deploy/README.md) installs the packages, the service, the
 Keycloak and PostgreSQL containers, the console on tty1, the firewalld
-service (443, 8443) and the SSH policy (keys only, no root); it
+service (443, 8443) and the SSH policy (keys only, no root, members of
+`wheel` only; installed only when a `wheel` user already has a key, so
+the session you install from is not locked out); it
 generates the Keycloak secrets and the internal certificate once and
 starts in setup mode with the factory password. Then run the console
 (`portico console` as root on tty1, or over SSH in a terminal) for the
