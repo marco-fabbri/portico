@@ -85,6 +85,10 @@ tar
 sudo
 -cockpit*
 -rsyslog
+# A virtual machine needs no device firmware (679 MB) and no GeoIP data.
+-linux-firmware
+-geolite2-city
+-geolite2-country
 -iwl*-firmware
 -plymouth*
 %end
