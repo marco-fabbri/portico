@@ -16,6 +16,7 @@ S="${PORTICO_SECRETS:-$HOME/portico-secrets}"
 REALM="${LAB_REALM:-portico-lab}"
 SERVICE_ACCOUNT="${LAB_SERVICE_ACCOUNT:-portico}"
 IDP_NAME="${LAB_SAML_IDP:-portico-lab-keycloak}"
+PROJECT_PREFIX="${LAB_PROJECT_PREFIX:-portico-lab}"
 for f in prism-pw keycloak-admin-pw portico-admin-pw; do [ -s "$S/$f" ] || { echo "missing $S/$f" >&2; exit 1; }; done
 umask 077; tmp=$(mktemp -d); trap 'rm -rf "${tmp:?}"' EXIT
 fail=0
@@ -57,7 +58,7 @@ cluster=$(field '.clusters[0].ext_id'); container=$(field '.containers[0].ext_id
 echo "     service account $sa_ext, key $key_name, expires $(field .key_expires)"
 
 # 4. Tenants card.
-jq -n --arg c "$cluster" --arg sc "$container" '{project_prefix:"portico-lab", group_prefix:"tenant-", role:"Project Admin", cluster_ext_id:$c, storage_container_ext_id:$sc, operation_timeout:"15m"}' > "$tmp/tenants.json"
+jq -n --arg c "$cluster" --arg sc "$container" --arg pp "$PROJECT_PREFIX" '{project_prefix:$pp, group_prefix:"tenant-", role:"Project Admin", cluster_ext_id:$c, storage_container_ext_id:$sc, operation_timeout:"15m"}' > "$tmp/tenants.json"
 api GET /api/v1/settings >/dev/null
 jq --slurpfile t "$tmp/tenants.json" '{prism_host, id_host, prism_central:{url:.prism_central.url, tls_verify:.prism_central.tls_verify, saml_idp_name:.prism_central.saml_idp_name}, keycloak:{realm:.keycloak.realm, admin_client_id:.keycloak.admin_client_id}, oidc:{issuer:.oidc.issuer, client_id:.oidc.client_id}, tenants:$t[0]}' "$tmp/out" > "$tmp/put.json"
 code=$(api PUT /api/v1/settings "$tmp/put.json")
