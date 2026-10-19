@@ -11,6 +11,12 @@ set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 : "${PC_URL:?source lab/env.sh first}" "${LAB_VM_IP:?}" "${LAB_PRISM_HOST:?}" "${LAB_ID_HOST:?}"
 S="${PORTICO_SECRETS:-$HOME/portico-secrets}"
+# The same run against the appliance VM (Milestone 3): other secrets
+# directory, another service account and realm, since the lab VM's exist.
+REALM="${LAB_REALM:-portico-lab}"
+SERVICE_ACCOUNT="${LAB_SERVICE_ACCOUNT:-portico}"
+IDP_NAME="${LAB_SAML_IDP:-portico-lab-keycloak}"
+PROJECT_PREFIX="${LAB_PROJECT_PREFIX:-portico-lab}"
 for f in prism-pw keycloak-admin-pw portico-admin-pw; do [ -s "$S/$f" ] || { echo "missing $S/$f" >&2; exit 1; }; done
 umask 077; tmp=$(mktemp -d); trap 'rm -rf "${tmp:?}"' EXIT
 fail=0
@@ -38,13 +44,13 @@ code=$(api POST /api/v1/settings/apply)
 line "apply on a draft" "$code" 409
 
 # 2. Keycloak: realm, admin client, OIDC client from the one-time admin credentials.
-jq -n --rawfile pw "$S/keycloak-admin-pw" '{admin_username:"kcadmin", admin_password:($pw|rtrimstr("\n")), realm:"portico-lab", display_name:"Portico lab"}' > "$tmp/kc.json"
+jq -n --rawfile pw "$S/keycloak-admin-pw" --arg r "$REALM" '{admin_username:"kcadmin", admin_password:($pw|rtrimstr("\n")), realm:$r, display_name:"Portico MSP"}' > "$tmp/kc.json"
 s=$(t0); code=$(api POST /api/v1/settings/bootstrap/keycloak "$tmp/kc.json"); d=$(( $(t0) - s ))
 line "bootstrap keycloak (${d}s)" "$code ok=$(field .ok) created=$(field '.created|length') stored=$(field .stored)" "200 ok=true created=3 stored=true"
 echo "     $(field .message)"
 
 # 3. Prism Central: service account, key, policy, verified with the new key.
-jq -n --rawfile pw "$S/prism-pw" --arg u "$PC_URL" '{username:"admin", password:($pw|rtrimstr("\n")), url:$u, tls_verify:false}' > "$tmp/pc.json"
+jq -n --rawfile pw "$S/prism-pw" --arg u "$PC_URL" --arg sa "$SERVICE_ACCOUNT" '{username:"admin", password:($pw|rtrimstr("\n")), url:$u, tls_verify:false, service_account:$sa}' > "$tmp/pc.json"
 s=$(t0); code=$(api POST /api/v1/settings/bootstrap/prism-central "$tmp/pc.json"); d=$(( $(t0) - s ))
 line "bootstrap prism-central (${d}s)" "$code ok=$(field .ok) clusters=$(field '.clusters|length') stored=$(field .stored)" "200 ok=true clusters=1 stored=true"
 echo "     $(field .message)"
@@ -52,19 +58,19 @@ cluster=$(field '.clusters[0].ext_id'); container=$(field '.containers[0].ext_id
 echo "     service account $sa_ext, key $key_name, expires $(field .key_expires)"
 
 # 4. Tenants card.
-jq -n --arg c "$cluster" --arg sc "$container" '{project_prefix:"portico-lab", group_prefix:"tenant-", role:"Project Admin", cluster_ext_id:$c, storage_container_ext_id:$sc, operation_timeout:"15m"}' > "$tmp/tenants.json"
+jq -n --arg c "$cluster" --arg sc "$container" --arg pp "$PROJECT_PREFIX" '{project_prefix:$pp, group_prefix:"tenant-", role:"Project Admin", cluster_ext_id:$c, storage_container_ext_id:$sc, operation_timeout:"15m"}' > "$tmp/tenants.json"
 api GET /api/v1/settings >/dev/null
 jq --slurpfile t "$tmp/tenants.json" '{prism_host, id_host, prism_central:{url:.prism_central.url, tls_verify:.prism_central.tls_verify, saml_idp_name:.prism_central.saml_idp_name}, keycloak:{realm:.keycloak.realm, admin_client_id:.keycloak.admin_client_id}, oidc:{issuer:.oidc.issuer, client_id:.oidc.client_id}, tenants:$t[0]}' "$tmp/out" > "$tmp/put.json"
 code=$(api PUT /api/v1/settings "$tmp/put.json")
 line "PUT tenants card" "$code missing=$(field '.missing|join(",")')" "200 missing=prism_central.saml_idp_name"
 
 # 5. SAML trust: the service account first, the admin credentials on a 403.
-jq -n '{name:"portico-lab-keycloak"}' > "$tmp/saml.json"
+jq -n --arg n "$IDP_NAME" '{name:$n}' > "$tmp/saml.json"
 s=$(t0); code=$(api POST /api/v1/settings/bootstrap/saml "$tmp/saml.json"); d=$(( $(t0) - s ))
 used="service account"
 if [ "$code" = 200 ] && [ "$(field .ok)" = false ] && grep -q "refused the service account" <<<"$(field .message)"; then
   echo "     service account refused: $(field .message)"
-  jq -n --rawfile pw "$S/prism-pw" '{name:"portico-lab-keycloak", username:"admin", password:($pw|rtrimstr("\n"))}' > "$tmp/saml.json"
+  jq -n --rawfile pw "$S/prism-pw" --arg n "$IDP_NAME" '{name:$n, username:"admin", password:($pw|rtrimstr("\n"))}' > "$tmp/saml.json"
   s=$(t0); code=$(api POST /api/v1/settings/bootstrap/saml "$tmp/saml.json"); d=$(( $(t0) - s ))
   used="admin credentials"
 fi
