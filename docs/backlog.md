@@ -62,6 +62,12 @@ it; the Milestone 2f sweep closed the 2d and 2e items listed at the end.
 
 ## Admin UI, branding, settings
 
+- Keycloak's SAML post page (the instant between the login and Prism
+  Central, `saml-post-form`) shows the accent background with an empty
+  white card and no lockup (Marco's recording, 2026-10-19): give that
+  page the lockup and hide the empty card in the generated theme
+  (`internal/branding/theme.go`).
+
 - Setup as a list of connected services: today the store holds one Prism
   Central and the setup page is five cards; an MSP may run several (six
   is a real case) and later NKP. Needs a Prism Central table (name, URL,
