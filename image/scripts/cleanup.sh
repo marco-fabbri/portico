@@ -25,3 +25,10 @@ sync
 fstrim -av >/dev/null 2>&1 || true
 # The image carries no secret: whatever the build generated goes, the first boot makes new ones.
 rm -f /etc/portico/keycloak.env /etc/portico/tls/*
+# LVM must find its volumes on any hypervisor: anaconda's devices file pins
+# the physical volume to the build VM's disk identity; without it LVM
+# scans every disk. The initramfs is rebuilt with the same setting.
+rm -f /etc/lvm/devices/system.devices
+sed -i 's/^\(\s*\)# use_devicesfile = 1/\1use_devicesfile = 0/' /etc/lvm/lvm.conf
+grep -q 'use_devicesfile = 0' /etc/lvm/lvm.conf || sed -i 's/^devices {/devices {\n\tuse_devicesfile = 0/' /etc/lvm/lvm.conf
+dracut -f --regenerate-all >/dev/null 2>&1 || dracut -f >/dev/null 2>&1 || true

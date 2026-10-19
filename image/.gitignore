@@ -3,3 +3,4 @@ output/
 output-install/
 packer_cache/
 serial-*.log
+boottest-serial.log
