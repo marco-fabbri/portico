@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -30,6 +31,11 @@ type SettingsOptions struct {
 	// Bootstrapper creates the realm, the service account and the SAML
 	// trust from one-time credentials (design §4.4, §4.5).
 	Bootstrapper *settings.Bootstrapper
+	// HostnameFile, when set, receives KC_HOSTNAME for the identity host on
+	// Apply: the appliance's Keycloak quadlet loads it and a path unit
+	// restarts Keycloak (deploy/keycloak-hostname.path). Portico owns the
+	// file; it holds no secret.
+	HostnameFile string
 
 	restarting atomic.Bool
 }
@@ -75,6 +81,11 @@ func (o *SettingsOptions) Apply(ctx context.Context) error {
 	if o.Busy != nil {
 		if n := o.Busy(); n > 0 {
 			return &BusyError{N: n}
+		}
+	}
+	if o.HostnameFile != "" {
+		if err := writeHostnameFile(o.HostnameFile, cur.IDHost); err != nil {
+			return err
 		}
 	}
 	o.restarting.Store(true)
@@ -370,8 +381,10 @@ func (h *handler) applySettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.As(err, &busy):
 		writeError(w, http.StatusConflict, err.Error())
-	case err != nil:
+	case errors.Is(err, errRestartUnavailable):
 		writeError(w, http.StatusNotImplemented, err.Error())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
 	default:
 		h.log.Info("settings apply: restart requested", "via", "api")
 		writeJSON(w, http.StatusAccepted, map[string]bool{"restarting": true})
@@ -489,4 +502,19 @@ func (h *handler) bootstrapSAML(w http.ResponseWriter, r *http.Request) {
 		h.log.Info("bootstrap saml", "name", res.Name, "ok", res.OK, "used_credentials", res.UsedCredentials, "created", res.Created)
 	}
 	h.bootstrapAnswer(w, r, res, err)
+}
+
+// writeHostnameFile writes the Keycloak hostname environment for the
+// identity host, atomically, world-readable (systemd reads it as root).
+func writeHostnameFile(path, idHost string) error {
+	content := "KC_HOSTNAME=https://" + idHost + "\nKC_HOSTNAME_BACKCHANNEL_DYNAMIC=true\n"
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("keycloak hostname file: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("keycloak hostname file: %w", err)
+	}
+	return nil
 }

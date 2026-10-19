@@ -95,5 +95,28 @@ if grep -q 'fresh' lab/portico/deploy.sh && grep -q 'import skipped' lab/portico
 # M2e-4: the lab admin client has the client-management roles the SAML bootstrap needs.
 if grep -q 'manage-clients' lab/saml/keycloak-realm.sh && grep -q 'manage-clients' deploy/portico.yaml.example; then ok "admin-client roles include manage-clients"; else ko "manage-clients missing from the lab script or the example"; fi
 
-if shellcheck -x lab/*.sh lab/*/*.sh; then ok "shellcheck"; else ko "shellcheck"; fi
+# Milestone 3: the installer renders the appliance files without root (Task 2).
+d=$(mktemp -d); bin=$(mktemp); chmod +x "$bin"
+if bash deploy/install.sh --render-only "$d" --binary "$bin" >/dev/null 2>&1; then ok "install.sh --render-only runs without root"; else ko "install.sh --render-only failed"; fi
+for f in etc/portico/portico.yaml etc/portico/keycloak.env etc/portico/tls/internal.crt etc/portico/tls/internal.key etc/containers/systemd/keycloak.container etc/containers/systemd/postgres.container etc/containers/systemd/portico.network etc/systemd/system/portico.service etc/systemd/system/getty@tty1.service.d/override.conf etc/systemd/system/cloudflared.service etc/firewalld/services/portico.xml etc/ssh/sshd_config.d/00-portico.conf etc/sysctl.d/60-portico.conf usr/local/bin/portico; do
+  if [ -e "$d/$f" ]; then ok "install.sh renders $f"; else ko "install.sh does not render $f"; fi
+done
+if grep -q 'KC_HOSTNAME_STRICT=false' "$d/etc/containers/systemd/keycloak.container" && ! grep -qi 'lab' "$d/etc/containers/systemd/keycloak.container"; then ok "keycloak.container learns its name from the request, no lab name"; else ko "keycloak.container hostname"; fi
+mode() { stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"; }
+if grep -q 'KC_BOOTSTRAP_ADMIN_PASSWORD=' "$d/etc/portico/keycloak.env" && [ "$(mode "$d/etc/portico/keycloak.env")" = 600 ]; then ok "keycloak.env generated, mode 0600"; else ko "keycloak.env"; fi
+if [ "$(mode "$d/etc/portico/tls/internal.key")" = 640 ] && openssl x509 -in "$d/etc/portico/tls/internal.crt" -noout >/dev/null 2>&1; then ok "internal TLS pair generated for the admin listener"; else ko "internal TLS pair"; fi
+first=$(grep KC_BOOTSTRAP_ADMIN_PASSWORD "$d/etc/portico/keycloak.env"); firstkey=$(cat "$d/etc/portico/tls/internal.key")
+bash deploy/install.sh --render-only "$d" --binary "$bin" >/dev/null 2>&1
+if [ "$(grep KC_BOOTSTRAP_ADMIN_PASSWORD "$d/etc/portico/keycloak.env")" = "$first" ] && [ "$(cat "$d/etc/portico/tls/internal.key")" = "$firstkey" ]; then ok "install.sh keeps the secrets on a second run"; else ko "install.sh regenerated a secret"; fi
+# 443 and 8443 only: the pass-through binds the loopback until an administrator moves it to an internal interface (design 4.2).
+if grep -q 'port="443"' "$d/etc/firewalld/services/portico.xml" && grep -q 'port="8443"' "$d/etc/firewalld/services/portico.xml" && ! grep -q 'port="9440"' "$d/etc/firewalld/services/portico.xml" && ! grep -q 'port="8080"' "$d/etc/firewalld/services/portico.xml"; then ok "firewalld service: 443 and 8443 only"; else ko "firewalld service ports"; fi
+if grep -q 'PermitRootLogin no' "$d/etc/ssh/sshd_config.d/00-portico.conf" && grep -q 'PasswordAuthentication no' "$d/etc/ssh/sshd_config.d/00-portico.conf"; then ok "sshd: key only, no root"; else ko "sshd policy"; fi
+if grep -q 'ExecStart=-/usr/local/bin/portico console' "$d/etc/systemd/system/getty@tty1.service.d/override.conf"; then ok "tty1 runs the console"; else ko "tty1 override"; fi
+if grep -q 'passthrough_listen: "127.0.0.1:9440"' "$d/etc/portico/portico.yaml" && grep -q 'admin_listen: "0.0.0.0:8443"' "$d/etc/portico/portico.yaml" && ! grep -q 'prism_central:' "$d/etc/portico/portico.yaml"; then ok "appliance YAML: process settings only, pass-through on the loopback"; else ko "appliance YAML"; fi
+if grep -q -- '--token-file /etc/cloudflared/token' "$d/etc/systemd/system/cloudflared.service" 2>/dev/null || grep -q 'token' "$d/etc/systemd/system/cloudflared.service"; then ok "cloudflared unit reads the token file"; else ko "cloudflared unit"; fi
+if ! grep -rn '10\.23\.210\|lab\.portico\.test\|portico-lab' deploy/ | grep -q .; then ok "deploy/ names no lab host"; else ko "deploy/ names the lab"; fi
+rm -rf "$d"
+
+
+if shellcheck -x lab/*.sh lab/*/*.sh deploy/install.sh; then ok "shellcheck"; else ko "shellcheck"; fi
 if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi

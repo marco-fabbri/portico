@@ -1,0 +1,43 @@
+# Portico process settings on the appliance, installed by deploy/install.sh
+# when no settings file exists. The runtime sections (public names, Prism
+# Central, Keycloak realm and clients, tenants) are not here: a fresh
+# appliance starts in setup mode and the setup page stores them, sealed
+# with the master key (design 4.7). The console wizard edits the public
+# block for the exposure mode; nothing here is a secret.
+public:
+  listen: ":443"                 # tunnel mode: "127.0.0.1:8080" with no tls block
+  tls:                           # both empty = plain HTTP behind cloudflared
+    cert_file: /etc/portico/tls/public.crt
+    key_file: /etc/portico/tls/public.key
+
+internal:
+  # The admin UI and API on every interface, under the self-signed pair
+  # the installer generates; the break-glass password protects it. Do not
+  # publish 8443 towards the Internet (tunnel mode never does).
+  admin_listen: "0.0.0.0:8443"
+  # Raw pass-through to Prism Central with local login allowed: on the
+  # loopback until an administrator binds it to an internal interface and
+  # opens 9440 there.
+  passthrough_listen: "127.0.0.1:9440"
+  tls:
+    cert_file: /etc/portico/tls/internal.crt
+    key_file: /etc/portico/tls/internal.key
+
+keycloak:
+  url: http://127.0.0.1:8080
+  theme_dir: /var/lib/portico/keycloak-theme
+  theme_name: portico
+  # Written on Apply with the public identity name; keycloak-hostname.path
+  # restarts Keycloak when it changes.
+  hostname_file: /var/lib/portico/keycloak.hostname.env
+
+session:
+  max_age: 8h
+  idle: 15m
+
+log:
+  level: info
+
+store:
+  path: /var/lib/portico/portico.db
+  master_key_file: /var/lib/portico/master.key   # created at the first start; back it up with the store

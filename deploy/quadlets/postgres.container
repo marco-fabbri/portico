@@ -1,0 +1,18 @@
+# Podman quadlet: PostgreSQL for Keycloak. Installed by deploy/install.sh.
+[Unit]
+Description=PostgreSQL for Keycloak
+
+[Container]
+Image=docker.io/library/postgres:16
+ContainerName=postgres
+Network=portico.network
+EnvironmentFile=/etc/portico/keycloak.env
+Environment=POSTGRES_DB=keycloak
+Environment=POSTGRES_USER=keycloak
+Volume=postgres-data:/var/lib/postgresql/data:Z
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
