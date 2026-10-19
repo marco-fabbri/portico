@@ -24,6 +24,9 @@ below, each with its reason; the report shows them as "notselected".
 | Rule | Why |
 |---|---|
 | `sysctl_net_ipv4_ip_forward` | Podman's bridge network (Keycloak, PostgreSQL) needs forwarding on the host; firewalld forwards nothing towards other networks |
+| `ensure_root_password_configured` | No root password by design: tty1 runs the console wizard as root through a getty override (design 4.8); nobody logs in as root |
+| `grub2_password` | Whoever reaches the console already gets the root wizard there; a bootloader password adds nothing and would have to be shared with every MSP |
+| `accounts_password_last_change_is_in_past` | Evaluated on the build day, when every password change date is that day; meaningful on a running appliance, not in the build |
 
 ## Layout exceptions documented in the kickstart
 

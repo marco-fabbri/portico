@@ -10,7 +10,7 @@ timezone UTC --utc
 network --bootproto=dhcp --device=link --activate --hostname=portico
 selinux --enforcing
 firewall --enabled --ssh
-services --enabled=NetworkManager,chronyd,auditd,rsyslog,firewalld
+services --enabled=NetworkManager,chronyd,auditd,firewalld
 # No root password: the console wizard runs as root on tty1 through a
 # getty override, SSH is key-only for the user cloud-init may add.
 rootpw --lock
@@ -75,7 +75,6 @@ openscap-scanner
 scap-security-guide
 chrony
 audit
-rsyslog
 openssl
 policycoreutils-python-utils
 curl
@@ -111,4 +110,15 @@ disable_root: true
 ssh_pwauth: false
 CI
 systemctl enable qemu-guest-agent cloud-init cloud-init-local cloud-config cloud-final
+# Logging: journald alone, persistent (CIS 4.2: not both journald and
+# rsyslog); the remote journal socket is masked.
+mkdir -p /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/portico.conf <<'JD'
+[Journal]
+Storage=persistent
+Compress=yes
+SystemMaxUse=1G
+JD
+mkdir -p /var/log/journal
+systemctl mask systemd-journal-remote.socket
 %end

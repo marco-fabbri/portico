@@ -9,5 +9,11 @@
     <xccdf:title>Portico appliance (CIS Level 1 Server with documented exceptions)</xccdf:title>
     <xccdf:description>The CIS Level 1 Server profile as shipped by scap-security-guide, minus the rules below. Podman's bridge network needs IP forwarding on the appliance (Keycloak and PostgreSQL run as containers on an internal bridge); the host is not a router towards any other network: firewalld forwards nothing.</xccdf:description>
     <xccdf:select idref="xccdf_org.ssgproject.content_rule_sysctl_net_ipv4_ip_forward" selected="false"/>
+    <!-- No root password by design: tty1 runs the console wizard as root through a getty override, and nobody logs in as root (design 4.8). -->
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_ensure_root_password_configured" selected="false"/>
+    <!-- A bootloader password would protect kernel arguments from someone at the console, who already gets the root wizard there; it would also have to be shared with every MSP. -->
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_grub2_password" selected="false"/>
+    <!-- Evaluated on the day the image is built, when every password change date is that day; meaningful on a running appliance, not in the build. -->
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_accounts_password_last_change_is_in_past" selected="false"/>
   </xccdf:Profile>
 </xccdf:Tailoring>
