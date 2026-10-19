@@ -97,7 +97,10 @@ source "qemu" "provision" {
   disk_interface   = "virtio"
   disk_discard     = "unmap"
   disk_detect_zeroes = "unmap"
-  disk_compression = true
+  # Prism Central's image service refuses a qcow2 with compressed clusters
+  # (measured on pc.7.6: "dependent backend service has encountered an
+  # error"); the same image uncompressed imports. Discard keeps it small.
+  disk_compression = false
   net_device       = "virtio-net"
   accelerator      = var.accelerator
   cpus             = 2
