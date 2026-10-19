@@ -62,6 +62,19 @@ it; the Milestone 2f sweep closed the 2d and 2e items listed at the end.
 
 ## Admin UI, branding, settings
 
+- Setup as a list of connected services: today the store holds one Prism
+  Central and the setup page is five cards; an MSP may run several (six
+  is a real case) and later NKP. Needs a Prism Central table (name, URL,
+  service account, SAML IdP, clusters), the Prism Central key on the
+  tenant, one public host per Prism Central (Prism uses absolute paths),
+  one SAML trust each, a "Connected services" page with add and edit, and
+  the Prism Central picker on "New tenant". Design §2 step 2; its own
+  milestone after the appliance image (Marco, 2026-10-19).
+- The admin UI mockup (2026-10-19) shows data the pages do not have yet:
+  counters above the tenant list (active, disabled, last visibility
+  check), a users column, a Prism Central health dot in the header,
+  "step N of M" while creating, last login per user; add them as the
+  data appears (`internal/web`).
 - CSP `default-src 'self'` blocks the four inline style attributes and
   HTMX's indicator style: move to classes, `htmx-config
   includeIndicatorStyles false` (`internal/web`).

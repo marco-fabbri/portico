@@ -88,7 +88,9 @@ expired, logo above the realm name, store failures reported as the
 appliance's, no start limit on the service); the older ones are listed
 in [`docs/backlog.md`](docs/backlog.md). A layout pass then gave the login
 page its final shape (the MSP lockup and claim on the accent colour, the
-card centred under them) and Portico's own pages their mark.
+card centred under them) and Portico's own pages their mark; the admin UI
+took the same voice (white header with the mark, section tabs, Red Hat
+fonts shipped in the binary, setup cards that say what is configured).
 Next: the appliance image (Milestone 3).
 The design document is in
 [`docs/superpowers/specs/2026-10-17-portico-design.md`](docs/superpowers/specs/2026-10-17-portico-design.md),
