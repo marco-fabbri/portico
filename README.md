@@ -260,8 +260,8 @@ with any of the following, it turns a design into a measurement:
 
 - **A decommissioned Nutanix node**: an NX G5 or G6, or the Dell XC,
   HPE DX, Lenovo HX equivalents, out of support and out of your
-  inventory. I can bring it to a current AOS and AHV myself; what it
-  gives the project is a second, independent Prism Central.
+  inventory. What it gives the project is a second, independent Prism
+  Central in the lab.
 - **A second cluster or Prism Central** reachable from a lab network,
   even for a few days at a time: the connected-services page (several
   Prism Central behind one Portico), the high-availability pair across
