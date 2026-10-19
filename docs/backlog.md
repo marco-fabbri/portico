@@ -62,13 +62,19 @@ it; the Milestone 2f sweep closed the 2d and 2e items listed at the end.
 
 ## Admin UI, branding, settings
 
+- Keycloak's SAML post page (the instant between the login and Prism
+  Central, `saml-post-form`) shows the accent background with an empty
+  white card and no lockup (Marco's recording, 2026-10-19): give that
+  page the lockup and hide the empty card in the generated theme
+  (`internal/branding/theme.go`).
+
 - Setup as a list of connected services: today the store holds one Prism
   Central and the setup page is five cards; an MSP may run several (six
   is a real case) and later NKP. Needs a Prism Central table (name, URL,
   service account, SAML IdP, clusters), the Prism Central key on the
   tenant, one public host per Prism Central (Prism uses absolute paths),
   one SAML trust each, a "Connected services" page with add and edit, and
-  the Prism Central picker on "New tenant". Design �2 step 2; its own
+  the Prism Central picker on "New tenant". Design §2 step 2; its own
   milestone after the appliance image (Marco, 2026-10-19).
 - The admin UI mockup (2026-10-19) shows data the pages do not have yet:
   counters above the tenant list (active, disabled, last visibility
@@ -103,6 +109,42 @@ it; the Milestone 2f sweep closed the 2d and 2e items listed at the end.
   Review Focus "Basic header on /healthz → 200" not asserted explicitly.
 
 ## Deployment and lab scripts
+
+- The lab's Internet link (about 470 KB/s) cannot feed a netinstall on the
+  build host (`lab/build-host`): anaconda timed out on `install.img` after
+  an hour. A local mirror of the BaseOS/AppStream packages the kickstart
+  needs (reposync on the build host, `inst.repo` pointing at it) makes the
+  build local; until then the image is built by the CI and the build host
+  runs the boot test (write-up 19).
+- Minor findings of the Milestone 3 review, deferred: `api.BasicAuth`
+  duplicates the factory-password check of `RequireAdmin` and only tests
+  use it; `install.sh` copies `$0` (breaks under `curl | bash`, use
+  `BASH_SOURCE`); a second `install.sh` run does not restart PostgreSQL
+  and Keycloak when their quadlets changed; `portico-firstboot`'s
+  once-only condition is `keycloak.env`, not a marker written last;
+  `sysctl` sets `ip_forward = 0` while the tailoring documents that
+  netavark needs it; the kickstart opens SSH on every interface;
+  `harden.sh` never fails the build on an OpenSCAP regression; the
+  console's "show once" wording and scrollback after the credentials;
+  the console writes `portico.yaml` in place (no temp file and rename);
+  the image workflow gives the `contents: write` token to Packer's plugin
+  getter and pins actions by tag; Packer uploads the whole `deploy/` tree
+  (a developer's gitignored tfvars would ride along until the cleanup);
+  `ParseKeyfile` does not check the `[ipv4]` section; the password page
+  accepts the current password as the new one and keeps the session;
+  tunnel mode is not measured with a real Cloudflare tunnel yet.
+
+- Prism Central pc.7.6 answers 500 "Failed to store new cookie in IDF"
+  intermittently for minutes after identity deletions (write-up 19); a
+  provisioning step that meets it fails the tenant and the operator
+  retries by hand. Retry a 500 from Prism Central once or twice with a
+  pause before failing the step (`internal/tenant`).
+- `deploy/tofu/nutanix` is validated by `tofu validate` and the CI boot
+  test renders its template; a `tofu test` with a mock provider would
+  also cover the VM resource's arguments (write-up 19).
+- The image carries `openscap-scanner` and `scap-security-guide`
+  (160 MB) so an appliance can be re-scanned in place; drop them and
+  document a scan from outside if the image must shrink further.
 
 - `portico.service` could add `RestrictAddressFamilies`,
   `SystemCallFilter`, `RestrictNamespaces`, `ProtectHostname`,
