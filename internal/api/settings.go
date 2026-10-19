@@ -30,6 +30,11 @@ type SettingsOptions struct {
 	// Bootstrapper creates the realm, the service account and the SAML
 	// trust from one-time credentials (design §4.4, §4.5).
 	Bootstrapper *settings.Bootstrapper
+	// HostnameFile, when set, receives KC_HOSTNAME for the identity host on
+	// Apply: the appliance's Keycloak quadlet loads it and a path unit
+	// restarts Keycloak (deploy/keycloak-hostname.path). Portico owns the
+	// file; it holds no secret.
+	HostnameFile string
 
 	restarting atomic.Bool
 }
@@ -75,6 +80,11 @@ func (o *SettingsOptions) Apply(ctx context.Context) error {
 	if o.Busy != nil {
 		if n := o.Busy(); n > 0 {
 			return &BusyError{N: n}
+		}
+	}
+	if o.HostnameFile != "" {
+		if err := settings.WriteKeycloakHostname(o.HostnameFile, cur.IDHost); err != nil {
+			return err
 		}
 	}
 	o.restarting.Store(true)
@@ -370,8 +380,10 @@ func (h *handler) applySettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.As(err, &busy):
 		writeError(w, http.StatusConflict, err.Error())
-	case err != nil:
+	case errors.Is(err, errRestartUnavailable):
 		writeError(w, http.StatusNotImplemented, err.Error())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
 	default:
 		h.log.Info("settings apply: restart requested", "via", "api")
 		writeJSON(w, http.StatusAccepted, map[string]bool{"restarting": true})

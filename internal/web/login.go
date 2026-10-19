@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"github.com/marco-fabbri/portico/internal/api"
 	"net"
 	"net/http"
 	"strings"
@@ -61,6 +62,9 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	h.limiter.Reset(source)
 	h.newSession(w)
 	h.log.Info("admin login", "source", source)
+	if api.PasswordChangeRequired(r.Context(), h.st) {
+		next = "/password"
+	}
 	http.Redirect(w, r, next, http.StatusSeeOther)
 }
 
