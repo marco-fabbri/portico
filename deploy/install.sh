@@ -137,12 +137,13 @@ configure_firewall() {
 }
 
 if [ $FIRSTBOOT -eq 1 ]; then
-  log "first boot: secrets, TLS pairs, firewall, services"
+  # Runs from portico-firstboot.service, ordered before the services:
+  # they start by themselves once this exits (a blocking systemctl start
+  # from here would wait for this very unit).
+  log "first boot: secrets, TLS pairs, firewall"
   generate_secrets
   restorecon -R /etc/portico >/dev/null 2>&1 || true
   configure_firewall
-  systemctl start postgres.service keycloak.service keycloak-hostname.path
-  systemctl restart portico.service
   log "first boot done"
   exit 0
 fi
