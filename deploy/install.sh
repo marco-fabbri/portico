@@ -132,6 +132,9 @@ putdir 0750 root portico /etc/portico/tls
 putdir 0700 root root /etc/cloudflared
 putdir 0755 portico portico /var/lib/portico
 putdir 0755 portico portico /var/lib/portico/keycloak-theme
+# The Keycloak hostname file Portico writes on Apply: present and empty
+# from the start, the quadlet loads it unconditionally.
+if [ ! -e "$ROOT/var/lib/portico/keycloak.hostname.env" ]; then e=$(mktemp); put 0644 portico portico "$e" /var/lib/portico/keycloak.hostname.env; rm -f "$e"; fi
 
 # 3. The binary.
 if [ -n "$BINARY" ]; then

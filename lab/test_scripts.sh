@@ -104,6 +104,7 @@ for f in etc/portico/portico.yaml etc/containers/systemd/keycloak.container etc/
   if [ -e "$d/$f" ]; then ok "install.sh renders $f"; else ko "install.sh does not render $f"; fi
 done
 if [ ! -e "$d/etc/portico/keycloak.env" ] && [ ! -e "$d/etc/portico/tls/internal.key" ]; then ok "the image build renders no secret and no TLS pair"; else ko "a secret or a TLS pair would ship in the image"; fi
+if [ -e "$d/var/lib/portico/keycloak.hostname.env" ] && grep -q '^EnvironmentFile=/var/lib/portico/keycloak.hostname.env' "$d/etc/containers/systemd/keycloak.container" && ! grep -q 'EnvironmentFile=-' "$d/etc/containers/systemd/keycloak.container"; then ok "keycloak.hostname.env exists from the install and the quadlet loads it without the dash (measured: podman takes the dash literally)"; else ko "keycloak hostname file or quadlet"; fi
 if grep -q 'KC_HOSTNAME_STRICT=false' "$d/etc/containers/systemd/keycloak.container" && ! grep -qi 'lab' "$d/etc/containers/systemd/keycloak.container"; then ok "keycloak.container learns its name from the request, no lab name"; else ko "keycloak.container hostname"; fi
 mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 bash deploy/install.sh --render-only "$d" --render-secrets --binary "$bin" >/dev/null 2>&1

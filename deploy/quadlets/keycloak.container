@@ -15,8 +15,9 @@ EnvironmentFile=/etc/portico/keycloak.env
 # Portico writes KC_HOSTNAME into this file on Apply, and a path unit
 # restarts Keycloak (keycloak-hostname.path). Until then the hostname is
 # derived from each request (KC_HOSTNAME_STRICT=false), enough for the
-# loopback admin API the Keycloak bootstrap uses.
-EnvironmentFile=-/var/lib/portico/keycloak.hostname.env
+# loopback admin API the Keycloak bootstrap uses. The file always exists
+# (empty until Apply): a quadlet has no "optional" EnvironmentFile.
+EnvironmentFile=/var/lib/portico/keycloak.hostname.env
 Environment=KC_DB=postgres
 Environment=KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
 Environment=KC_DB_USERNAME=keycloak
