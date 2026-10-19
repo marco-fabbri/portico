@@ -11,12 +11,20 @@ configuration file, one directory of state.
 | `portico serve -config /etc/portico/portico.yaml` | Runs the three listeners: public (`:443`, or a loopback port behind `cloudflared`), admin (`internal.admin_listen`: health at `/healthz`, the admin UI, the JSON API) and the pass-through to Prism Central (`internal.passthrough_listen`, local login allowed) |
 | `portico settings import -config <file>` | Moves the runtime sections of the file (public names, Prism Central, Keycloak, OIDC, tenants) and the contents of the secret files into the store, sealed with the master key. Run as the service user (it refuses root) so the key belongs to the user that runs `serve` |
 | `portico settings show -config <file>` | Prints the stored settings as YAML, each secret as `<set>` or `<unset>` |
-| `portico admin set-password -config <file>` | Sets the break-glass password of the admin UI and API, read from standard input, stored as a bcrypt hash |
+| `portico admin set-password -config <file>` | Sets the break-glass password of the admin UI and API, read from standard input, stored as a bcrypt hash; a password set this way needs no change at login |
 | `portico version` | The version the binary was built with |
 
 Exit codes of `serve`: 0 after "Apply and restart" (the unit has
 `Restart=always`, so systemd starts it again on the stored settings); 2
 on a configuration error, with the field named; 1 otherwise.
+
+## The factory password
+
+A store without an admin password gets `admin` / `portico/4u` when
+`serve` starts, flagged "to be changed": the admin UI lets that session
+open only the password page until a new one (at least 12 characters, not
+the factory one) is set, and the API answers 403 with the reason. The
+flag is cleared by the password page and by `portico admin set-password`.
 
 ## Files
 
@@ -54,3 +62,25 @@ a header value, a cookie, a token or a password.
 
 Replace the binary and restart the unit; the store format is versioned
 and migrated at start. The lab does this with `lab/portico/deploy.sh`.
+
+## The console wizard
+
+`portico console` (the appliance's tty1, through a getty override; on
+your own host run it as root in a terminal) is the only place that needs
+root: it writes NetworkManager keyfiles and applies them with `nmcli`,
+sets the break-glass password by running `portico admin set-password` as
+the `portico` user, installs the public certificate and key in
+`/etc/portico/tls/` or the tunnel token in `/etc/cloudflared/token` and
+switches the `public` block of the process YAML between direct mode
+(`:443` with the pair) and tunnel mode (`127.0.0.1:8081`, no TLS: 8080 is Keycloak's published port; point the Cloudflare tunnel's ingress at `http://127.0.0.1:8081`), and
+shows the Keycloak administrator credentials from
+`/etc/portico/keycloak.env` on request. It re-runs at any time with the
+current values as defaults; a wrong entry is refused with the field
+named. Nothing else is configurable from the console.
+
+Whenever the settings are saved with an identity host (the public names
+card, and Apply), Portico writes `KC_HOSTNAME` for it into
+`/var/lib/portico/keycloak.hostname.env`; the unit
+`keycloak-hostname.path` restarts Keycloak with it (about a minute). The
+Keycloak bootstrap waits for Keycloak to answer again, up to two minutes,
+and says so when it does not.
