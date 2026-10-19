@@ -54,3 +54,13 @@ jobs:
         run: pipx install pykickstart && ksvalidator -v RHEL9 image/portico.ks
       - name: tailoring is well-formed and names the profile
         run: python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('image/oscap/tailoring.xml')" && grep -q 'xccdf_org.ssgproject.content_profile_cis_server_l1' image/oscap/tailoring.xml
+
+  tofu:
+    name: OpenTofu deployer (fmt, validate)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.8.5"
+      - run: cd deploy/tofu/nutanix && tofu fmt -check -recursive && tofu init -backend=false && tofu validate
