@@ -68,7 +68,7 @@ it; the Milestone 2f sweep closed the 2d and 2e items listed at the end.
   service account, SAML IdP, clusters), the Prism Central key on the
   tenant, one public host per Prism Central (Prism uses absolute paths),
   one SAML trust each, a "Connected services" page with add and edit, and
-  the Prism Central picker on "New tenant". Design �2 step 2; its own
+  the Prism Central picker on "New tenant". Design §2 step 2; its own
   milestone after the appliance image (Marco, 2026-10-19).
 - The admin UI mockup (2026-10-19) shows data the pages do not have yet:
   counters above the tenant list (active, disabled, last visibility
@@ -103,6 +103,18 @@ it; the Milestone 2f sweep closed the 2d and 2e items listed at the end.
   Review Focus "Basic header on /healthz → 200" not asserted explicitly.
 
 ## Deployment and lab scripts
+
+- Prism Central pc.7.6 answers 500 "Failed to store new cookie in IDF"
+  intermittently for minutes after identity deletions (write-up 19); a
+  provisioning step that meets it fails the tenant and the operator
+  retries by hand. Retry a 500 from Prism Central once or twice with a
+  pause before failing the step (`internal/tenant`).
+- `deploy/tofu/nutanix` is validated by `tofu validate` and the CI boot
+  test renders its template; a `tofu test` with a mock provider would
+  also cover the VM resource's arguments (write-up 19).
+- The image carries `openscap-scanner` and `scap-security-guide`
+  (160 MB) so an appliance can be re-scanned in place; drop them and
+  document a scan from outside if the image must shrink further.
 
 - `portico.service` could add `RestrictAddressFamilies`,
   `SystemCallFilter`, `RestrictNamespaces`, `ProtectHostname`,
