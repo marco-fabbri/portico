@@ -1,0 +1,3 @@
+# Podman quadlet network shared by the Keycloak and PostgreSQL containers.
+[Network]
+NetworkName=portico

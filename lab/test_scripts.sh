@@ -95,5 +95,43 @@ if grep -q 'fresh' lab/portico/deploy.sh && grep -q 'import skipped' lab/portico
 # M2e-4: the lab admin client has the client-management roles the SAML bootstrap needs.
 if grep -q 'manage-clients' lab/saml/keycloak-realm.sh && grep -q 'manage-clients' deploy/portico.yaml.example; then ok "admin-client roles include manage-clients"; else ko "manage-clients missing from the lab script or the example"; fi
 
-if shellcheck -x lab/*.sh lab/*/*.sh; then ok "shellcheck"; else ko "shellcheck"; fi
+# Milestone 3: the installer renders the appliance files without root (Task 2).
+# A plain render is the image build: no secret and no TLS pair in the image,
+# the first-boot unit generates them; --render-secrets is the first boot.
+d=$(mktemp -d); bin=$(mktemp); chmod +x "$bin"
+if bash deploy/install.sh --render-only "$d" --binary "$bin" >/dev/null 2>&1; then ok "install.sh --render-only runs without root"; else ko "install.sh --render-only failed"; fi
+for f in etc/portico/portico.yaml etc/containers/systemd/keycloak.container etc/containers/systemd/postgres.container etc/containers/systemd/portico.network etc/systemd/system/portico.service etc/systemd/system/getty@tty1.service.d/override.conf etc/systemd/system/cloudflared.service etc/systemd/system/portico-firstboot.service etc/systemd/system/keycloak-hostname.path etc/firewalld/services/portico.xml etc/ssh/sshd_config.d/00-portico.conf etc/sysctl.d/60-portico.conf usr/local/bin/portico usr/local/sbin/portico-install; do
+  if [ -e "$d/$f" ]; then ok "install.sh renders $f"; else ko "install.sh does not render $f"; fi
+done
+if [ ! -e "$d/etc/portico/keycloak.env" ] && [ ! -e "$d/etc/portico/tls/internal.key" ]; then ok "the image build renders no secret and no TLS pair"; else ko "a secret or a TLS pair would ship in the image"; fi
+if [ -e "$d/var/lib/portico/keycloak.hostname.env" ] && grep -q '^EnvironmentFile=/var/lib/portico/keycloak.hostname.env' "$d/etc/containers/systemd/keycloak.container" && ! grep -q 'EnvironmentFile=-' "$d/etc/containers/systemd/keycloak.container"; then ok "keycloak.hostname.env exists from the install and the quadlet loads it without the dash (measured: podman takes the dash literally)"; else ko "keycloak hostname file or quadlet"; fi
+if grep -q 'KC_HOSTNAME_STRICT=false' "$d/etc/containers/systemd/keycloak.container" && ! grep -qi 'lab' "$d/etc/containers/systemd/keycloak.container"; then ok "keycloak.container learns its name from the request, no lab name"; else ko "keycloak.container hostname"; fi
+mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
+bash deploy/install.sh --render-only "$d" --render-secrets --binary "$bin" >/dev/null 2>&1
+if grep -q 'KC_BOOTSTRAP_ADMIN_PASSWORD=' "$d/etc/portico/keycloak.env" && [ "$(mode "$d/etc/portico/keycloak.env")" = 600 ]; then ok "first boot: keycloak.env generated, mode 0600"; else ko "keycloak.env"; fi
+if [ "$(mode "$d/etc/portico/tls/internal.key")" = 640 ] && openssl x509 -in "$d/etc/portico/tls/internal.crt" -noout >/dev/null 2>&1 && openssl x509 -in "$d/etc/portico/tls/public.crt" -noout >/dev/null 2>&1; then ok "first boot: internal and placeholder public TLS pairs generated"; else ko "TLS pairs"; fi
+first=$(grep KC_BOOTSTRAP_ADMIN_PASSWORD "$d/etc/portico/keycloak.env"); firstkey=$(cat "$d/etc/portico/tls/internal.key")
+bash deploy/install.sh --render-only "$d" --render-secrets --binary "$bin" >/dev/null 2>&1
+if [ "$(grep KC_BOOTSTRAP_ADMIN_PASSWORD "$d/etc/portico/keycloak.env")" = "$first" ] && [ "$(cat "$d/etc/portico/tls/internal.key")" = "$firstkey" ]; then ok "install.sh keeps the secrets on a second run"; else ko "install.sh regenerated a secret"; fi
+if grep -q 'ConditionPathExists=!/etc/portico/keycloak.env' "$d/etc/systemd/system/portico-firstboot.service" && grep -q 'portico-install --first-boot' "$d/etc/systemd/system/portico-firstboot.service"; then ok "first-boot unit runs once, before the services"; else ko "first-boot unit"; fi
+if grep -q 'rm -f /etc/portico/keycloak.env /etc/portico/tls/\*' image/scripts/cleanup.sh; then ok "the image cleanup removes every secret"; else ko "cleanup leaves secrets in the image"; fi
+# An existing host keeps SSH open to its current session: the policy needs a wheel user with a key (review of Milestone 3).
+if grep -q 'ssh_policy_safe' deploy/install.sh && grep -q 'if \[ \$START -eq 0 \] || ssh_policy_safe; then' deploy/install.sh; then ok "install.sh installs the SSH policy on an existing host only when a wheel user has a key"; else ko "install.sh may lock SSH out"; fi
+# The first boot must work offline: its block comes before any dnf in install.sh (measured on NTNX-01).
+if [ "$(grep -n 'FIRSTBOOT -eq 1 \]; then' deploy/install.sh | head -1 | cut -d: -f1)" -lt "$(grep -n 'dnf -y -q install' deploy/install.sh | head -1 | cut -d: -f1)" ]; then ok "install.sh --first-boot runs before any package install"; else ko "install.sh --first-boot would run dnf"; fi
+# Milestone 3 Task 5: the appliance lab scripts keep the Prism password off the command line and off the tfvars file.
+if grep -q 'TF_VAR_nutanix_password="$PC_PASS"' lab/appliance/deploy.sh && ! grep -q '^nutanix_password' lab/appliance/deploy.sh; then ok "appliance deploy.sh passes the password in the environment only"; else ko "appliance deploy.sh leaks the password"; fi
+out=$(env -i PATH="$PATH" HOME="$HOME" bash lab/appliance/deploy.sh 2>&1); rc=$?
+if [ "$rc" -ne 0 ] && grep -q 'source lab/env.sh' <<<"$out"; then ok "appliance deploy.sh needs lab/env.sh"; else ko "appliance deploy.sh ran without env (rc=$rc)"; fi
+# 443 and 8443 only: the pass-through binds the loopback until an administrator moves it to an internal interface (design 4.2).
+if grep -q 'port="443"' "$d/etc/firewalld/services/portico.xml" && grep -q 'port="8443"' "$d/etc/firewalld/services/portico.xml" && ! grep -q 'port="9440"' "$d/etc/firewalld/services/portico.xml" && ! grep -q 'port="8080"' "$d/etc/firewalld/services/portico.xml"; then ok "firewalld service: 443 and 8443 only"; else ko "firewalld service ports"; fi
+if grep -q 'PermitRootLogin no' "$d/etc/ssh/sshd_config.d/00-portico.conf" && grep -q 'PasswordAuthentication no' "$d/etc/ssh/sshd_config.d/00-portico.conf"; then ok "sshd: key only, no root"; else ko "sshd policy"; fi
+if grep -q 'ExecStart=-/usr/local/bin/portico console' "$d/etc/systemd/system/getty@tty1.service.d/override.conf"; then ok "tty1 runs the console"; else ko "tty1 override"; fi
+if grep -q 'passthrough_listen: "127.0.0.1:9440"' "$d/etc/portico/portico.yaml" && grep -q 'admin_listen: "0.0.0.0:8443"' "$d/etc/portico/portico.yaml" && ! grep -q 'prism_central:' "$d/etc/portico/portico.yaml"; then ok "appliance YAML: process settings only, pass-through on the loopback"; else ko "appliance YAML"; fi
+if grep -q -- '--token-file /etc/cloudflared/token' "$d/etc/systemd/system/cloudflared.service" 2>/dev/null || grep -q 'token' "$d/etc/systemd/system/cloudflared.service"; then ok "cloudflared unit reads the token file"; else ko "cloudflared unit"; fi
+if ! grep -rn '10\.23\.210\|lab\.portico\.test\|portico-lab' deploy/ | grep -q .; then ok "deploy/ names no lab host"; else ko "deploy/ names the lab"; fi
+rm -rf "$d"
+
+
+if shellcheck -x lab/*.sh lab/*/*.sh deploy/install.sh; then ok "shellcheck"; else ko "shellcheck"; fi
 if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi
