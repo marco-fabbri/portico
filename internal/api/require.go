@@ -78,6 +78,12 @@ func RequireAdmin(st store.Store, sessions SessionChecker, lim *Limiter, realm s
 				source := sourceOf(r)
 				if checkPassword(r.Context(), st, user, pass, log) {
 					lim.Reset(source)
+					// The factory password opens the admin UI's password page
+					// only; the API waits for a real one.
+					if PasswordChangeRequired(r.Context(), st) {
+						writeError(w, http.StatusForbidden, "password change required: sign in to the admin UI once and set a new password")
+						return
+					}
 					id := Identity{Name: adminAccount, Via: "basic"}
 					next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), identityKey{}, id)))
 					return

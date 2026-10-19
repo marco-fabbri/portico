@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -154,5 +155,32 @@ func TestRequireAdminSessionIgnoredOnAPIPaths(t *testing.T) {
 		if rec.Code != 401 {
 			t.Fatalf("%s API path with a UI session: %d, want 401", method, rec.Code)
 		}
+	}
+}
+
+// The guard serve really uses (RequireAdmin, not BasicAuth) refuses the
+// factory password on the API until it is changed (measured on the
+// appliance: the API answered 200 with portico/4u).
+func TestRequireAdminRefusesTheFactoryPasswordOnTheAPI(t *testing.T) {
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "p.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	BcryptCost = bcrypt.MinCost
+	if _, err := EnsureFactoryPassword(context.Background(), st); err != nil {
+		t.Fatal(err)
+	}
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) })
+	h := RequireAdmin(st, fakeSessions{Identity{Name: "admin", Via: "session"}}, NewLimiter(), "portico", slog.New(slog.NewJSONHandler(io.Discard, nil)))(inner)
+	rec := call(h, "/api/v1/tenants", "admin", FactoryPassword, "", "")
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "password change required") {
+		t.Fatalf("factory password on the API: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := SetAdminPassword(context.Background(), st, "Correct-Horse-9"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := call(h, "/api/v1/tenants", "admin", "Correct-Horse-9", "", ""); rec.Code != http.StatusTeapot {
+		t.Fatalf("new password on the API: %d", rec.Code)
 	}
 }
