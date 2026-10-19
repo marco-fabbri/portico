@@ -1,0 +1,30 @@
+#cloud-config
+# Portico appliance first boot (deploy/tofu/nutanix). The image's cloud-init
+# renders no network of its own: when a static network is given, the
+# keyfile below is the one the console wizard would write, applied with
+# nmcli; without it the wizard on the VM console sets the network.
+hostname: ${hostname}
+fqdn: ${hostname}
+%{ if ssh_public_key != "" ~}
+users:
+  - name: admin
+    groups: [wheel]
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+%{ endif ~}
+ssh_pwauth: false
+%{ if keyfile != "" ~}
+write_files:
+  - path: /etc/NetworkManager/system-connections/${nic}.nmconnection
+    permissions: "0600"
+    owner: root:root
+    content: |
+      ${indent(6, keyfile)}
+runcmd:
+  - [nmcli, connection, reload]
+  - [nmcli, connection, up, "${nic}"]
+%{ endif ~}
+final_message: "portico appliance ready after $UPTIME seconds"
