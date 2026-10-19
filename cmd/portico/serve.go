@@ -105,12 +105,26 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	} else {
 		log.Info("settings source", "source", "file")
 	}
+	// A fresh store gets the factory password (admin / portico/4u), to be
+	// changed at the first login on the admin UI (design 4.2).
+	if set, err := api.EnsureFactoryPassword(ctx, st); err != nil {
+		return fmt.Errorf("factory password: %w", err)
+	} else if set {
+		log.Warn("factory password set for admin: change it at the first login on the admin UI")
+	}
 	// Branding: read by every tenant-facing page and error page.
 	brand := branding.NewService(st, log)
 	// Settings: the API and the setup page edit the stored document.
 	restart := make(chan struct{})
 	var restartOnce sync.Once
-	setup := &api.SettingsOptions{Service: settingsSvc, Checker: settings.NewChecker(log), Bootstrapper: settings.NewBootstrapper(log, settingsSvc), KeycloakURL: cfg.Keycloak.URL,
+	// The appliance's Keycloak learns its public name from the hosts card
+	// (the SAML bootstrap needs it before Apply, measured on NTNX-01).
+	if hf := cfg.Keycloak.HostnameFile; hf != "" {
+		settingsSvc.OnChange(func(ctx context.Context, s settings.Settings) error {
+			return settings.WriteKeycloakHostname(hf, s.IDHost)
+		})
+	}
+	setup := &api.SettingsOptions{Service: settingsSvc, Checker: settings.NewChecker(log), Bootstrapper: settings.NewBootstrapper(log, settingsSvc), KeycloakURL: cfg.Keycloak.URL, HostnameFile: cfg.Keycloak.HostnameFile,
 		Restart: func() { restartOnce.Do(func() { close(restart) }) }}
 	if setupMode {
 		setup.Mode = "setup"

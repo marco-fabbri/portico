@@ -1,6 +1,10 @@
 package web
 
 import (
+	"context"
+	"github.com/marco-fabbri/portico/internal/api"
+	"golang.org/x/crypto/bcrypt"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -89,4 +93,69 @@ func TestSkinShipsTheRedHatFonts(t *testing.T) {
 	if lic := e.do("GET", "/static/fonts/OFL.txt", nil, false); lic.Code != 200 || !strings.Contains(lic.Body.String(), "SIL Open Font License") {
 		t.Errorf("font licence: %d", lic.Code)
 	}
+}
+
+// The appliance's first login: admin / portico/4u, then the password page
+// before anything else, then the UI and the API as usual.
+func TestFactoryPasswordIsChangedAtTheFirstLogin(t *testing.T) {
+	e := newEnv(t, false)
+	api.BcryptCost = bcrypt.MinCost
+	if _, err := api.EnsureFactoryPassword(context.Background(), e.st); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.do("POST", "/login", url.Values{"user": {"admin"}, "password": {api.FactoryPassword}}, false)
+	if rec.Code != 303 || rec.Header().Get("Location") != "/password" {
+		t.Fatalf("login with the factory password: %d -> %q", rec.Code, rec.Header().Get("Location"))
+	}
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookie {
+			e.cookie = c
+		}
+	}
+	if rec := e.do("GET", "/", nil, true); rec.Code != 303 || rec.Header().Get("Location") != "/password" {
+		t.Fatalf("home before the change: %d -> %q", rec.Code, rec.Header().Get("Location"))
+	}
+	page := e.do("GET", "/password", nil, true)
+	if page.Code != 200 || !strings.Contains(page.Body.String(), `name="new_password"`) || !strings.Contains(page.Body.String(), "factory password") {
+		t.Fatalf("password page: %d\n%s", page.Code, page.Body.String())
+	}
+	csrf := csrfOf(t, page.Body.String())
+	// Too short, then not matching, then the factory one again: refused.
+	for _, f := range []url.Values{
+		{"current": {api.FactoryPassword}, "new_password": {"short"}, "confirm": {"short"}},
+		{"current": {api.FactoryPassword}, "new_password": {"Correct-Horse-9"}, "confirm": {"Other-Horse-9"}},
+		{"current": {api.FactoryPassword}, "new_password": {api.FactoryPassword}, "confirm": {api.FactoryPassword}},
+		{"current": {"wrong"}, "new_password": {"Correct-Horse-9"}, "confirm": {"Correct-Horse-9"}},
+	} {
+		f.Set("_csrf", csrf)
+		if rec := e.do("POST", "/password", f, true); rec.Code != 200 || !strings.Contains(rec.Body.String(), "banner error") {
+			t.Fatalf("bad change accepted: %v -> %d", f["new_password"], rec.Code)
+		}
+	}
+	f := url.Values{"_csrf": {csrf}, "current": {api.FactoryPassword}, "new_password": {"Correct-Horse-9"}, "confirm": {"Correct-Horse-9"}}
+	if rec := e.do("POST", "/password", f, true); rec.Code != 303 || rec.Header().Get("Location") != "/" {
+		t.Fatalf("change: %d -> %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if rec := e.do("GET", "/", nil, true); rec.Code != 200 {
+		t.Fatalf("home after the change: %d", rec.Code)
+	}
+	if api.PasswordChangeRequired(context.Background(), e.st) {
+		t.Fatal("change still required")
+	}
+	// The old password is gone, the new one works.
+	if rec := e.do("POST", "/login", url.Values{"user": {"admin"}, "password": {api.FactoryPassword}}, false); rec.Code != 200 || !strings.Contains(rec.Body.String(), "Wrong user or password") {
+		t.Fatalf("factory password still accepted: %d", rec.Code)
+	}
+	if rec := e.do("POST", "/login", url.Values{"user": {"admin"}, "password": {"Correct-Horse-9"}}, false); rec.Code != 303 || rec.Header().Get("Location") != "/" {
+		t.Fatalf("new password login: %d -> %q", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+func csrfOf(t *testing.T, page string) string {
+	t.Helper()
+	m := reCSRF.FindStringSubmatch(page)
+	if m == nil {
+		t.Fatalf("no CSRF token in the page:\n%s", page)
+	}
+	return m[1]
 }
