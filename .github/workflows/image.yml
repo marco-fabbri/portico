@@ -52,16 +52,18 @@ jobs:
       - uses: hashicorp/setup-packer@v3
         with:
           version: "1.11.2"
-      - name: Packer build
+      - name: Packer build (install, then provision)
         working-directory: image
         env:
           PACKER_LOG: "0"
           # The plugin getter asks the GitHub API; unauthenticated it is rate limited.
           PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ../image/build.sh "$VER" "$PWD/../dist/portico"
+      - name: Serial consoles
+        if: always()
         run: |
-          packer init portico.pkr.hcl
-          packer build -color=false -var "version=$VER" -var "binary=$PWD/../dist/portico" portico.pkr.hcl
-          ls -la output
+          echo "== install stage"; tail -n 80 image/output-install/serial-install.log 2>/dev/null || echo "(no install log)"
+          echo "== provision stage"; tail -n 40 image/output/serial-provision.log 2>/dev/null || echo "(no provision log)"
       - name: Collect
         run: |
           mkdir -p release

@@ -17,7 +17,7 @@ rootpw --lock
 # The build user exists for Packer's SSH session only; scripts/poweroff.sh
 # removes it before the image is closed.
 user --name=build --groups=wheel --plaintext --password=portico-build
-reboot
+poweroff
 
 %pre --erroronfail --log=/tmp/ks-pre.log
 # Review Focus 5: a disk smaller than the layout stops the installation

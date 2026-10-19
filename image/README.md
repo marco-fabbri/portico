@@ -3,7 +3,8 @@
 `portico-<version>.qcow2`: Rocky Linux 9 with Portico, Keycloak,
 PostgreSQL, cloudflared and the console wizard installed, hardened with
 OpenSCAP (`oscap/`), built from the boot ISO with `portico.ks` by Packer
-(`portico.pkr.hcl`). Legacy BIOS boot, 40 GiB disk, 2 vCPU and 6 GiB RAM
+(`portico.pkr.hcl`, two stages: anaconda from its kernel and initrd booted
+directly, then provisioning over SSH on the installed disk). Legacy BIOS boot, 40 GiB disk, 2 vCPU and 6 GiB RAM
 recommended at creation.
 
 | File | Role |

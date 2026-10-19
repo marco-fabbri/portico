@@ -49,7 +49,7 @@ jobs:
         with:
           version: "1.11.2"
       - name: packer validate
-        run: cd image && packer init portico.pkr.hcl && packer validate -var version=0.0.0 -var binary=/bin/true portico.pkr.hcl
+        run: cd image && mkdir -p boot && touch boot/initrd.img && packer init portico.pkr.hcl && packer validate -var version=0.0.0 -var binary=/bin/true portico.pkr.hcl
       - name: kickstart
         run: pipx install pykickstart && ksvalidator -v RHEL9 image/portico.ks
       - name: tailoring is well-formed and names the profile
