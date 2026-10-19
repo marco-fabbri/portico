@@ -81,6 +81,7 @@ curl
 tar
 sudo
 -cockpit*
+-rsyslog
 -iwl*-firmware
 -plymouth*
 %end
@@ -121,4 +122,5 @@ SystemMaxUse=1G
 JD
 mkdir -p /var/log/journal
 systemctl mask systemd-journal-remote.socket
+systemctl mask rsyslog.service 2>/dev/null || true
 %end

@@ -57,6 +57,10 @@ source "qemu" "install" {
   format           = "qcow2"
   disk_size        = "40G"
   disk_interface   = "virtio"
+  # fstrim in the guest reaches the image: blocks freed by the cleanup
+  # are not stored (without this the qcow2 kept every deleted cache).
+  disk_discard     = "unmap"
+  disk_detect_zeroes = "unmap"
   net_device       = "virtio-net"
   accelerator      = var.accelerator
   cpus             = 2
@@ -91,6 +95,8 @@ source "qemu" "provision" {
   format           = "qcow2"
   disk_size        = "40G"
   disk_interface   = "virtio"
+  disk_discard     = "unmap"
+  disk_detect_zeroes = "unmap"
   disk_compression = true
   net_device       = "virtio-net"
   accelerator      = var.accelerator
