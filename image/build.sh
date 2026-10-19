@@ -9,7 +9,7 @@ MIRROR=${3:-https://dl.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os}
 # Anaconda's kernel and initrd, booted directly (no ISO menu).
 mkdir -p boot
 for f in vmlinuz initrd.img; do
-  [ -s "boot/$f" ] || curl -fsSL -o "boot/$f" "$MIRROR/images/pxeboot/$f"
+  [ -s "boot/$f" ] || curl -fsSL --retry 5 --retry-all-errors --http1.1 -o "boot/$f" "$MIRROR/images/pxeboot/$f"
 done
 ls -la boot
 rm -rf output-install output serial-install.log serial-provision.log
