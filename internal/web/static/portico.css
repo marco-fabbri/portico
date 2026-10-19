@@ -1,51 +1,116 @@
-:root { --accent: #1f5f8b; --bg: #f4f6f8; --fg: #1d2b36; --muted: #5f6f7c; --line: #d9e0e6; --ok: #2e7d32; --warn: #b26a00; --bad: #b3261e; }
+/* Portico admin UI. Light warm ground, graphite text, the accent only
+   where one acts (primary button, current tab, links on hover). The
+   MSP login page on Keycloak uses the same fonts on the accent colour. */
+@font-face { font-family: "Red Hat Display"; font-weight: 400 700; src: url(fonts/RedHatDisplayVF.woff2) format("woff2-variations"); }
+@font-face { font-family: "Red Hat Text"; font-weight: 400 700; src: url(fonts/RedHatTextVF.woff2) format("woff2-variations"); }
+:root {
+  --accent: #a73422; --accent-hover: #8f2b1b;
+  --bg: #f6f4f0; --surface: #fff; --surface-soft: #faf9f6;
+  --fg: #1d1d1b; --muted: #6b6762; --faint: #8a867f;
+  --line: #e4e0d9; --line-soft: #efece6;
+  --ok: #245c31; --ok-bg: #e6f1e8; --ok-line: #c3dcc8;
+  --warn: #7a4a00; --warn-bg: #fbefd9; --warn-line: #f0d6a6;
+  --bad: #8a2415; --bad-bg: #f8e3df; --bad-line: #e8bdb4;
+  --neutral: #5f5c57; --neutral-bg: #ecebe7;
+  --display: "Red Hat Display", "Helvetica Neue", Arial, sans-serif;
+  --text: "Red Hat Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 * { box-sizing: border-box; }
-body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
-header.top { display: flex; justify-content: space-between; align-items: center; padding: .6rem 1.2rem; background: var(--fg); color: #fff; }
-header.top .brand { display: inline-flex; align-items: center; gap: .5rem; color: #fff; text-decoration: none; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
-header.top .brand .mark { height: 1.4rem; width: auto; }
-header.top nav { display: flex; gap: 1rem; align-items: center; }
-header.top .who { opacity: .8; }
-main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1rem; }
-footer { text-align: center; color: var(--muted); font-size: .85rem; padding: 2rem 0; }
-.card { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 1.2rem 1.5rem; margin-bottom: 1.2rem; }
-.card.narrow { max-width: 420px; margin: 3rem auto; }
-h1 { font-size: 1.35rem; margin: 0 0 .6rem; }
-h2 { font-size: 1.05rem; margin: 1.2rem 0 .5rem; }
+body { margin: 0; font: 15px/1.5 var(--text); color: var(--fg); background: var(--bg); }
+a { color: var(--fg); }
+a:hover { color: var(--accent); }
+
+/* Header: white, the black mark and the wordmark, section tabs. */
+header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 1.5rem; min-height: 60px; padding: 0 2rem; background: var(--surface); border-bottom: 1px solid var(--line); }
+header.top .brand { display: inline-flex; align-items: center; gap: .6rem; color: var(--fg); text-decoration: none; font-family: var(--display); font-weight: 700; font-size: 1.1rem; letter-spacing: .14em; text-transform: uppercase; }
+header.top .brand .mark { height: 1.5rem; width: auto; }
+header.top nav { display: flex; align-self: stretch; align-items: stretch; gap: .25rem; margin-left: 1rem; }
+header.top nav a { display: flex; align-items: center; padding: 0 .9rem; color: var(--muted); font-weight: 500; text-decoration: none; border-bottom: 3px solid transparent; }
+header.top nav a:hover { color: var(--fg); }
+header.top nav a[aria-current="page"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent); }
+header.top .who { margin-left: auto; color: var(--muted); font-size: .9rem; }
+header.top button.quiet { font: inherit; font-weight: 500; font-size: .9rem; padding: .35rem .75rem; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--fg); cursor: pointer; }
+header.top button.quiet:hover { border-color: var(--fg); }
+
+main { max-width: 1120px; margin: 0 auto; padding: 2.2rem 1.5rem 3rem; }
+footer { text-align: center; color: var(--faint); font-size: .85rem; padding: 0 1rem 1.8rem; }
+
+/* Headings: Red Hat Display; the page head sits outside the cards. */
+h1, h2, .wordmark { font-family: var(--display); font-weight: 600; }
+h1 { font-size: 1.75rem; line-height: 1.2; margin: 0 0 .6rem; }
+h2 { font-size: 1.1rem; margin: 0 0 .7rem; }
+.page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.4rem; }
+.page-head h1 { margin: 0; }
+.page-head p { margin: .3rem 0 0; color: var(--muted); }
+.page-head .actions { margin: 0; }
+nav.crumbs { display: flex; gap: .5rem; margin-bottom: .6rem; font-size: .9rem; color: var(--muted); }
+nav.crumbs a { color: var(--muted); text-decoration: none; }
 .muted { color: var(--muted); }
-label { display: block; margin: .7rem 0; }
-label input, label select, label textarea { display: block; width: 100%; margin-top: .25rem; padding: .45rem .55rem; border: 1px solid var(--line); border-radius: 4px; font: inherit; }
-button, .button { font: inherit; padding: .45rem .9rem; border-radius: 4px; border: 1px solid var(--line); background: #fff; color: var(--fg); cursor: pointer; text-decoration: none; display: inline-block; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-button.danger { color: var(--bad); border-color: var(--bad); }
-button.link { background: none; border: none; color: #fff; text-decoration: underline; padding: 0; }
+.small { font-size: .9rem; }
+.strong { font-weight: 600; text-decoration: none; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1.3rem 1.5rem; margin-bottom: 1.3rem; }
+.card.narrow { max-width: 420px; margin: 0 auto 2rem; box-shadow: 0 10px 30px rgba(29, 29, 27, .06); }
+
+/* The admin login: the mark and the wordmark above the card. */
+.lockup { display: flex; flex-direction: column; align-items: center; gap: .8rem; margin: 2.5rem 0 1.8rem; }
+.lockup .mark-large { height: 4rem; width: auto; }
+.lockup .wordmark { font-weight: 700; font-size: 1.6rem; line-height: 1; letter-spacing: .16em; text-transform: uppercase; }
+.lockup .claim { color: var(--muted); }
+
+label { display: block; margin: .8rem 0; font-size: .95rem; font-weight: 500; }
+label input, label select, label textarea { display: block; width: 100%; margin-top: .3rem; padding: .55rem .7rem; border: 1px solid #d6d2ca; border-radius: 8px; font: inherit; font-weight: 400; color: var(--fg); background: var(--surface); }
+label input:focus, label select:focus, label textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+label .muted { display: block; font-weight: 400; font-size: .85rem; }
+label.inline { display: flex; align-items: center; gap: .5rem; font-weight: 400; }
+label.inline input { display: inline; width: auto; margin: 0; }
+label textarea { font-family: var(--mono); font-size: .85rem; }
+
+button, .button { font: inherit; font-weight: 500; padding: .55rem 1rem; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; text-decoration: none; display: inline-block; }
+button:hover, .button:hover { border-color: var(--fg); color: var(--fg); }
+button.primary, .button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button.primary:hover, .button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
+button.danger { color: var(--bad); border-color: var(--bad-line); }
+button.danger:hover { border-color: var(--bad); }
+button.link { background: none; border: none; color: var(--accent); text-decoration: underline; padding: 0; }
 form.inline { display: inline; }
-.banner { padding: .6rem .9rem; border-radius: 4px; margin-bottom: 1rem; }
-.banner.error { background: #fdecea; color: var(--bad); border: 1px solid #f5c6c2; }
-.banner.notice { background: #e8f4ea; color: var(--ok); border: 1px solid #bfe0c4; }
-.banner.warning { background: #fff3e0; color: var(--warn); border: 1px solid #f2d2a3; }
-header.top nav a { color: #fff; text-decoration: none; opacity: .85; }
-.logo-preview { max-height: 80px; max-width: 240px; display: block; margin: .4rem 0; background: #fff; }
+.actions { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; margin-top: .8rem; }
+
+.banner { padding: .7rem 1rem; border-radius: 10px; margin-bottom: 1rem; }
+.banner.error { background: var(--bad-bg); color: var(--bad); border: 1px solid var(--bad-line); }
+.banner.notice { background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-line); }
+.banner.warning { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-line); }
+.logo-preview { max-height: 80px; max-width: 240px; display: block; margin: .4rem 0; padding: .4rem; background: var(--neutral-bg); border-radius: 8px; }
+
 table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-tbody tr:nth-child(even) { background: #fafbfc; }
-.status { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-.status-creating, .status-deleting { background: #e7ebef; color: var(--muted); }
-.status-active { background: #e2f3e4; color: var(--ok); }
-.status-failed { background: #fdecea; color: var(--bad); }
-.status-disabled { background: #fff3e0; color: var(--warn); }
-.ok { color: var(--ok); } .bad { color: var(--bad); }
-pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
-pre { background: #f0f3f5; padding: .7rem; border-radius: 4px; overflow-x: auto; }
-.actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .8rem; }
-.password-box { font-size: 1.3rem; padding: .8rem; background: #f0f3f5; border-radius: 4px; user-select: all; }
-dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; }
+th { text-align: left; padding: .6rem .7rem; font-size: .75rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: var(--surface-soft); border-bottom: 1px solid var(--line); }
+td { text-align: left; padding: .7rem .7rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+tbody tr:last-child td { border-bottom: 0; }
+
+.status { display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.status-creating, .status-deleting { background: var(--neutral-bg); color: var(--neutral); }
+.status-active { background: var(--ok-bg); color: var(--ok); }
+.status-failed { background: var(--bad-bg); color: var(--bad); }
+.status-disabled { background: var(--warn-bg); color: var(--warn); }
+h1 .status { vertical-align: middle; margin-left: .3rem; }
+.ok, .step-ok { color: var(--ok); font-weight: 600; } .bad, .step-failed { color: var(--bad); font-weight: 600; }
+
+pre, code { font-family: var(--mono); font-size: .9em; }
+pre { background: var(--surface-soft); border: 1px solid var(--line-soft); padding: .7rem; border-radius: 8px; overflow-x: auto; }
+.password-box { font-family: var(--mono); font-size: 1.3rem; padding: .8rem; background: var(--surface-soft); border: 1px solid var(--line); border-radius: 8px; user-select: all; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: .4rem 1.2rem; margin: 0; font-size: .95rem; }
 dt { color: var(--muted); } dd { margin: 0; word-break: break-all; }
 
 .check-result { margin-top: .8rem; }
-.bootstrap { margin-top: 1rem; padding-top: .8rem; border-top: 1px solid var(--line); }
-.bootstrap p { color: var(--muted); margin: 0 0 .4rem; }
 .check-result .banner { margin-bottom: 0; }
-label.inline { display: flex; align-items: center; gap: .5rem; }
-label.inline input { display: inline; width: auto; margin: 0; }
-label textarea { font-family: ui-monospace, monospace; font-size: .85rem; }
+.bootstrap { margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--line-soft); }
+.bootstrap p { color: var(--muted); margin: 0 0 .4rem; }
+
+@media (max-width: 720px) {
+  header.top { padding: .5rem 1rem; gap: .75rem; }
+  header.top nav { margin-left: 0; order: 3; width: 100%; }
+  main { padding: 1.4rem 1rem 2rem; }
+  dl { grid-template-columns: 1fr; gap: .1rem; }
+  dt { margin-top: .5rem; }
+}

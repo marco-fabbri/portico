@@ -1,22 +1,8 @@
 {{define "content"}}
 {{$t := .Data.Tenant}}
-<section class="card">
-  <div class="actions" style="justify-content: space-between; margin:0">
-    <h1>{{$t.DisplayNameOr}} <span class="status status-{{$t.Status}}">{{$t.Status}}</span></h1>
-    <a class="button" href="/">All tenants</a>
-  </div>
-  {{if $t.LastError}}<div class="banner error">{{$t.LastError}}</div>{{end}}
-  <dl>
-    <dt>Slug</dt><dd>{{$t.ID}}</dd>
-    <dt>Contacts</dt><dd>{{$t.Contacts}}</dd>
-    <dt>Project</dt><dd><code>{{$t.ProjectID}}</code> {{if $t.ProjectExtID}}<span class="muted">{{$t.ProjectExtID}}</span>{{end}}</dd>
-    <dt>Resource group</dt><dd class="muted">{{$t.ResourceGroupExtID}}</dd>
-    <dt>SAML group</dt><dd class="muted">{{$t.SAMLGroupExtID}}</dd>
-    <dt>Keycloak group</dt><dd class="muted">{{$t.KeycloakGroupID}}</dd>
-    <dt>Role membership</dt><dd class="muted">{{$t.RoleMembershipExtID}}</dd>
-    <dt>IdP shared</dt><dd>{{if $t.IdPShared}}yes{{else}}no{{end}}</dd>
-    <dt>Updated</dt><dd>{{$t.UpdatedAt.Format "2006-01-02 15:04:05"}}</dd>
-  </dl>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/">Tenants</a><span aria-hidden="true">/</span><span>{{$t.ID}}</span></nav>
+<div class="page-head">
+  <h1>{{$t.DisplayNameOr}} <span class="status status-{{$t.Status}}">{{$t.Status}}</span></h1>
   <div class="actions">
     {{if eq $t.Status "active"}}
     <form method="post" action="/tenants/{{$t.ID}}/disable" class="inline"><input type="hidden" name="_csrf" value="{{.CSRF}}"><button type="submit">Disable</button></form>
@@ -35,6 +21,22 @@
     </form>
     {{end}}
   </div>
+</div>
+{{if $t.LastError}}<div class="banner error">{{$t.LastError}}</div>{{end}}
+
+<section class="card">
+  <h2>Tenant</h2>
+  <dl>
+    <dt>Slug</dt><dd>{{$t.ID}}</dd>
+    <dt>Contacts</dt><dd>{{$t.Contacts}}</dd>
+    <dt>Project</dt><dd><code>{{$t.ProjectID}}</code> {{if $t.ProjectExtID}}<span class="muted">{{$t.ProjectExtID}}</span>{{end}}</dd>
+    <dt>Resource group</dt><dd class="muted">{{$t.ResourceGroupExtID}}</dd>
+    <dt>SAML group</dt><dd class="muted">{{$t.SAMLGroupExtID}}</dd>
+    <dt>Keycloak group</dt><dd class="muted">{{$t.KeycloakGroupID}}</dd>
+    <dt>Role membership</dt><dd class="muted">{{$t.RoleMembershipExtID}}</dd>
+    <dt>IdP shared</dt><dd>{{if $t.IdPShared}}yes{{else}}no{{end}}</dd>
+    <dt>Updated</dt><dd>{{$t.UpdatedAt.Format "2006-01-02 15:04:05"}}</dd>
+  </dl>
 </section>
 
 <section class="card">
@@ -59,8 +61,10 @@
     <label>Email <input type="email" name="email" required></label>
     <label>First name <input type="text" name="first_name"></label>
     <label>Last name <input type="text" name="last_name"></label>
-    <button type="submit" class="primary">Create user</button>
-    <span class="muted">A temporary password is shown once; the user must change it at the first login.</span>
+    <div class="actions">
+      <button type="submit" class="primary">Create user</button>
+      <span class="muted small">A temporary password is shown once; the user must change it at the first login.</span>
+    </div>
   </form>
 </section>
 {{end}}

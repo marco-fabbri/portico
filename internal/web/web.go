@@ -10,6 +10,7 @@ import (
 	"html/template"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net/http"
 	"path"
 	"strings"
@@ -126,6 +127,7 @@ type page struct {
 	Admin   string
 	CSRF    string
 	Version string
+	Section string // which header tab is current: tenants, branding, setup
 	Error   string
 	Warning string
 	Notice  string
@@ -135,7 +137,7 @@ type page struct {
 // render writes a page. The admin name and CSRF token come from the
 // session when there is one.
 func (h *Handler) render(w http.ResponseWriter, r *http.Request, status int, name, title string, data any, errMsg string) {
-	p := page{Title: title, Version: h.version, Error: errMsg, Data: data}
+	p := page{Title: title, Version: h.version, Section: section(r.URL.Path), Error: errMsg, Data: data}
 	if s, ok := h.session(r); ok {
 		p.Admin = "admin"
 		p.CSRF = s.CSRF
@@ -155,6 +157,19 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request, status int, nam
 	}
 }
 
+// section names the header tab a path belongs to.
+func section(p string) string {
+	switch {
+	case p == "/" || strings.HasPrefix(p, "/tenants"):
+		return "tenants"
+	case strings.HasPrefix(p, "/settings"):
+		return "branding"
+	case strings.HasPrefix(p, "/setup"):
+		return "setup"
+	}
+	return ""
+}
+
 // static serves the embedded assets with a day of caching; traversal
 // cannot escape the embedded directory.
 func (h *Handler) static() http.Handler {
@@ -162,6 +177,9 @@ func (h *Handler) static() http.Handler {
 	if err != nil {
 		panic(err)
 	}
+	// The font files: Go's built-in table has no woff2 and the appliance
+	// may lack /etc/mime.types.
+	mime.AddExtensionType(".woff2", "font/woff2")
 	files := http.FS(sub)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := path.Clean("/" + r.URL.Path)
