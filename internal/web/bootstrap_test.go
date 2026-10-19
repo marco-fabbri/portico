@@ -169,9 +169,9 @@ func TestSetupBootstrapFailureKeepsTypedFields(t *testing.T) {
 	if strings.Contains(body, "wrong-pw-9") {
 		t.Fatal("the password reached the page")
 	}
-	rec = e.do("POST", "/setup/bootstrap/keycloak", e.form("admin_username", "kcadmin", "admin_password", "wrong-pw-9", "realm", "msp", "display_name", "Lab MSP"), true)
+	rec = e.do("POST", "/setup/bootstrap/keycloak", e.form("admin_username", "kcadmin", "admin_password", "wrong-pw-9", "realm", "msp", "display_name", "ACME MSP"), true)
 	body = rec.Body.String()
-	for _, want := range []string{"banner error", `name="admin_username" value="kcadmin"`, `name="display_name" value="Lab MSP"`, `name="admin_password" value=""`} {
+	for _, want := range []string{"banner error", `name="admin_username" value="kcadmin"`, `name="display_name" value="ACME MSP"`, `name="admin_password" value=""`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("keycloak fragment lacks %q: %d %s", want, rec.Code, body)
 		}

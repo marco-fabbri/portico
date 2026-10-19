@@ -45,11 +45,11 @@ func newEnv(t *testing.T) *env {
 	if err := st.SetAdminPassword(context.Background(), "admin", string(hash)); err != nil {
 		t.Fatal(err)
 	}
-	pc := tenanttest.NewPC("lab-idp")
+	pc := tenanttest.NewPC("portico-idp")
 	kc := tenanttest.NewKC()
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	svc := tenant.NewService(st, pc, kc, tenant.Config{SAMLIdPName: "lab-idp", ClusterExtID: "cl", StorageContainerExtID: "sc", OperationTimeout: 5 * time.Second}, log)
+	svc := tenant.NewService(st, pc, kc, tenant.Config{SAMLIdPName: "portico-idp", ClusterExtID: "cl", StorageContainerExtID: "sc", OperationTimeout: 5 * time.Second}, log)
 	brand := branding.NewService(st, log)
 	h := BasicAuth(st, "portico", log)(New(svc, st, brand, nil, log))
 	return &env{h: h, svc: svc, st: st, pc: pc, kc: kc, brand: brand, log: &buf}
@@ -198,7 +198,7 @@ func TestCreateUserReturnsPasswordOnce(t *testing.T) {
 	e := newEnv(t)
 	e.do("POST", "/api/v1/tenants", `{"slug":"acme","display_name":"ACME"}`, true)
 	e.svc.Wait()
-	rec, out := e.do("POST", "/api/v1/tenants/acme/users", `{"email":"carol@acme.test","first_name":"Carol","last_name":"Lab"}`, true)
+	rec, out := e.do("POST", "/api/v1/tenants/acme/users", `{"email":"carol@acme.test","first_name":"Carol","last_name":"Rossi"}`, true)
 	pw, _ := out["temporary_password"].(string)
 	if rec.Code != 201 || len(pw) != 20 || out["email"] != "carol@acme.test" || out["id"] == "" {
 		t.Fatalf("create user: %d %v", rec.Code, out)

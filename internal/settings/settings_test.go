@@ -40,7 +40,7 @@ func sample() Settings {
 	s.PrismCentral.TLSVerify = true
 	s.PrismCentral.CAPEM = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
 	s.PrismCentral.APIKey = "k1-api-key-secret"
-	s.PrismCentral.SAMLIdPName = "lab-idp"
+	s.PrismCentral.SAMLIdPName = "portico-idp"
 	s.Keycloak.Realm = "portico"
 	s.Keycloak.AdminClientID = "portico-admin"
 	s.Keycloak.AdminClientSecret = "kc-admin-secret"

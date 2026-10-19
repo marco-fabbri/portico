@@ -53,9 +53,9 @@ func newEnv(t *testing.T, withPassword bool, opts ...envOpt) *env {
 	}
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	pc := tenanttest.NewPC("lab-idp")
+	pc := tenanttest.NewPC("portico-idp")
 	kc := tenanttest.NewKC()
-	svc := tenant.NewService(st, pc, kc, tenant.Config{SAMLIdPName: "lab-idp", ClusterExtID: "cl", StorageContainerExtID: "sc", OperationTimeout: 5 * time.Second}, log)
+	svc := tenant.NewService(st, pc, kc, tenant.Config{SAMLIdPName: "portico-idp", ClusterExtID: "cl", StorageContainerExtID: "sc", OperationTimeout: 5 * time.Second}, log)
 	brand := branding.NewService(st, log)
 	o := Options{Store: st, Service: svc, Branding: brand, Sessions: auth.NewMemoryStore(8*time.Hour, 15*time.Minute), Limiter: api.NewLimiter(), Secure: true, Version: "test", Log: log}
 	for _, f := range opts {
