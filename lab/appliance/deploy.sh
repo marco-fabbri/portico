@@ -33,7 +33,11 @@ if [ -z "$IMAGE" ]; then
     [ -n "$RUN" ] || { echo "no successful image build; give --run ID or --image PATH" >&2; exit 1; }
   fi
   rm -rf "$A/artifact"; mkdir -p "$A/artifact"
-  gh run download "$RUN" -n "portico-$VERSION" -D "$A/artifact"
+  # 2.7 GB from the artifact store: a timeout mid-way is common over a VPN.
+  for attempt in 1 2 3; do
+    gh run download "$RUN" -n "portico-$VERSION" -D "$A/artifact" && break
+    echo "download attempt $attempt failed; retrying" >&2; rm -rf "$A/artifact"; mkdir -p "$A/artifact"; sleep 5
+  done
   IMAGE="$A/artifact/portico-$VERSION.qcow2"
 fi
 [ -s "$IMAGE" ] || { echo "image not found: $IMAGE" >&2; exit 1; }
