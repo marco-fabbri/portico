@@ -1,34 +1,79 @@
 # Portico
 
-**Multi-tenant service layer for Nutanix Prism Central**
+[![CI](https://github.com/marco-fabbri/portico/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/marco-fabbri/portico/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Prism Central pc.7.6](https://img.shields.io/badge/Prism%20Central-pc.7.6%2B-024DA1.svg)](#requirements)
+[![Keycloak 26](https://img.shields.io/badge/Keycloak-26-4D4D4D.svg?logo=keycloak&logoColor=white)](#what-it-does)
+[![Go](https://img.shields.io/badge/Go-1.27-00ADD8.svg?logo=go&logoColor=white)](go.mod)
+[![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange.svg)](#status-and-validation)
 
-Portico is a virtual appliance that runs inside a Nutanix cluster and acts as
-the single, authenticated entry point through which a managed service
-provider's tenants reach Nutanix services. The first service is Prism
-Central; later services (Nutanix Enterprise AI, Nutanix Kubernetes Platform)
-plug into the same identity and the same tenant model.
+A virtual appliance that runs inside a Nutanix cluster and acts as the
+**single, authenticated entry point** through which a managed service
+provider's tenants reach **Nutanix Prism Central**. One Go binary fronts
+Prism Central and Keycloak on two public names, lets nothing through
+without a login, creates a tenant in one action and keeps platform
+administration on an internal listener. Later services (Nutanix
+Kubernetes Platform, Nutanix Enterprise AI) plug into the same identity
+and the same tenant model.
 
-Portico does not replace Nutanix Central. It fills the gap for the small MSP
-that wants to expose services to its own tenants on top of one or more Prism
-Central instances, without a hyperscaler-sized control plane. Tenants are
-created with the same primitive Nutanix's own SP Central uses,
+> [!IMPORTANT]
+> **Independent project.** Portico is not affiliated with, endorsed by or
+> supported by Nutanix. Nutanix, Prism Central, AHV, NKP and related names
+> are trademarks of Nutanix, Inc. Keycloak is a trademark of Red Hat, Inc.
+>
+> **No Nutanix software or documentation is distributed here.** Portico
+> talks to a Prism Central you already run under your own licence, through
+> its public v4 APIs; the Nutanix guides it was built against stay on the
+> Nutanix portal.
+>
+> **Pre-release.** Portico is built in the open, milestone by milestone,
+> and has no installable release yet: the appliance image is the next
+> milestone. Everything below was validated on one lab cluster (see
+> [Status and validation](#status-and-validation)). It is provided "as is",
+> without warranty (see [License](#license)). Do not put it in front of
+> customers yet.
+
+## What it does
+
+Portico does not replace Nutanix Central. It fills the gap for the small
+MSP that wants to expose services to its own tenants on top of one or more
+Prism Central instances, without a hyperscaler-sized control plane.
+Tenants are created with the same primitive Nutanix's own SP Central uses,
 a Projects 2.0 project per tenant with group-based role mapping and no
 global roles: an MSP that later adopts SP Central finds tenants it
 recognises. Portico is the path towards it, not a detour.
 
-## What it does (step 1)
+| Piece | What it does |
+|---|---|
+| **Public path** | `prism.<msp>.example` and `id.<msp>.example` behind a Cloudflare Tunnel or directly on port 443, same guarantees in both modes. No Portico session, no request to Prism Central: the public path fails closed, also with the identity provider down |
+| **Identity** | Keycloak (OIDC for Portico, SAML for Prism Central): one login for the tenant user, MFA and brokering to the customer's directory available. Prism Central local accounts, `admin` included, can never log in from outside: every local-login path and every `Authorization` header is refused |
+| **Tenant arrival** | One action creates a Projects 2.0 project with its resource group, a group in Keycloak, the SAML group and a project-scoped role membership in Prism Central, then runs a visibility check. Tenants can be disabled, enabled and deleted; users get a one-time temporary password |
+| **Branding** | The Keycloak login page, Portico's landing page and its error pages carry the MSP's name, claim, colour and logo |
+| **Admin path** | A web UI and a JSON API on an internal listener only, with a break-glass account; a raw pass-through to Prism Central for administrators |
+| **Settings** | Stored in Portico's own database, secrets sealed with a master key the appliance creates at first start. A fresh appliance configures itself from the setup page: Portico creates its service account in Prism Central, the Keycloak realm and clients and the SAML trust from one-time credentials it never stores |
 
-- Puts one Prism Central behind a public URL, through a Cloudflare Tunnel or
-  directly on port 443, with the same security guarantees in both modes.
-- Authenticates every public request against an identity provider (Keycloak)
-  before it reaches Prism Central. Prism Central trusts the same identity
-  provider via SAML: one login for the tenant user.
-- Never lets a Prism Central local account (including `admin`) log in from
-  the public path, even when the identity provider is down.
-- Creates a tenant in one action: a Projects 2.0 project in Prism Central, a
-  group in the identity provider, a role mapping, a first user, and an
-  automated visibility check.
-- Keeps platform administration on an internal listener only.
+```mermaid
+flowchart LR
+    subgraph Internet
+        T["Tenant user"]
+    end
+    subgraph Appliance ["Portico appliance (2 vCPU, 6 GiB)"]
+        P["portico (Go)<br/>proxy, policy, sessions,<br/>tenant provisioning, admin UI"]
+        K["Keycloak<br/>OIDC + SAML"]
+        DB["SQLite store<br/>sealed secrets"]
+    end
+    subgraph Nutanix ["Nutanix cluster"]
+        PC["Prism Central pc.7.6<br/>Projects 2.0"]
+    end
+    A["MSP administrator<br/>(LAN / VPN)"]
+
+    T -->|"443, Portico session required"| P
+    T -->|"login"| K
+    P -->|"9440, service account"| PC
+    K -->|"SAML trust"| PC
+    P --- DB
+    A -->|"8443 admin UI and API"| P
+```
 
 ## Why "Portico"
 
@@ -45,57 +90,113 @@ word with no vendor name in it, and `portico serve` reads well.
 
 ## What it is not
 
-- Not a replacement for Nutanix Central or SP Central. Portico
-  creates tenants with the same primitive SP Central uses, so an MSP that
-  later adopts Nutanix Central finds tenants it can recognise.
-- Not a second Prism Central: Portico orchestrates, it does not copy state it
-  does not own.
+- Not a replacement for Nutanix Central or SP Central: an MSP that later
+  adopts them finds tenants it can recognise.
+- Not a second Prism Central: Portico orchestrates, it does not copy state
+  it does not own.
 - Not dependent on Cloudflare for security: direct exposure is as safe as
   tunnelled exposure.
 
-## Supported platform
+## Requirements
 
-Prism Central **pc.7.6 and later** (Projects 2.0). Older releases use a
-different project model and are out of scope.
+- **Prism Central pc.7.6 or later** (Projects 2.0). Older releases use a
+  different project model and are out of scope; a legacy adapter, if ever,
+  would come with reduced guarantees.
+- Port 9440 of Prism Central reachable only from Portico's internal
+  address and the MSP management network: Portico checks what it can from
+  its own address, the network enforces it.
+- An account that can create users and edit authorization policies, used
+  once by the setup page to create Portico's own service account; an
+  administrator's credentials once more for the SAML trust, which the
+  service account's role cannot create (measured, write-up 15).
+- Appliance footprint target: 2 vCPU, 6 GiB RAM, 40 GiB disk for Portico,
+  Keycloak, PostgreSQL and the optional `cloudflared`.
 
-## Status
+## Status and validation
 
-**Milestone 2e: a fresh appliance configures itself from the setup
-page.** `portico serve` fronts Prism Central and Keycloak on two public
-names, requires a Keycloak login before any request reaches Prism Central,
-refuses every local-login path and every `Authorization` header measured
-on pc.7.6, and offers an internal pass-through for administrators. A
-tenant user signs in once on a Keycloak page carrying the MSP's name,
-colour and logo, passes through Portico's landing page and lands in the
-console: Portico starts the SAML login itself. When the identity provider
-is down the browser gets a branded page. On the internal listener an
-administrator signs in with the break-glass account, sets the branding,
-and creates a tenant end to end (Keycloak group, Projects 2.0 project with
-resource group, SAML group, identity provider sharing, project-scoped role
-membership, visibility check), follows the steps, creates its first user,
-disables, enables and deletes it; the same actions are a JSON API for
-scripts. The runtime settings are stored in Portico's database, sealed
-with a master key the service creates at its first start; the YAML keeps
-the process settings only. A fresh appliance starts in setup mode (admin
-listener only) and is configured card by card: Portico creates the
-`portico` service account and its key in Prism Central, the Keycloak realm
-with its two clients, and the SAML trust between the two, each from
-one-time credentials it never stores; then "Apply and restart" opens the
-public path. Measured on the lab: 41 s from empty store to running.
-Milestone 2f closed the small findings left by the reviews (password
-policy on the realm Portico creates, login restarted when its state
-expired, logo above the realm name, store failures reported as the
-appliance's, no start limit on the service); the older ones are listed
-in [`docs/backlog.md`](docs/backlog.md). A layout pass then gave the login
-page its final shape (the MSP lockup and claim on the accent colour, the
-card centred under them) and Portico's own pages their mark; the admin UI
-took the same voice (white header with the mark, section tabs, Red Hat
-fonts shipped in the binary, setup cards that say what is configured).
-Next: the appliance image (Milestone 3).
-The design document is in
-[`docs/superpowers/specs/2026-10-17-portico-design.md`](docs/superpowers/specs/2026-10-17-portico-design.md),
-lab measurements in `docs/lab/`, decisions in `docs/adr/`.
+Everything was measured on Prism Central pc.7.6.0.6 (AOS 7.6, single-node
+AHV cluster) and Keycloak 26.3 on a Rocky Linux 9 VM, by the scripts in
+`lab/` and by hand in a browser. Each row has a write-up in
+[`docs/lab/`](docs/lab/) saying what was measured, on which version, and
+how to measure again after an upgrade.
+
+| Milestone | Result |
+|---|---|
+| 0 Lab measurements, 2026-10-17 | SAML works behind a public name (per-IdP SP metadata); the local-login endpoints of pc.7.6 recorded; six v4 calls make a tenant; the console's four API generations and the VNC WebSocket measured; a service account with an API key in `Project Manager_acp` does the whole tenant cycle (write-ups 01 to 08) |
+| 1 Core binary, 2026-10-17 | A browser reaches the console only after the Keycloak login; `curl -u admin:…` and every other `Authorization` scheme get 403 from Portico; VM console WebSockets through the proxy; fail closed with Keycloak down; 8 MiB binary (write-ups 09, 10, 12) |
+| 2 Tenant arrival, 2026-10-18 | Tenant created in 77 s with seven recorded steps, its user signs in once with a forced password change and sees only her project; disable locks her out; deletion leaves `_internal` unchanged. Admin UI and JSON API; MSP branding on the Keycloak login page; settings sealed in the store; a fresh appliance bootstrapped from the setup page in 41 s (write-ups 11 to 18) |
+| 3 Appliance image | Rocky Linux 9 qcow2 with the CIS Level 1 Server baseline, console wizard, `cloudflared` option: **next** |
+| 4 First release | Install guide, release artefacts, known limits: later |
+
+Not verified yet: more than one Prism Central behind one Portico, tenant
+API keys, brokering to a customer's own directory, brownfield projects,
+any production load. Deferred findings of the reviews are listed in
+[`docs/backlog.md`](docs/backlog.md).
+
+## Security considerations
+
+The design turns on four rules, and the code is reviewed against them
+(see [`SECURITY.md`](SECURITY.md) to report a finding):
+
+- the public path fails closed: no Portico session, no request to Prism
+  Central, whatever the identity provider is doing;
+- Prism Central local accounts never authenticate from outside, in any
+  exposure mode;
+- Portico works through its own `portico` service account and never
+  stores a human administrator's credentials; the one-time credentials of
+  the setup page travel in that request only;
+- secrets at rest are sealed with a master key that never leaves the
+  appliance (`/var/lib/portico/master.key`, mode 0600, created at first
+  start).
+
+Lab defaults that must change before any real use: the lab certificate
+authority, `tls_verify: false` towards a Prism Central with a self-signed
+certificate, and the break-glass password set by the lab deploy script.
+
+## Repository layout
+
+```
+cmd/portico/          main: serve | settings import|show | admin set-password | version
+internal/
+  proxy/              reverse proxy, public policy, landing and error pages
+  auth/               OIDC login, sessions
+  idp/keycloak/       Keycloak admin client
+  nutanix/            Prism Central v4 client, service-account bootstrap
+  tenant/             tenant model and provisioning steps
+  settings/           runtime settings, checks, bootstraps
+  secrets/ store/     sealing, SQLite
+  branding/           MSP branding, generated Keycloak theme
+  web/ api/           admin UI (templates, HTMX) and JSON API
+deploy/               systemd unit, example configuration
+lab/                  scripts that drive the lab (Prism Central, VM, Keycloak)
+docs/
+  superpowers/specs/  the design document
+  superpowers/plans/  the plan each milestone was built from
+  adr/                decisions
+  lab/                measurements, one write-up per question
+  backlog.md          deferred findings
+```
+
+## Building and testing
+
+Go 1.27 or later, nothing else: templates, HTMX and fonts are embedded
+in the binary.
+
+```
+go build ./cmd/portico
+go test ./...
+```
+
+The tests run against fakes of Prism Central and Keycloak. The lab
+scripts drive the real ones and need a lab of your own;
+[`CONTRIBUTING.md`](CONTRIBUTING.md) says how the project is built (plan,
+test first, measure on the lab, English everywhere, no secrets).
 
 ## License
 
-Apache License 2.0. See [`LICENSE`](LICENSE).
+Copyright 2026 Marco Fabbri.
+
+Licensed under the Apache License, Version 2.0; see [`LICENSE`](LICENSE).
+This licence covers the content of this repository only. It grants no
+rights to Nutanix software or trademarks, and Portico grants no product
+entitlement: the Prism Central it fronts is licensed by Nutanix to you.
