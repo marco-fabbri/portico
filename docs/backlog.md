@@ -76,10 +76,6 @@ it; the Milestone 2f sweep closed the 2d and 2e items listed at the end.
 - Two concurrent branding saves can race cache, store and the theme `.tmp`
   files (mutex across `Set`, `internal/branding`).
 - `min_display_ms` rounds down to whole seconds (label the field).
-- Keycloak login page layout: the realm name under the logo is readable
-  now but plain and redundant with a logo that already carries the name
-  (Marco, 2026-10-18); a layout pass on the login page is planned after
-  Milestone 2f (hide the name when a logo is set, or style it).
 - The branding save logs the MSP name value (the plan said field names).
 - `Validate` does not trim the MSP name on the API path.
 - Config validation accepts `prism_host == id_host`; a TLS private key

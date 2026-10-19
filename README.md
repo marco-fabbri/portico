@@ -86,7 +86,9 @@ Milestone 2f closed the small findings left by the reviews (password
 policy on the realm Portico creates, login restarted when its state
 expired, logo above the realm name, store failures reported as the
 appliance's, no start limit on the service); the older ones are listed
-in [`docs/backlog.md`](docs/backlog.md).
+in [`docs/backlog.md`](docs/backlog.md). A layout pass then gave the login
+page its final shape (the MSP lockup and claim on the accent colour, the
+card centred under them) and Portico's own pages their mark.
 Next: the appliance image (Milestone 3).
 The design document is in
 [`docs/superpowers/specs/2026-10-17-portico-design.md`](docs/superpowers/specs/2026-10-17-portico-design.md),
