@@ -108,6 +108,10 @@ if [ "$(mode "$d/etc/portico/tls/internal.key")" = 640 ] && openssl x509 -in "$d
 first=$(grep KC_BOOTSTRAP_ADMIN_PASSWORD "$d/etc/portico/keycloak.env"); firstkey=$(cat "$d/etc/portico/tls/internal.key")
 bash deploy/install.sh --render-only "$d" --binary "$bin" >/dev/null 2>&1
 if [ "$(grep KC_BOOTSTRAP_ADMIN_PASSWORD "$d/etc/portico/keycloak.env")" = "$first" ] && [ "$(cat "$d/etc/portico/tls/internal.key")" = "$firstkey" ]; then ok "install.sh keeps the secrets on a second run"; else ko "install.sh regenerated a secret"; fi
+# Milestone 3 Task 5: the appliance lab scripts keep the Prism password off the command line and off the tfvars file.
+if grep -q 'TF_VAR_nutanix_password="$PC_PASS"' lab/appliance/deploy.sh && ! grep -q '^nutanix_password' lab/appliance/deploy.sh; then ok "appliance deploy.sh passes the password in the environment only"; else ko "appliance deploy.sh leaks the password"; fi
+out=$(env -i PATH="$PATH" HOME="$HOME" bash lab/appliance/deploy.sh 2>&1); rc=$?
+if [ "$rc" -ne 0 ] && grep -q 'source lab/env.sh' <<<"$out"; then ok "appliance deploy.sh needs lab/env.sh"; else ko "appliance deploy.sh ran without env (rc=$rc)"; fi
 # 443 and 8443 only: the pass-through binds the loopback until an administrator moves it to an internal interface (design 4.2).
 if grep -q 'port="443"' "$d/etc/firewalld/services/portico.xml" && grep -q 'port="8443"' "$d/etc/firewalld/services/portico.xml" && ! grep -q 'port="9440"' "$d/etc/firewalld/services/portico.xml" && ! grep -q 'port="8080"' "$d/etc/firewalld/services/portico.xml"; then ok "firewalld service: 443 and 8443 only"; else ko "firewalld service ports"; fi
 if grep -q 'PermitRootLogin no' "$d/etc/ssh/sshd_config.d/00-portico.conf" && grep -q 'PasswordAuthentication no' "$d/etc/ssh/sshd_config.d/00-portico.conf"; then ok "sshd: key only, no root"; else ko "sshd policy"; fi

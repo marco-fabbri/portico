@@ -23,7 +23,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      VERSION: ${{ github.event.inputs.version || github.ref_name }}
+      # A tag names the version; a manual run gives it; a branch build is 0.0.0-dev.
+      VERSION: ${{ github.event.inputs.version || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || '0.0.0-dev' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -55,6 +56,8 @@ jobs:
         working-directory: image
         env:
           PACKER_LOG: "0"
+          # The plugin getter asks the GitHub API; unauthenticated it is rate limited.
+          PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           packer init portico.pkr.hcl
           packer build -color=false -var "version=$VER" -var "binary=$PWD/../dist/portico" portico.pkr.hcl
