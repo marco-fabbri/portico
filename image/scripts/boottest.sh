@@ -20,7 +20,7 @@ if command -v tofu >/dev/null; then
   # (tofu console inside the module waited on the Nutanix provider on the
   # runner); a timeout guards it where the command exists.
   TO=""; command -v timeout >/dev/null && TO="timeout 120"
-  KEYFILE='[connection]\nid=eth0\ntype=ethernet\ninterface-name=eth0\nautoconnect=true\n\n[ipv4]\nmethod=manual\naddress1=10.0.2.15/24,10.0.2.2\ndns=10.0.2.3;\n\n[ipv6]\nmethod=disabled\n'
+  KEYFILE=$'[connection]\nid=eth0\ntype=ethernet\ninterface-name=eth0\nautoconnect=true\n\n[ipv4]\nmethod=manual\naddress1=10.0.2.15/24,10.0.2.2\ndns=10.0.2.3;\n\n[ipv6]\nmethod=disabled\n'
   (cd scripts/render-user-data && $TO tofu init -input=false -backend=false >/dev/null 2>&1 && printf '%s\n' 'local.user_data' | $TO tofu console -input=false -var hostname=boottest -var nic=eth0 -var "ssh_public_key=$KEY" -var "keyfile=$KEYFILE" 2>/dev/null | sed 's/^<<EOT$//; s/^EOT$//' > "$W/user-data")
   grep -q '^#cloud-config' "$W/user-data" || { echo "boottest: the module's template did not render"; cat "$W/user-data"; exit 1; }
   echo "boottest: user data rendered from deploy/tofu/nutanix/cloud-init.tftpl"
