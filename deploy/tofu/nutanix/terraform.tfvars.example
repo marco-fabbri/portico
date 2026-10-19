@@ -1,0 +1,22 @@
+# Copy to terraform.tfvars (gitignored) and fill in; nutanix_password may
+# come from TF_VAR_nutanix_password instead of this file.
+nutanix_endpoint     = "10.0.0.10"
+nutanix_username     = "admin"
+nutanix_password     = ""
+nutanix_insecure     = true
+nutanix_cluster_name = "NTNX-01"
+nutanix_subnet_name  = "MGMT"
+nutanix_subnet_ipam  = false
+
+portico_version = "0.1.0"
+vm_name         = "portico"
+
+# Optional: the network at first boot; leave it out to use the console wizard.
+network = {
+  address = "10.0.0.20"
+  prefix  = 24
+  gateway = "10.0.0.254"
+  dns     = ["10.0.0.53"]
+}
+# Optional: SSH access as "admin" with this key.
+ssh_public_key = ""
