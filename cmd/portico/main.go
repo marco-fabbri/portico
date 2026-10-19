@@ -67,6 +67,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			usage(stderr)
 			return 2
 		}
+	case "console":
+		cfg, ok := loadConfig("console", args[1:], stderr)
+		if !ok {
+			return configExit(cfg)
+		}
+		return runConsole(cfg, stdin, stdout)
 	case "admin":
 		if len(args) < 2 || args[1] != "set-password" {
 			usage(stderr)
@@ -142,7 +148,7 @@ func setAdminPassword(cfg *config.Config, stdin io.Reader, stdout, stderr io.Wri
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "usage: portico serve -config PATH | portico admin set-password -config PATH | portico settings import|show -config PATH | portico version")
+	fmt.Fprintln(w, "usage: portico serve -config PATH | portico console -config PATH | portico admin set-password -config PATH | portico settings import|show -config PATH | portico version")
 }
 
 // newLogger returns a JSON logger on w at the configured level.

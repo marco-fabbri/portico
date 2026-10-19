@@ -1,0 +1,134 @@
+package console
+
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"strings"
+	"testing"
+	"time"
+)
+
+// A self-signed pair for the tests, never checked in.
+func testPair(t *testing.T, name string) (certPEM, keyPEM string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: name}, DNSNames: []string{name}, NotBefore: time.Now(), NotAfter: time.Now().Add(24 * time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kder, _ := x509.MarshalECPrivateKey(key)
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: kder}))
+}
+
+const sampleYAML = "public:\n  listen: \":443\"                 # tunnel mode: \"127.0.0.1:8080\" with no tls block\n  tls:                           # both empty = plain HTTP behind cloudflared\n    cert_file: /etc/portico/tls/public.crt\n    key_file: /etc/portico/tls/public.key\n  prism_host: prism.msp.example\n"
+
+func TestAdminPasswordScreenExecsSetPasswordAsPortico(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true})
+	out := run(t, sys, "2\nCorrect-Horse-9\nCorrect-Horse-9\n0\n")
+	if len(sys.execs) != 1 || strings.Join(sys.execs[0], " ") != "runuser -u portico -- /usr/local/bin/portico admin set-password -config /etc/portico/portico.yaml" {
+		t.Fatalf("execs: %v", sys.execs)
+	}
+	if sys.stdins[0] != "Correct-Horse-9\n" {
+		t.Fatalf("password not passed on stdin: %q", sys.stdins[0])
+	}
+	if strings.Contains(out, "Correct-Horse-9") {
+		t.Fatalf("password echoed:\n%s", out)
+	}
+}
+
+func TestAdminPasswordScreenRefusesAMismatchAndAShortOne(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true})
+	out := run(t, sys, "2\nCorrect-Horse-9\nOther\n2\nshort\n0\n")
+	if len(sys.execs) != 0 || !strings.Contains(out, "do not match") || !strings.Contains(out, "at least 12") {
+		t.Fatalf("execs %v:\n%s", sys.execs, out)
+	}
+}
+
+func TestExposureDirectInstallsTheCertificateAndRestartsPortico(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true})
+	certPEM, keyPEM := testPair(t, "prism.msp.example")
+	sys.files["/root/public.crt"] = []byte(certPEM)
+	sys.files["/root/public.key"] = []byte(keyPEM)
+	sys.files["/etc/portico/portico.yaml"] = []byte(strings.Replace(sampleYAML, `":443"`, `"127.0.0.1:8080"`, 1))
+	run(t, sys, "3\n1\n/root/public.crt\n/root/public.key\n0\n")
+	if string(sys.files["/etc/portico/tls/public.crt"]) != certPEM || string(sys.files["/etc/portico/tls/public.key"]) != keyPEM {
+		t.Fatalf("files not installed")
+	}
+	if sys.modes["/etc/portico/tls/public.key"] != 0o640 || sys.modes["/etc/portico/tls/public.crt"] != 0o644 {
+		t.Fatalf("modes %o %o", sys.modes["/etc/portico/tls/public.crt"], sys.modes["/etc/portico/tls/public.key"])
+	}
+	if !sys.execd("systemctl", "disable", "--now", "cloudflared") || !sys.execd("systemctl", "restart", "portico") {
+		t.Fatalf("execs: %v", sys.execs)
+	}
+	if y := string(sys.files["/etc/portico/portico.yaml"]); !strings.Contains(y, "listen: \":443\"") || !strings.Contains(y, "cert_file: /etc/portico/tls/public.crt") {
+		t.Fatalf("yaml not switched to direct mode:\n%s", y)
+	}
+}
+
+func TestExposureDirectRefusesAKeyThatDoesNotMatch(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true})
+	certPEM, _ := testPair(t, "prism.msp.example")
+	_, otherKey := testPair(t, "other.example")
+	sys.files["/root/public.crt"] = []byte(certPEM)
+	sys.files["/root/other.key"] = []byte(otherKey)
+	out := run(t, sys, "3\n1\n/root/public.crt\n/root/other.key\n0\n")
+	if _, ok := sys.files["/etc/portico/tls/public.crt"]; ok || !strings.Contains(out, "does not match") {
+		t.Fatalf("mismatched pair accepted:\n%s", out)
+	}
+}
+
+func TestExposureSelfSignedGeneratesAPairForTheNames(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true})
+	sys.files["/etc/portico/portico.yaml"] = []byte(sampleYAML)
+	out := run(t, sys, "3\n2\nprism.msp.example id.msp.example\n0\n")
+	block, _ := pem.Decode(sys.files["/etc/portico/tls/public.crt"])
+	if block == nil {
+		t.Fatalf("no certificate written:\n%s", out)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil || len(cert.DNSNames) != 2 || cert.DNSNames[0] != "prism.msp.example" || cert.DNSNames[1] != "id.msp.example" {
+		t.Fatalf("cert: %v %v", err, cert)
+	}
+	if kb, _ := pem.Decode(sys.files["/etc/portico/tls/public.key"]); kb == nil || !strings.Contains(out, "browsers will warn") || !sys.execd("systemctl", "restart", "portico") {
+		t.Fatalf("key, warning or restart missing:\n%s", out)
+	}
+}
+
+func TestExposureTunnelWritesTheTokenAndEnablesCloudflared(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true})
+	sys.files["/etc/portico/portico.yaml"] = []byte(sampleYAML)
+	out := run(t, sys, "3\n3\neyJhIjoiYiJ9.token-value\n0\n")
+	if string(sys.files["/etc/cloudflared/token"]) != "eyJhIjoiYiJ9.token-value\n" || sys.modes["/etc/cloudflared/token"] != 0o600 {
+		t.Fatalf("token file: %q mode %o", sys.files["/etc/cloudflared/token"], sys.modes["/etc/cloudflared/token"])
+	}
+	if !sys.execd("systemctl", "enable", "--now", "cloudflared") || !sys.execd("systemctl", "restart", "portico") || strings.Contains(out, "token-value") {
+		t.Fatalf("execs %v or token echoed", sys.execs)
+	}
+	// Tunnel mode: Portico's public listener moves to the loopback for cloudflared (design 4.6).
+	y := string(sys.files["/etc/portico/portico.yaml"])
+	if !strings.Contains(y, "listen: \"127.0.0.1:8080\"") || !strings.Contains(y, "cert_file: \"\"") || !strings.Contains(y, "key_file: \"\"") || !strings.Contains(y, "prism_host: prism.msp.example") {
+		t.Fatalf("yaml not switched to tunnel mode:\n%s", y)
+	}
+}
+
+func TestKeycloakCredentialsScreenShowsThemOnceFromTheEnvFile(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true})
+	sys.files["/etc/portico/keycloak.env"] = []byte("KC_BOOTSTRAP_ADMIN_USERNAME=kcadmin\nKC_BOOTSTRAP_ADMIN_PASSWORD=generated-pw-1\nKC_DB_PASSWORD=db-pw\n")
+	out := run(t, sys, "4\n\n0\n")
+	if !strings.Contains(out, "kcadmin") || !strings.Contains(out, "generated-pw-1") || strings.Contains(out, "db-pw") {
+		t.Fatalf("credentials screen:\n%s", out)
+	}
+	// Shown until Enter, then the screen is cleared.
+	if !strings.Contains(out[strings.Index(out, "generated-pw-1"):], "\x1b[2J") {
+		t.Fatalf("screen not cleared after the credentials")
+	}
+}
