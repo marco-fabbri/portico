@@ -21,14 +21,29 @@ poweroff
 
 %pre --erroronfail --log=/tmp/ks-pre.log
 # Review Focus 5: a disk smaller than the layout stops the installation
-# with the layout named, instead of a half-installed image.
-size=$(lsblk -dnb -o SIZE,TYPE | awk '$2=="disk"{print $1; exit}')
+# with the layout named, instead of a half-installed image. The check
+# reports on the serial console so a build log shows what it saw.
+exec >/dev/ttyS0 2>&1
+echo "portico %pre: block devices:"
+lsblk -dnb -o NAME,SIZE,TYPE 2>&1 || echo "lsblk failed"
+size=""
+for dev in /sys/block/vd* /sys/block/sd* /sys/block/nvme*; do
+  [ -r "$dev/size" ] || continue
+  sectors=$(cat "$dev/size")
+  size=$((sectors * 512))
+  echo "portico %pre: first disk $(basename "$dev") = $size bytes"
+  break
+done
 min=$((39 * 1024 * 1024 * 1024))
-if [ -z "$size" ] || [ "$size" -lt "$min" ]; then
+if [ -z "$size" ]; then
+  echo "portico %pre: no disk found under /sys/block; letting anaconda report it"
+elif [ "$size" -lt "$min" ]; then
   msg="portico: the disk must be at least 40 GiB (/boot 1 GiB, / 10, /var 6, /var/log 4, /var/log/audit 2, /var/tmp 1, /home 1, /var/lib/containers 8, /var/lib/portico 4); found $((size / 1024 / 1024 / 1024)) GiB"
+  echo "$msg"
   echo "$msg" > /dev/tty1 2>/dev/null || true
-  echo "$msg" >&2
   exit 1
+else
+  echo "portico %pre: disk size ok"
 fi
 %end
 
