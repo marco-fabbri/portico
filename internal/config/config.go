@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -59,6 +60,9 @@ type Keycloak struct {
 	// branding; Keycloak mounts it as /opt/keycloak/themes/<ThemeName>.
 	ThemeDir  string `yaml:"theme_dir"`
 	ThemeName string `yaml:"theme_name"`
+	// HostnameFile, when set, is written on Apply with KC_HOSTNAME for the
+	// identity host (the appliance's Keycloak loads it, design 4.9).
+	HostnameFile string `yaml:"hostname_file"`
 }
 
 // Tenants holds naming and placement for tenant provisioning (design §4.4).
@@ -195,6 +199,11 @@ func (c *Config) ValidateProcess() error {
 	if !rePrefix.MatchString(c.Keycloak.ThemeName) {
 		errs = append(errs, fmt.Errorf("config: keycloak.theme_name %q must be lower-case letters, digits and dashes", c.Keycloak.ThemeName))
 	}
+	// The public listener must not take Keycloak's published loopback
+	// port: in tunnel mode cloudflared would reach Keycloak instead.
+	if u, err := url.Parse(c.Keycloak.URL); err == nil && u.Host != "" && sameListen(c.Public.Listen, u.Host) {
+		errs = append(errs, fmt.Errorf("config: public.listen %q is keycloak.url's address; give the public listener another port", c.Public.Listen))
+	}
 	// The admin API authenticates with HTTP Basic (the break-glass
 	// password) and the pass-through carries local Prism Central
 	// credentials: off the loopback they travel only under TLS.
@@ -297,4 +306,19 @@ func readSecretFile(path string) (string, error) {
 		return "", fmt.Errorf("secret file %s is empty", path)
 	}
 	return s, nil
+}
+
+// sameListen reports whether a listen address and a host:port name the
+// same socket: equal ports and equal hosts, an empty or unspecified host
+// matching every address.
+func sameListen(listen, hostport string) bool {
+	lh, lp, err1 := net.SplitHostPort(listen)
+	hh, hp, err2 := net.SplitHostPort(hostport)
+	if err1 != nil || err2 != nil || lp != hp {
+		return false
+	}
+	if lh == "" || lh == "0.0.0.0" || lh == "::" {
+		return true
+	}
+	return lh == hh || (lh == "127.0.0.1" && hh == "localhost") || (lh == "localhost" && hh == "127.0.0.1")
 }
