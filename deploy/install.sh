@@ -137,7 +137,7 @@ if [ $START -eq 1 ]; then
   firewall-cmd -q --permanent --remove-service=dhcpv6-client 2>/dev/null || true
   firewall-cmd -q --reload
 fi
-sshd -t && systemctl reload sshd 2>/dev/null || true
+if sshd -t 2>/dev/null; then systemctl reload sshd 2>/dev/null || true; fi
 systemctl enable portico keycloak-hostname.path >/dev/null 2>&1 || true
 if [ $START -eq 1 ]; then
   log "starting the services"

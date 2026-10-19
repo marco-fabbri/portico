@@ -3,6 +3,10 @@ name: Appliance image
 on:
   push:
     tags: ['v*']
+    # Development builds while the milestone branch is open (workflow_dispatch
+    # works only from the default branch); dropped at the merge.
+    branches: ['m3-*']
+    paths: ['image/**', 'deploy/**', '.github/workflows/image.yml']
   workflow_dispatch:
     inputs:
       version:

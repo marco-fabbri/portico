@@ -102,7 +102,7 @@ for f in etc/portico/portico.yaml etc/portico/keycloak.env etc/portico/tls/inter
   if [ -e "$d/$f" ]; then ok "install.sh renders $f"; else ko "install.sh does not render $f"; fi
 done
 if grep -q 'KC_HOSTNAME_STRICT=false' "$d/etc/containers/systemd/keycloak.container" && ! grep -qi 'lab' "$d/etc/containers/systemd/keycloak.container"; then ok "keycloak.container learns its name from the request, no lab name"; else ko "keycloak.container hostname"; fi
-mode() { stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"; }
+mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 if grep -q 'KC_BOOTSTRAP_ADMIN_PASSWORD=' "$d/etc/portico/keycloak.env" && [ "$(mode "$d/etc/portico/keycloak.env")" = 600 ]; then ok "keycloak.env generated, mode 0600"; else ko "keycloak.env"; fi
 if [ "$(mode "$d/etc/portico/tls/internal.key")" = 640 ] && openssl x509 -in "$d/etc/portico/tls/internal.crt" -noout >/dev/null 2>&1; then ok "internal TLS pair generated for the admin listener"; else ko "internal TLS pair"; fi
 first=$(grep KC_BOOTSTRAP_ADMIN_PASSWORD "$d/etc/portico/keycloak.env"); firstkey=$(cat "$d/etc/portico/tls/internal.key")
