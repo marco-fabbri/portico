@@ -7,6 +7,9 @@ repo --name=AppStream --baseurl=https://dl.rockylinux.org/pub/rocky/9/AppStream/
 lang en_US.UTF-8
 keyboard us
 timezone UTC --utc
+# Interface names stay eth0, eth1 (net.ifnames=0 above, as on the Rocky
+# GenericCloud image): the console wizard, cloud-init and the OpenTofu
+# module name them that way.
 network --bootproto=dhcp --device=link --activate --hostname=portico
 selinux --enforcing
 firewall --enabled --ssh
@@ -49,7 +52,7 @@ fi
 
 zerombr
 clearpart --all --initlabel
-bootloader --location=mbr --timeout=1 --append="audit=1 audit_backlog_limit=8192"
+bootloader --location=mbr --timeout=1 --append="audit=1 audit_backlog_limit=8192 net.ifnames=0 biosdevname=0"
 part biosboot --fstype=biosboot --size=1
 part /boot --fstype=xfs --size=1024 --fsoptions="nodev,nosuid"
 part pv.01 --fstype=lvmpv --size=1 --grow
