@@ -25,6 +25,9 @@ resource "proxmox_download_file" "rocky9" {
   file_name    = "portico-build-rocky9.img"
   url          = var.rocky9_image_url
   overwrite    = false
+  # Proxmox downloads the 600 MB image itself; the provider's default wait
+  # of ten minutes was too short on the lab's link.
+  upload_timeout = 3600
 }
 
 resource "proxmox_virtual_environment_vm" "build" {
