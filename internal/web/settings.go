@@ -20,7 +20,7 @@ type brandingData struct {
 }
 
 func (h *Handler) renderBranding(w http.ResponseWriter, r *http.Request, status int, b branding.Branding, errMsg, warning string) {
-	p := page{Title: "Branding", Version: h.version, Error: errMsg, Warning: warning, Data: brandingData{B: b, HasLogo: b.HasLogo()}}
+	p := page{Title: "Branding", Version: h.version, Section: section(r.URL.Path), Error: errMsg, Warning: warning, Data: brandingData{B: b, HasLogo: b.HasLogo()}}
 	if s, ok := h.session(r); ok {
 		p.Admin, p.CSRF = "admin", s.CSRF
 	}
