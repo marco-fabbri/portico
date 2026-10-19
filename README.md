@@ -75,6 +75,38 @@ flowchart LR
     A -->|"8443 admin UI and API"| P
 ```
 
+## How a request flows
+
+1. The browser opens `https://prism.<msp>.example`. Portico looks for
+   its session cookie; without one it redirects to Keycloak (OIDC
+   authorization code flow) and issues its own cookie after the login.
+2. With a session, the public policy runs: every `Authorization` header
+   is refused, the local-login endpoints of pc.7.6 are refused, and
+   Portico's own cookies are stripped before forwarding.
+3. The request is proxied to Prism Central on port 9440 under the public
+   host name; VM console WebSockets pass through.
+4. Prism Central wants its own session: Portico's landing page starts the
+   SAML login itself. Keycloak already holds a session, so the assertion
+   comes back without a second login and Prism Central scopes the user
+   by project membership.
+
+Two protocols (OIDC for Portico, SAML for Prism Central), one login.
+
+## The tenant model
+
+A tenant is one row in Portico's store that ties together a Projects 2.0
+project in Prism Central (with its resource group and the clusters and
+containers it may use), a group in Keycloak (`tenant-<slug>`), a SAML
+group in Prism Central and a role membership that binds the group to a
+role inside the project, never a global one. Creating a tenant runs those
+steps in order, records each one, and ends with a visibility check that
+reads back the project and asserts the group holds nothing outside it. A
+tenant can be disabled (group disabled, login impossible) and deleted; the
+project is left in place unless asked, and VMs are never deleted. Tenant
+users are Keycloak users of the tenant group, created from the admin UI
+or API with a one-time temporary password; the email is the username and
+the SAML `NameID`.
+
 ## Why "Portico"
 
 A portico stands in front of private buildings and makes them reachable
@@ -176,6 +208,32 @@ docs/
   lab/                measurements, one write-up per question
   backlog.md          deferred findings
 ```
+
+## Documentation
+
+- [Design document](docs/superpowers/specs/2026-10-17-portico-design.md):
+  intent, goals and anti-goals, architecture, security model, milestones.
+- [Decisions](docs/adr/): the pc.7.6 baseline, the proxy in the Go
+  binary, the API boundary and the tenant-facing pages.
+- [Admin JSON API](docs/api.md) and [operating the binary](docs/operating.md):
+  commands, files, setup mode, logs, backup.
+- [Lab write-ups](docs/lab/): one per question, with the version and how
+  to measure again; [`lab-inventory.md`](docs/lab/lab-inventory.md) lists
+  what the lab holds.
+- [Plans](docs/superpowers/plans/) the milestones were built from, and
+  the [backlog](docs/backlog.md) of deferred findings.
+- [Example configuration](deploy/portico.yaml.example) and the
+  [systemd unit](deploy/portico.service).
+
+## Roadmap
+
+Step 1 ends with the first release: the appliance image (Rocky Linux 9,
+CIS Level 1, console wizard, `cloudflared` option) and an install guide.
+Step 2, in no fixed order: a setup page that lists connected services
+(several Prism Central, later NKP and Nutanix Enterprise AI), tenant API
+keys bound to federated identities, brokering each tenant to its own
+directory (AD, Entra ID, LDAP), brownfield inventory with an exclusion
+list, quotas and usage reporting, tenant self-service.
 
 ## Building and testing
 

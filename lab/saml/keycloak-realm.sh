@@ -109,7 +109,7 @@ case "${1:?subcommand}" in
     cid=$(kc GET "/$R/clients?clientId=portico-admin" 2>/dev/null | jq -r '.[0].id')
     sa=$(kc GET "/$R/clients/$cid/service-account-user" 2>/dev/null | jq -r '.id')
     rm=$(kc GET "/$R/clients?clientId=realm-management" 2>/dev/null | jq -r '.[0].id')
-    [ "$sa" != null ] && [ "$rm" != null ] || { echo "service account or realm-management client not found" >&2; exit 1; }
+    if [ "$sa" = null ] || [ "$rm" = null ]; then echo "service account or realm-management client not found" >&2; exit 1; fi
     have=$(kc GET "/$R/users/$sa/role-mappings/clients/$rm" 2>/dev/null | jq -r '.[].name')
     : > "$tmp/roles.json"
     # manage-clients and view-clients: the SAML trust bootstrap registers
