@@ -55,3 +55,6 @@ from `lab/env.sh` and their credentials from a directory outside the
 repository. `docs/lab/lab-inventory.md` lists what the lab creates and how
 to remove it. You do not need a lab to contribute to the Go code: the
 tests run against fakes of Prism Central and Keycloak.
+
+Hardware, lab access and field experience help as much as code: see
+[Supporting the project](README.md#supporting-the-project) in the README.
