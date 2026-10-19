@@ -16,6 +16,9 @@ func WriteKeycloakHostname(path, idHost string) error {
 	if idHost == "" {
 		return nil
 	}
+	if !ValidHost(idHost) {
+		return fmt.Errorf("keycloak hostname file: %q is not a host name", idHost)
+	}
 	content := "KC_HOSTNAME=https://" + idHost + "\nKC_HOSTNAME_BACKCHANNEL_DYNAMIC=true\n"
 	if cur, err := os.ReadFile(path); err == nil && string(cur) == content {
 		return nil // unchanged: no restart of Keycloak

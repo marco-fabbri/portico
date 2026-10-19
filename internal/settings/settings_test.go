@@ -315,3 +315,34 @@ func TestWriteKeycloakHostnameFile(t *testing.T) {
 		t.Fatal("a file was written without a host")
 	}
 }
+
+// Review of Milestone 3: id_host ends up in Keycloak's environment file
+// (KC_HOSTNAME), so both public names must be plain host names, with an
+// optional port; anything else is refused before it is stored or written.
+func TestValidateFormatRefusesBadHostNames(t *testing.T) {
+	for _, h := range []string{"id.example.test\nKC_DB_PASSWORD=x", "id example.test", "https://id.example.test", "id.example.test/realms", "-bad.example", ""} {
+		s := Settings{IDHost: h, PrismHost: "prism.example.test"}
+		err := s.ValidateFormat()
+		if h == "" {
+			if err != nil {
+				t.Errorf("empty id_host (a draft) refused: %v", err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), "id_host") {
+			t.Errorf("id_host %q accepted: %v", h, err)
+		}
+	}
+	for _, h := range []string{"id.example.test", "id.example.test:8443", "localhost"} {
+		if err := (Settings{IDHost: h, PrismHost: h}).ValidateFormat(); err != nil {
+			t.Errorf("%q refused: %v", h, err)
+		}
+	}
+	if err := (Settings{PrismHost: "prism example"}).ValidateFormat(); err == nil || !strings.Contains(err.Error(), "prism_host") {
+		t.Errorf("bad prism_host accepted: %v", err)
+	}
+	// The writer refuses on its own too.
+	if err := WriteKeycloakHostname(filepath.Join(t.TempDir(), "x.env"), "id.example.test\nX=1"); err == nil {
+		t.Error("WriteKeycloakHostname wrote a value with a newline")
+	}
+}
