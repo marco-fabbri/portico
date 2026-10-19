@@ -66,3 +66,47 @@ func TestErrorPageContent(t *testing.T) {
 		t.Errorf("empty retry link rendered: %s", rec.Body.String())
 	}
 }
+
+// The landing and error pages look like the Keycloak login page the user
+// just left (Marco, 2026-10-19: the landing page was a light grey page
+// with the white logo on it): the accent colour as background, the
+// lockup in white (logo left of the name, last word bold, the tagline
+// under it), the error in a white card, "Powered by Portico" at the foot.
+func TestPagesWearTheLoginPageLook(t *testing.T) {
+	b := Default()
+	b.MSPName, b.Tagline, b.AccentColor = "Portico MSP", "The single entry point.", "#a73422"
+	b.LogoType, b.LogoData = "image/svg+xml", []byte("<svg/>")
+	p := pagesFor(b)
+	rec := httptest.NewRecorder()
+	p.Landing(rec, httptest.NewRequest("GET", "https://prism.test/", nil), "/.portico/saml-start")
+	landing := rec.Body.String()
+	rec = httptest.NewRecorder()
+	p.Error(rec, httptest.NewRequest("GET", "https://prism.test/", nil), http.StatusServiceUnavailable, "Identity provider unavailable", "Try again later.", "/.portico/login")
+	errPage := rec.Body.String()
+	for name, body := range map[string]string{"landing": landing, "error": errPage} {
+		for _, want := range []string{
+			"background: #a73422",
+			`<div class="lockup"><img class="logo" src="/.portico/logo" alt=""><span class="name">Portico<strong>MSP</strong></span></div>`,
+			`<p class="claim">The single entry point.</p>`,
+			`class="powered"`,
+			"Powered by Portico",
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s page lacks %q:\n%s", name, want, body)
+			}
+		}
+		if strings.Contains(body, "#f4f6f8") {
+			t.Errorf("%s page still has the grey background", name)
+		}
+	}
+	if !strings.Contains(errPage, `<section class="card">`) {
+		t.Errorf("error text not in a card:\n%s", errPage)
+	}
+	// Without a logo the lockup is the name alone; one word is all bold-free.
+	b.LogoType, b.LogoData, b.MSPName = "", nil, "Solo"
+	rec = httptest.NewRecorder()
+	pagesFor(b).Landing(rec, httptest.NewRequest("GET", "https://prism.test/", nil), "/x")
+	if !strings.Contains(rec.Body.String(), `<div class="lockup"><span class="name">Solo</span></div>`) {
+		t.Errorf("no-logo lockup:\n%s", rec.Body.String())
+	}
+}
