@@ -5,7 +5,7 @@
   <form method="post" action="/settings/branding" enctype="multipart/form-data">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
     <label>MSP name <input type="text" name="msp_name" value="{{.Data.B.MSPName}}" maxlength="80" required></label>
-    <label>Tagline <input type="text" name="tagline" value="{{.Data.B.Tagline}}" maxlength="160"></label>
+    <label>Tagline (the claim under your name on the login page) <input type="text" name="tagline" value="{{.Data.B.Tagline}}" maxlength="160"></label>
     <label>Accent colour <input type="color" name="accent_color" value="{{.Data.B.AccentColor}}"></label>
     <label>Logo (PNG, JPEG or SVG, up to 256 KiB)
       {{if .Data.HasLogo}}<img class="logo-preview" src="/settings/branding/logo" alt="current logo">{{end}}

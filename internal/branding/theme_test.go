@@ -24,7 +24,7 @@ func TestWriteThemeFiles(t *testing.T) {
 		t.Fatalf("WriteTheme: %v", err)
 	}
 	props := readTheme(t, dir, "login/theme.properties")
-	for _, want := range []string{"parent=keycloak.v2", "import=common/keycloak", "styles=css/login.css css/portico.css"} {
+	for _, want := range []string{"parent=keycloak.v2", "import=common/keycloak", "styles=css/styles.css css/portico.css"} {
 		if !strings.Contains(props, want) {
 			t.Errorf("theme.properties lacks %q: %s", want, props)
 		}
@@ -34,7 +34,7 @@ func TestWriteThemeFiles(t *testing.T) {
 		t.Errorf("css lacks the colour or the button rule: %s", css)
 	}
 	msgs := readTheme(t, dir, "login/messages/messages_en.properties")
-	if !strings.Contains(msgs, "loginTitleHtml=ACME Cloud") || !strings.Contains(msgs, "loginAccountTitle=Your VMs") {
+	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup"><span class\="portico-name">ACME<strong>Cloud</strong></span></span><span class\="portico-claim">Your VMs</span>`) || !strings.Contains(msgs, "loginAccountTitle=Sign in") {
 		t.Errorf("messages: %s", msgs)
 	}
 	for _, f := range []string{"login/theme.properties", "login/resources/css/portico.css", "login/messages/messages_en.properties"} {
@@ -53,10 +53,10 @@ func TestWriteThemeEscapesName(t *testing.T) {
 		t.Fatal(err)
 	}
 	msgs := readTheme(t, dir, "login/messages/messages_en.properties")
-	if !strings.Contains(msgs, `loginTitleHtml=A\=B\:C &lt;b&gt;x&lt;/b&gt;`) {
+	if !strings.Contains(msgs, `<span class\="portico-lockup"><span class\="portico-name">A\=B\:C<strong>&lt;b&gt;x&lt;/b&gt;</strong></span></span>`) {
 		t.Errorf("name not escaped: %s", msgs)
 	}
-	if !strings.Contains(msgs, `loginAccountTitle=line one\nline two \#tag`) {
+	if !strings.Contains(msgs, `<span class\="portico-claim">line one\nline two \#tag</span>`) {
 		t.Errorf("tagline not escaped: %s", msgs)
 	}
 	if strings.Count(msgs, "\n") != 2 {
@@ -84,7 +84,7 @@ func TestWriteThemeLogoByType(t *testing.T) {
 		// (write-up 13): the height belongs to the logo block only, never
 		// to #kc-header-wrapper itself.
 		for _, line := range strings.Split(css, "\n") {
-			if strings.HasPrefix(line, "#kc-header-wrapper {") && strings.Contains(line, "height") {
+			if strings.HasPrefix(line, "#kc-header-wrapper {") && (strings.Contains(line, " height:") || strings.Contains(line, "min-height:")) {
 				t.Errorf("%s: the wrapper rule sets a height: %s", c.ctype, line)
 			}
 		}
@@ -94,8 +94,9 @@ func TestWriteThemeLogoByType(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "login/resources/img")); err == nil {
+		// Only Portico's own mark, never a logo file.
 		entries, _ := os.ReadDir(filepath.Join(dir, "login/resources/img"))
-		if len(entries) != 0 {
+		if len(entries) != 1 || entries[0].Name() != "portico-mark.svg" {
 			t.Errorf("logo files without a logo: %v", entries)
 		}
 	}
@@ -152,32 +153,76 @@ func TestPropertiesEscape(t *testing.T) {
 	}
 }
 
-// The logo is a generated block above the title, not a background with
-// a padding that keycloak.v2's header rules override (the realm name was
-// drawn across the logo, write-up 15).
-func TestThemeCSSDrawsTheLogoAboveTheTitle(t *testing.T) {
+// The login page is one centred column on the accent colour: the header
+// (logo left of the MSP name, white, Red Hat Display) above the card,
+// and a "Powered by Portico" line under it (layout pass after 2f).
+func TestThemeCSSCentresTheLoginUnderTheLockup(t *testing.T) {
 	b := Default()
 	b.LogoType, b.LogoData = "image/svg+xml", []byte("data")
 	css := themeCSS(b)
-	for _, want := range []string{"#kc-header-wrapper::before", `content: ""`, "display: block", "url(../img/logo.svg)"} {
+	for _, want := range []string{
+		"body#keycloak-bg { background: var(--portico-accent); }",
+		".pf-v5-c-login__container { display: flex; flex-direction: column; align-items: center;",
+		"#kc-header-wrapper { display: flex; flex-direction: column; align-items: center;",
+		".pf-v5-c-login__main { order: 1; grid-area: auto; align-self: center;",
+		".pf-v5-c-login__main-header { border-top: 0; }",
+		`font-family: "RedHatDisplay"`,
+		"color: #fff;",
+		// The mark is as tall as the capitals, the name is uppercase.
+		".portico-lockup { display: flex; align-items: center; gap: 0.6em; font-size: 2.25rem; line-height: 1; text-transform: uppercase; letter-spacing: 0.08em; }",
+		`.portico-lockup::before { content: ""; width: 0.88em; height: 1em;`,
+		"url(../img/logo.svg)",
+		".portico-lockup strong { font-weight: 700; }",
+		".portico-claim { font-size: 1.05rem; font-weight: 400; opacity: 0.9; }",
+		`.pf-v5-c-login__container::after { content: "Powered by Portico";`,
+		"url(../img/portico-mark.svg)",
+	} {
 		if !strings.Contains(css, want) {
 			t.Fatalf("css lacks %q:\n%s", want, css)
 		}
 	}
-	if strings.Contains(css, "padding-top") {
-		t.Fatalf("the padding hack is still there:\n%s", css)
+	if strings.Contains(css, "padding-top") || strings.Contains(css, "#1f2937") {
+		t.Fatalf("old header rules still there:\n%s", css)
+	}
+	// Without a logo the lockup is the name alone.
+	if strings.Contains(themeCSS(Default()), ".portico-lockup::before") {
+		t.Fatal("a logo rule without a logo")
 	}
 }
 
-// keycloak.v2 paints the header text white for its dark background; the
-// Portico theme has no such background, so the realm name needs a dark
-// colour of its own (it was white on white, Marco's check in 2f).
-func TestThemeCSSGivesTheHeaderADarkColour(t *testing.T) {
-	css := themeCSS(Default())
-	for _, line := range strings.Split(css, "\n") {
-		if strings.HasPrefix(line, "#kc-header-wrapper {") && strings.Contains(line, "color: #1f2937") {
-			return
-		}
+// The title is the lockup (name, last word bold) with the tagline as a
+// claim under it; the card itself says "Sign in". Everything is HTML,
+// escaped per piece.
+func TestThemeMessagesBuildTheLockupAndClaim(t *testing.T) {
+	b := Default()
+	b.MSPName, b.Tagline = "Portico MSP", "The single, authenticated entry point to your Nutanix services."
+	msgs := themeMessages(b)
+	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup"><span class\="portico-name">Portico<strong>MSP</strong></span></span><span class\="portico-claim">The single, authenticated entry point to your Nutanix services.</span>`+"\n") || !strings.Contains(msgs, "loginAccountTitle=Sign in\n") {
+		t.Fatalf("messages: %q", msgs)
 	}
-	t.Fatalf("the header rule sets no dark colour:\n%s", css)
+	b.MSPName, b.Tagline = "A&B <x>", ""
+	msgs = themeMessages(b)
+	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup"><span class\="portico-name">A&amp;B<strong>&lt;x&gt;</strong></span></span>`+"\n") {
+		t.Fatalf("escaped, no claim: %q", msgs)
+	}
+	b.MSPName = "Solo"
+	if msgs := themeMessages(b); !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup"><span class\="portico-name">Solo</span></span>`+"\n") {
+		t.Fatalf("one word: %q", msgs)
+	}
+}
+
+// The Portico mark ships with every theme write, and the theme lists
+// keycloak.v2's styles.css (login.css is gone in Keycloak 26.3: 404 on
+// the lab, so the parent's base styles were not loaded).
+func TestWriteThemeShipsTheMarkAndTheParentStyles(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "theme")
+	if err := WriteTheme(dir, Default()); err != nil {
+		t.Fatal(err)
+	}
+	if mark := readTheme(t, dir, "login/resources/img/portico-mark.svg"); !strings.Contains(mark, "<svg") || !strings.Contains(mark, `fill="#ffffff"`) {
+		t.Fatalf("mark: %q", mark)
+	}
+	if props := readTheme(t, dir, "login/theme.properties"); !strings.Contains(props, "styles=css/styles.css css/portico.css") {
+		t.Fatalf("theme.properties: %q", props)
+	}
 }
