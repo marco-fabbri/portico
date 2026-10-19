@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -361,5 +363,32 @@ func TestSettingsPutStoreFailureIs500(t *testing.T) {
 	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","saml_idp_name":"portico-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
 	if rec.Code != 500 || !strings.Contains(out["error"].(string), "disk full") {
 		t.Fatalf("PUT on a broken store: %d %v", rec.Code, out)
+	}
+}
+
+// On the appliance Keycloak learns its public name from Portico: Apply
+// writes KC_HOSTNAME for the identity host into the file the quadlet
+// loads, and a path unit restarts Keycloak (deploy/keycloak-hostname.path).
+func TestApplyWritesTheKeycloakHostnameFile(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	path := filepath.Join(t.TempDir(), "keycloak.hostname.env")
+	e.so.HostnameFile = path
+	rec, _ := e.do("POST", "/api/v1/settings/apply", "")
+	if rec.Code != 202 || e.restarted != 1 {
+		t.Fatalf("apply: %d restarted=%d", rec.Code, e.restarted)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || string(b) != "KC_HOSTNAME=https://id.example.test\nKC_HOSTNAME_BACKCHANNEL_DYNAMIC=true\n" {
+		t.Fatalf("hostname file: %q %v", b, err)
+	}
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o644 {
+		t.Fatalf("mode %o, want 0644 (systemd reads it as root, nothing secret inside)", info.Mode().Perm())
+	}
+	// An unwritable path refuses the apply before the restart, with the path named.
+	e2 := newSettingsEnv(t, true)
+	e2.so.HostnameFile = filepath.Join(t.TempDir(), "missing-dir", "x.env")
+	rec, out := e2.do("POST", "/api/v1/settings/apply", "")
+	if rec.Code != 500 || e2.restarted != 0 || !strings.Contains(fmt.Sprint(out["error"]), "missing-dir") {
+		t.Fatalf("apply with an unwritable hostname file: %d restarted=%d %v", rec.Code, e2.restarted, out)
 	}
 }

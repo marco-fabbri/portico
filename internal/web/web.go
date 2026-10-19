@@ -78,6 +78,8 @@ func New(o Options) *Handler {
 	mux.HandleFunc("GET /login", h.loginPage)
 	mux.HandleFunc("POST /login", h.loginSubmit)
 	mux.HandleFunc("POST /logout", h.logout)
+	mux.HandleFunc("GET /password", h.passwordPage)
+	mux.HandleFunc("POST /password", h.passwordSubmit)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", h.static()))
 	mux.HandleFunc("GET /{$}", h.home)
 	h.routes(mux)
@@ -94,6 +96,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'")
+	// The factory password opens one page only: the one that replaces it.
+	if r.URL.Path != "/password" && r.URL.Path != "/logout" && !strings.HasPrefix(r.URL.Path, "/static/") {
+		if _, ok := h.session(r); ok && api.PasswordChangeRequired(r.Context(), h.st) {
+			http.Redirect(w, r, "/password", http.StatusSeeOther)
+			return
+		}
+	}
 	h.mux.ServeHTTP(w, r)
 }
 

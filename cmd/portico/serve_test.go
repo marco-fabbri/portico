@@ -220,10 +220,12 @@ func TestServeServesLoginPage(t *testing.T) {
 	defer cancel()
 	go runServe(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	waitHealthy(t, cfg.Internal.AdminListen)
+	// A fresh store gets the factory password at start: the login page is
+	// served, not the "password not set" page of the CLI path.
 	resp := get(t, cfg.Internal.AdminListen, "127.0.0.1", "/login", nil)
 	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 503 || !strings.Contains(string(b), "portico admin set-password") {
-		t.Errorf("/login with no password set: %d %q", resp.StatusCode, b)
+	if resp.StatusCode != 200 || !strings.Contains(string(b), "Sign in") {
+		t.Errorf("/login on a fresh store: %d %q", resp.StatusCode, b)
 	}
 	resp = get(t, cfg.Internal.AdminListen, "127.0.0.1", "/static/portico.css", nil)
 	if resp.StatusCode != 200 {
