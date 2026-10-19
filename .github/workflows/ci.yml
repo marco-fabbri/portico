@@ -53,4 +53,4 @@ jobs:
       - name: kickstart
         run: pipx install pykickstart && ksvalidator -v RHEL9 image/portico.ks
       - name: tailoring is well-formed and names the profile
-        run: xmllint --noout image/oscap/tailoring.xml && grep -q 'xccdf_org.ssgproject.content_profile_cis_server_l1' image/oscap/tailoring.xml
+        run: python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('image/oscap/tailoring.xml')" && grep -q 'xccdf_org.ssgproject.content_profile_cis_server_l1' image/oscap/tailoring.xml

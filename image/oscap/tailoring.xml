@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Portico appliance: the CIS Level 1 Server profile of scap-security-guide
+     for Rocky Linux 9, with the exceptions image/oscap/README.md documents.
+     Every unselected rule carries its reason here. -->
+<xccdf:Tailoring xmlns:xccdf="http://checklists.nist.gov/xccdf/1.2" id="xccdf_org.portico_tailoring_appliance">
+  <xccdf:benchmark href="/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml"/>
+  <xccdf:version time="2026-10-19T00:00:00">1</xccdf:version>
+  <xccdf:Profile id="xccdf_org.ssgproject.content_profile_portico" extends="xccdf_org.ssgproject.content_profile_cis_server_l1">
+    <xccdf:title>Portico appliance (CIS Level 1 Server with documented exceptions)</xccdf:title>
+    <xccdf:description>The CIS Level 1 Server profile as shipped by scap-security-guide, minus the rules below. Podman's bridge network needs IP forwarding on the appliance (Keycloak and PostgreSQL run as containers on an internal bridge); the host is not a router towards any other network: firewalld forwards nothing.</xccdf:description>
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_sysctl_net_ipv4_ip_forward" selected="false"/>
+  </xccdf:Profile>
+</xccdf:Tailoring>
