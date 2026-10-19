@@ -1,4 +1,4 @@
-# Lab write-ups (Milestones 0 to 2)
+# Lab write-ups (Milestones 0 to 2 and the layout pass)
 
 Measurements on cluster NTNX-01, Prism Central pc.7.6.0.6, October 2026.
 Each write-up states what was measured, the implications for the design,
@@ -22,6 +22,7 @@ and how to re-measure after an upgrade. Scripts are under `lab/`.
 | 14 | [Settings in the store, master key, apply as restart](2026-10-18-14-settings-in-the-store.md) | one `settings import` moves the YAML and its secret files into the store (no secret file left on the VM, master key 0600 created by the binary); setup page with checks that fill the cluster and container pickers; Apply = exit 0 + `Restart=always`, back in ~10 s; a wrong key stops the service with the field name, and systemd's start limit then needs `reset-failed` |
 | 15 | [Fresh-appliance bootstrap and setup mode](2026-10-18-15-bootstrap-and-setup-mode.md) | a fresh appliance starts in setup mode (admin listener only, missing list in the journal); the three bootstraps took 2 s (Keycloak), 3 s (Prism Central) and 17 s (SAML) on a quiet IAM, 41 s for the whole setup through the API; `Project Manager_acp` cannot create the SAML IdP (403), so that step takes an administrator's credentials once; deleting an IdP needs its SAML users deleted first and IAM answers slowly for minutes afterwards; a key creation that times out is revoked by name |
 | 16 | [Minor sweep after 2d and 2e](2026-10-18-16-minor-sweep.md) | password policy on the realm Portico creates (`length(12) and notUsername and notEmail`), login restarted once when its state cookie is gone, logo drawn as a block above the realm name, URL with credentials refused, store failures on save as 500, no start limit on `portico.service`; the older deferred findings moved to `docs/backlog.md` |
+| 17 | [Keycloak login page layout and Portico's mark](2026-10-19-17-login-page-layout.md) | keycloak.v2 on 26.3 ships `css/styles.css` (`login.css` is 404) and declares Red Hat Display; the page is PatternFly 5 markup laid out as a grid; Portico's theme turns it into one centred column on the accent colour with the lockup, the claim and a powered-by line; static URLs versioned on the admin UI |
 
 `lab-inventory.md` lists everything created in the lab and how to remove it.
 `TEMPLATE.md` is the write-up skeleton. `payloads/` holds sanitised request
