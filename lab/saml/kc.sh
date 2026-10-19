@@ -17,7 +17,7 @@ KC="http://127.0.0.1:8080"
 token=$(printf 'client_id=admin-cli&grant_type=password&username=kcadmin&password=%s' \
   "$(jq -rn --arg p "$(cat "$S/keycloak-admin-pw")" '$p|@uri')" \
   | "${SSH[@]}" "curl -s --data-binary @- '$KC/realms/master/protocol/openid-connect/token'" | jq -r .access_token)
-[ -n "$token" ] && [ "$token" != null ] || { echo "kc.sh: no admin token" >&2; exit 1; }
+if [ -z "$token" ] || [ "$token" = null ]; then echo "kc.sh: no admin token" >&2; exit 1; fi
 
 # 2. The call: bearer token in a curl config file, body as a second file;
 #    both are embedded base64 in a small script that reaches the VM on stdin
