@@ -89,7 +89,16 @@ echo "apply done in $(( $(date +%s) - t0 )) s (image upload included)"
 t1=$(date +%s)
 for _ in $(seq 1 90); do
   if curl -sk -o /dev/null -w '%{http_code}' "https://$APPLIANCE_IP:8443/healthz" 2>/dev/null | grep -q 200; then
-    echo "appliance ready: healthz 200 after $(( $(date +%s) - t1 )) s from apply; admin UI https://$APPLIANCE_IP:8443/ (user admin: set the password on the VM console first)"
+    echo "appliance ready: healthz 200 after $(( $(date +%s) - t1 )) s from apply; admin UI https://$APPLIANCE_IP:8443/"
+    # Lab convenience: the break-glass password from the appliance secrets
+    # directory, set over SSH (the key cloud-init installed) on stdin, as
+    # the lab VM's deploy.sh does. The product asks for it on first access.
+    AS="${PORTICO_APPLIANCE_SECRETS:-$HOME/portico-secrets-appliance}"
+    if [ -s "$AS/portico-admin-pw" ] && [ -n "$sshkey" ]; then
+      ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "admin@$APPLIANCE_IP" \
+        'sudo runuser -u portico -- /usr/local/bin/portico admin set-password -config /etc/portico/portico.yaml' < "$AS/portico-admin-pw" 2>/dev/null \
+        && echo "admin password set from $AS/portico-admin-pw" || echo "admin password not set (ssh or set-password failed): use the console"
+    fi
     echo "console: Prism Central > VMs > portico-appliance > Launch console"
     exit 0
   fi
