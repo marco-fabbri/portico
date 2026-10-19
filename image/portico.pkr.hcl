@@ -70,7 +70,10 @@ source "qemu" "install" {
   # to this long; anaconda needs more than the 5-minute default.
   shutdown_timeout = "60m"
   boot_wait        = "2s"
+  # Rocky 9 needs x86-64-v2; QEMU's default qemu64 model lacks it (glibc
+  # refuses to start and the kernel panics, measured on the runner).
   qemuargs = [
+    ["-cpu", "host"],
     ["-kernel", "boot/vmlinuz"],
     ["-initrd", "boot/initrd.img"],
     ["-append", "inst.ks=http://10.0.2.2:8181/portico.ks inst.stage2=${var.mirror} inst.repo=${var.mirror} inst.text ip=dhcp console=ttyS0,115200n8"],
@@ -101,6 +104,7 @@ source "qemu" "provision" {
   shutdown_command = "sudo bash /tmp/portico-build/scripts/poweroff.sh"
   shutdown_timeout = "5m"
   qemuargs = [
+    ["-cpu", "host"],
     ["-serial", "file:serial-provision.log"],
   ]
 }
