@@ -259,9 +259,9 @@ not enough for what comes next. If you can help
 with any of the following, it turns a design into a measurement:
 
 - **A decommissioned Nutanix node** (NX, or a Dell XC, HPE DX, Lenovo HX
-  equivalent) that can still run a current AOS with Prism Central
-  pc.7.6: out of your inventory, into the lab as a second, independent
-  Prism Central.
+  equivalent), even an older one: out of your inventory, into the lab
+  as a second, independent Prism Central, on a current AOS where the
+  platform still runs it, on Community Edition otherwise.
 - **A second cluster or Prism Central**, pc.7.6 or later, reachable from
   a lab network even for a few days at a time. The connected-services
   page (several Prism Central behind one Portico), the high-availability
