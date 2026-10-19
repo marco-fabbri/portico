@@ -8,6 +8,10 @@ variable "proxmox_api_token" {
   sensitive = true
 }
 variable "proxmox_node" { type = string }
+variable "proxmox_ssh_username" {
+  type    = string
+  default = "root"
+}
 variable "datastore_id" { type = string }
 variable "image_datastore" { type = string }
 variable "rocky9_image_url" {

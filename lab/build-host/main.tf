@@ -16,6 +16,12 @@ provider "proxmox" {
   endpoint  = var.proxmox_endpoint
   insecure  = var.proxmox_insecure
   api_token = var.proxmox_api_token
+  # Importing the cloud image as the VM's disk runs on the node over SSH
+  # (the API has no call for it): the local agent's key, as in the NKP module.
+  ssh {
+    agent    = true
+    username = var.proxmox_ssh_username
+  }
 }
 
 resource "proxmox_download_file" "rocky9" {
