@@ -59,16 +59,18 @@ jobs:
           # The plugin getter asks the GitHub API; unauthenticated it is rate limited.
           PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ../image/build.sh "$VER" "$PWD/../dist/portico"
-      - name: Boot test (KVM, NoCloud seed)
+      - name: Boot test (KVM, config drive as AHV attaches it)
         run: |
           sudo apt-get install -y -q genisoimage openssh-client >/dev/null
-          image/scripts/boottest.sh "image/output/portico-$VER.qcow2"
+          SEED_FORMAT=configdrive image/scripts/boottest.sh "image/output/portico-$VER.qcow2"
+      - name: Boot test (KVM, NoCloud seed)
+        run: SEED_FORMAT=nocloud image/scripts/boottest.sh "image/output/portico-$VER.qcow2"
       - name: Serial consoles
         if: always()
         run: |
           echo "== install stage"; tail -n 120 image/serial-install.log 2>/dev/null || echo "(no install log)"
           echo "== provision stage"; tail -n 60 image/serial-provision.log 2>/dev/null || echo "(no provision log)"
-          echo "== boot test"; tail -n 80 image/boottest-serial.log 2>/dev/null || echo "(no boot test log)"
+          for f in image/boottest-serial-*.log; do [ -e "$f" ] && { echo "== $f"; tail -n 80 "$f"; }; done; true
       - name: Collect
         run: |
           mkdir -p release

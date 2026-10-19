@@ -44,16 +44,28 @@ runcmd:
   - [nmcli, connection, reload]
   - [nmcli, connection, up, eth0]
 UD
-printf 'instance-id: boottest-1\nlocal-hostname: boottest\n' > "$W/meta-data"
-genisoimage -quiet -output "$W/seed.iso" -volid cidata -joliet -rock "$W/user-data" "$W/meta-data"
+# SEED_FORMAT=nocloud (default) is the cidata disk; configdrive is what AHV
+# attaches (CONFIG_DRIVE_V2): label config-2, openstack/latest/user_data
+# and meta_data.json.
+case "${SEED_FORMAT:-nocloud}" in
+  configdrive)
+    mkdir -p "$W/cd/openstack/latest"
+    cp "$W/user-data" "$W/cd/openstack/latest/user_data"
+    printf '{"uuid": "11111111-2222-3333-4444-555555555555", "hostname": "boottest", "name": "boottest"}\n' > "$W/cd/openstack/latest/meta_data.json"
+    genisoimage -quiet -output "$W/seed.iso" -volid config-2 -joliet -rock "$W/cd" ;;
+  *)
+    printf 'instance-id: boottest-1\nlocal-hostname: boottest\n' > "$W/meta-data"
+    genisoimage -quiet -output "$W/seed.iso" -volid cidata -joliet -rock "$W/user-data" "$W/meta-data" ;;
+esac
+echo "boottest: seed format ${SEED_FORMAT:-nocloud}"
 qemu-system-x86_64 -enable-kvm -cpu host -m 3072 -smp 2 -display none -daemonize -pidfile "$W/qemu.pid" \
   -snapshot -drive "file=$IMG,if=virtio,discard=unmap" -cdrom "$W/seed.iso" \
   -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2222-:22 -device virtio-net,netdev=n0 \
-  -serial file:boottest-serial.log
+  -serial "file:boottest-serial-${SEED_FORMAT:-nocloud}.log"
 QPID=$(cat "$W/qemu.pid")
 SSH=(ssh -i "$W/key" -p 2222 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 admin@127.0.0.1)
 echo "boottest: waiting for SSH"
-for i in $(seq 1 60); do "${SSH[@]}" true 2>/dev/null && break; sleep 5; [ "$i" -eq 60 ] && { echo "boottest: no SSH after 300 s"; tail -n 80 boottest-serial.log; exit 1; }; done
+for i in $(seq 1 60); do "${SSH[@]}" true 2>/dev/null && break; sleep 5; [ "$i" -eq 60 ] && { echo "boottest: no SSH after 300 s"; tail -n 80 "boottest-serial-${SEED_FORMAT:-nocloud}.log"; exit 1; }; done
 echo "boottest: SSH up after $((i * 5)) s"
 "${SSH[@]}" 'sudo cloud-init status --wait >/dev/null 2>&1; echo "cloud-init: $(cloud-init status 2>/dev/null | head -1)"; for _ in $(seq 1 60); do systemctl is-active -q portico-firstboot && break; sleep 2; done' || true
 fail=0; ok() { echo "ok   $1"; }; ko() { echo "FAIL $1"; fail=1; }
@@ -75,5 +87,5 @@ check "postgres and keycloak units present (containers pull at first start)" 'sy
 "${SSH[@]}" 'echo "== units:"; for u in portico-firstboot portico keycloak postgres firewalld getty@tty1 cloud-init; do printf "%s=%s " "$u" "$(systemctl is-active $u)"; done; echo; echo "== journal errors:"; sudo journalctl -p err -b --no-pager | tail -n 12' 2>/dev/null | cut -c1-160 || true
 "${SSH[@]}" 'sudo shutdown -P now' >/dev/null 2>&1 || true
 sleep 5
-[ $fail -eq 0 ] && { echo "boottest: PASS"; exit 0; }
-echo "boottest: FAIL"; tail -n 60 boottest-serial.log; exit 1
+[ $fail -eq 0 ] && { echo "boottest: PASS (${SEED_FORMAT:-nocloud})"; exit 0; }
+echo "boottest: FAIL (${SEED_FORMAT:-nocloud})"; tail -n 60 "boottest-serial-${SEED_FORMAT:-nocloud}.log"; "${SSH[@]}" 'sudo cloud-init status --long; sudo tail -n 40 /var/log/cloud-init.log' 2>/dev/null | cut -c1-200 || true; exit 1
