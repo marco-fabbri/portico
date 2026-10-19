@@ -6,9 +6,10 @@
 # must leave behind. Serial console on boottest-serial.log.
 #   image/scripts/boottest.sh output/portico-<version>.qcow2
 set -euo pipefail
-IMG=${1:?qcow2}
+IMG=$(cd "$(dirname "${1:?qcow2}")" && pwd)/$(basename "$1")
 cd "$(dirname "$0")/.."
-W=$(mktemp -d); trap 'rm -rf "$W"; kill "$QPID" 2>/dev/null || true' EXIT
+QPID=""
+W=$(mktemp -d); trap 'rm -rf "$W"; [ -n "$QPID" ] && kill "$QPID" 2>/dev/null || true' EXIT
 ssh-keygen -q -t ed25519 -N '' -f "$W/key"
 cat > "$W/user-data" <<UD
 #cloud-config
