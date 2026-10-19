@@ -175,3 +175,26 @@ func TestExposureDirectTakesAPastedPair(t *testing.T) {
 		t.Fatalf("the key was echoed:\n%s", out)
 	}
 }
+
+// Review of Milestone 3: with two interfaces the second (no gateway) is the
+// internal one, and the admin listener moves there, off the public side;
+// with one interface it stays on every address and the guide says so.
+func TestSecondInterfaceTakesTheAdminListener(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true}, Interface{Name: "eth1", Up: true})
+	sys.files["/etc/portico/portico.yaml"] = []byte(sampleYAML + "internal:\n  admin_listen: \"0.0.0.0:8443\"\n  passthrough_listen: \"127.0.0.1:9440\"\n")
+	out := run(t, sys, "1\nportico\n203.0.113.5\n24\n203.0.113.1\n\ny\n192.168.9.5\n24\n\n\ny\n0\n")
+	y := string(sys.files["/etc/portico/portico.yaml"])
+	if !strings.Contains(y, `admin_listen: "192.168.9.5:8443"`) || !strings.Contains(y, `passthrough_listen: "127.0.0.1:9440"`) || !sys.execd("systemctl", "restart", "portico") {
+		t.Fatalf("admin listener not moved to the internal interface:\n%s\n%s", y, out)
+	}
+	if !strings.Contains(out, "https://192.168.9.5:8443/") {
+		t.Fatalf("admin URL not the internal one:\n%s", out)
+	}
+	// One interface: nothing moves.
+	sys = newFakeSystem(Interface{Name: "eth0", Up: true})
+	sys.files["/etc/portico/portico.yaml"] = []byte(sampleYAML + "internal:\n  admin_listen: \"0.0.0.0:8443\"\n")
+	run(t, sys, "1\nportico\n10.0.0.5\n24\n10.0.0.254\n\ny\n0\n")
+	if !strings.Contains(string(sys.files["/etc/portico/portico.yaml"]), `admin_listen: "0.0.0.0:8443"`) {
+		t.Fatal("single interface: admin listener moved")
+	}
+}

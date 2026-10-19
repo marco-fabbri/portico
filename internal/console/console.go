@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -97,12 +98,52 @@ func (s *session) adminURL() string {
 	if err != nil {
 		return ""
 	}
+	// With two interfaces the one without a gateway is the internal one,
+	// where the admin listener lives; otherwise the first configured one.
+	first := ""
 	for _, i := range ifaces {
-		if c, ok, _ := s.sys.ReadKeyfile(i.Name); ok && c.Address != "" {
+		c, ok, _ := s.sys.ReadKeyfile(i.Name)
+		if !ok || c.Address == "" {
+			continue
+		}
+		if len(ifaces) > 1 && c.Gateway == "" {
 			return "https://" + c.Address + ":" + AdminPort + "/"
 		}
+		if first == "" {
+			first = "https://" + c.Address + ":" + AdminPort + "/"
+		}
 	}
-	return ""
+	return first
+}
+
+var adminListenRe = regexp.MustCompile(`(?m)^(\s*admin_listen:\s*)"[^"]*"`)
+
+// internalAdmin binds the admin listener to the internal interface's
+// address (two interfaces: the one without a gateway), so 8443 and the
+// break-glass account stay off the public side; Portico restarts.
+func (s *session) internalAdmin(addr string) {
+	y, err := s.sys.ReadFile(configPath)
+	if err != nil {
+		fmt.Fprintf(s.out, "  admin listener not moved: %v\n", err)
+		return
+	}
+	text, ok := replaceFirst(adminListenRe, string(y), `${1}"`+addr+":"+AdminPort+`"`)
+	if !ok {
+		fmt.Fprintf(s.out, "  admin listener not moved: internal.admin_listen not found in %s\n", configPath)
+		return
+	}
+	if text == string(y) {
+		return
+	}
+	if err := s.sys.WriteFile(configPath, []byte(text), 0o640); err != nil {
+		fmt.Fprintf(s.out, "  admin listener not moved: %v\n", err)
+		return
+	}
+	if _, err := s.sys.Exec(nil, "systemctl", "restart", "portico"); err != nil {
+		fmt.Fprintln(s.out, "  portico did not restart: "+err.Error())
+		return
+	}
+	fmt.Fprintf(s.out, "admin UI moved to the internal interface: https://%s:%s/\n", addr, AdminPort)
 }
 
 // line reads one line; ok is false at the end of the input.
@@ -219,6 +260,9 @@ func (s *session) network() {
 			fmt.Fprintln(s.out, "  apply: "+err.Error())
 		} else {
 			fmt.Fprintf(s.out, "%s configured\n", i.Name)
+			if n > 0 && c.Gateway == "" {
+				s.internalAdmin(c.Address)
+			}
 		}
 	}
 }
