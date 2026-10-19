@@ -1,12 +1,11 @@
 name: Appliance image
 
 on:
+  # A release is a tag; a manual run builds an image to try. Development
+  # builds happen on a build host (lab/build-host, image/build.sh), not here:
+  # the light checks of every pull request are in ci.yml.
   push:
     tags: ['v*']
-    # Development builds while the milestone branch is open (workflow_dispatch
-    # works only from the default branch); dropped at the merge.
-    branches: ['m3-*']
-    paths: ['image/**', 'deploy/**', '.github/workflows/image.yml']
   workflow_dispatch:
     inputs:
       version:
