@@ -549,6 +549,38 @@ internal admin UI. Nothing else is configurable from the console.
 - Updates: `dnf` for the OS, a new `portico` rpm for the application,
   container image tags for Keycloak/PostgreSQL. Full image replacement
   documented as the clean path.
+- Builder's calls, fixed with Marco on 2026-10-19 for Milestone 3:
+  - Build: Packer with the QEMU builder on a GitHub Actions x86_64 runner
+    (KVM available), from the Rocky Linux 9 boot ISO with a kickstart,
+    because the CIS partition layout needs a fresh disk; the GenericCloud
+    image stays the base of the lab VM and of the "existing host" form.
+  - One installer, `deploy/install.sh`, used by the image build and by
+    the second delivery form: packages, the `portico` user and
+    directories, the binary, the quadlets (PostgreSQL, Keycloak), the
+    units (`portico.service`, the console on tty1, cloudflared), firewalld
+    and SSH policy. Re-running it on an installed host upgrades it.
+  - Hardening: OpenSCAP with `scap-security-guide` profile
+    `xccdf_org.ssgproject.content_profile_cis_server_l1` and a tailoring
+    file for the documented exceptions, remediation then evaluation; the
+    HTML report is a release asset. The control list and the disclaimer
+    wording follow `nkp-preprovisioned-toolkit/cis`; the Ansible subset
+    itself is not reused (no Ansible on the appliance).
+  - Console wizard (section 4.8) also sets the break-glass password, shows
+    the generated Keycloak administrator credentials once for the setup
+    page, and configures exposure: direct with a certificate and key
+    (pasted or self-signed for a trial) or a Cloudflare tunnel token.
+    These need root and a tty, which the web UI does not have; the
+    exposure card in the web UI and ACME are deferred.
+  - Keycloak learns its public name from the request
+    (`KC_HOSTNAME_STRICT=false`, Portico forwards the host and
+    `X-Forwarded-*`), so the installer needs no public name: to be
+    measured in the Milestone 3 lab run.
+  - Release: a tag `v*` builds the image, the OpenSCAP report, the
+    checksums and the binary tarball and attaches them to a GitHub
+    release; `deploy/tofu/nutanix` (reusing the Nutanix module of the
+    NKP toolkit) uploads the image from the release URL and creates the
+    VM, with optional cloud-init network for the unattended case.
+  - Out of Milestone 3: the pair (4.11), the rpm, ACME, the exposure card.
 
 ### 4.11 Deployment topologies: single node and pair
 
