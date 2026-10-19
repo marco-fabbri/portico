@@ -10,6 +10,8 @@ dnf -y -q clean packages >/dev/null 2>&1 || true
 dnf -y -q install qemu-kvm qemu-img genisoimage git curl tar jq openssl dnf-plugins-core >/dev/null
 [ -c /dev/kvm ] || { echo "no /dev/kvm: the VM needs CPU type host and nested virtualization on the Proxmox host" >&2; exit 1; }
 usermod -aG kvm build 2>/dev/null || true
+# Rocky ships QEMU as /usr/libexec/qemu-kvm; Packer and the boot test call qemu-system-x86_64.
+[ -x /usr/local/bin/qemu-system-x86_64 ] || ln -s /usr/libexec/qemu-kvm /usr/local/bin/qemu-system-x86_64
 # HashiCorp (Packer) and OpenTofu repositories, GitHub CLI.
 [ -r /etc/yum.repos.d/hashicorp.repo ] || dnf config-manager --add-repo https://rpm.releases.hashicorp.com/RHEL/hashicorp.repo >/dev/null
 [ -r /etc/yum.repos.d/opentofu.repo ] || cat > /etc/yum.repos.d/opentofu.repo <<'R'
