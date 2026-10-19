@@ -15,9 +15,10 @@ way.
   26.3.5, Rocky Linux 9.8, Packer 1.11.2 with the QEMU plugin on
   GitHub-hosted `ubuntu-24.04` runners (KVM), OpenTofu 1.8/1.13 with the
   Nutanix provider 2.5
-- Portico `0.0.0-dev` builds of branch `m3-appliance-image`, 23 workflow
-  runs on 2026-10-19 (the acceptance VM ran the image of run
-  39253233122 plus the Keycloak hostname fix applied by hand)
+- Portico `0.0.0-dev` builds of branch `m3-appliance-image`, 28 workflow
+  runs on 2026-10-19; the final one is 39308957377 (the acceptance VM ran
+  the image of run 39253233122 plus the Keycloak hostname fix applied by
+  hand and the final binary installed over SSH)
 - Date: 2026-10-19
 - By: Claude (Marco's session) for the builds, the scripts and the API
   runs; Marco in the Prism Central VM console and in Chrome
@@ -51,7 +52,23 @@ way.
   and 2.05 GB uncompressed with `disk_discard = "unmap"` (the cleanup's
   `fstrim` finally reached the image); 1.36 GB uncompressed without
   `linux-firmware` (679 MB, nothing requires it on a VM) and the GeoIP
-  packages. GitHub release assets are limited to 2 GiB.
+  packages (final build: 1,359,872,000 bytes). GitHub release assets are
+  limited to 2 GiB.
+- MEASURED, the CI boot test (`image/scripts/boottest.sh`, KVM on the
+  runner): with a config drive in AHV's format and with a NoCloud seed,
+  SSH up 15 s after power-on, cloud-init done, the first boot's secrets
+  and TLS pairs made, every unit active, the firewall with the `portico`
+  service, every LVM volume mounted, SELinux enforcing; one minute per
+  run. The user data is rendered from the module's template through a
+  provider-less harness (`image/scripts/render-user-data`): the
+  `setup-opentofu` wrapper swallows the stdin of `tofu console`, and the
+  module's own `tofu console` waited on the Nutanix provider.
+- MEASURED, where to build: the Mac is arm64 and the lab VM has no
+  nested virtualization (an emulated boot took 200 s to reach the LVM
+  timeouts); a Rocky 9 VM on the lab's Proxmox with CPU type host
+  (`lab/build-host/`, 4 vCPU, 8 GiB) has KVM and runs `image/build.sh`
+  and the boot test like the runner. Twenty-eight runner builds were the
+  price of not having it from the start.
 - MEASURED: Prism Central's image service refuses a qcow2 with
   compressed clusters (`kImageCreate` fails after 5 min with "dependent
   backend service has encountered an error", twice); the same image
