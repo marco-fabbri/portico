@@ -62,6 +62,9 @@ jobs:
       - uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: "1.8.5"
+          # The action's wrapper does not pass stdin on: tofu console
+          # waited for the expression until the timeout.
+          tofu_wrapper: false
       - name: Boot test (KVM, config drive as AHV attaches it)
         run: |
           sudo apt-get install -y -q genisoimage openssh-client >/dev/null
