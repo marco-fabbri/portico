@@ -258,15 +258,12 @@ with Prism Central pc.7.6, on my own hardware. That is enough for the
 single appliance, and not enough for what comes next. If you can help
 with any of the following, it turns a design into a measurement:
 
-- **A decommissioned Nutanix node**: an NX G5 or G6, or the Dell XC,
-  HPE DX, Lenovo HX equivalents, out of support and out of your
-  inventory. What it gives the project is a second, independent Prism
-  Central in the lab.
-- **A second cluster or Prism Central** reachable from a lab network,
-  even for a few days at a time: the connected-services page (several
-  Prism Central behind one Portico), the high-availability pair across
-  two sites, and the firewall rules of a real multi-site setup all need
-  one.
+- **A second cluster or Prism Central**, pc.7.6 or later: a node that
+  runs a current AOS and is not in your inventory any more, or a
+  cluster reachable from a lab network even for a few days at a time.
+  The connected-services page (several Prism Central behind one
+  Portico), the high-availability pair across two sites, and the
+  firewall rules of a real multi-site setup all need one.
 - **Access to a Nutanix lab** (a partner lab, a demo environment, a test
   tenant on a service provider's cluster): to try Portico against an
   installation that is not mine, with projects, categories and users I
