@@ -10,20 +10,27 @@
 # the binary and the files and keeps every secret and the store.
 #
 #   install.sh --binary PATH | --release VERSION [--no-start] [--render-only DIR]
+#   install.sh --first-boot
 #
 # --render-only DIR writes every file under DIR with its absolute path and
 # runs no command: the repository's tests use it without root.
+# --no-start is the image build: nothing that must differ between two
+# appliances is written (no Keycloak secret, no TLS pair, no firewall
+# runtime state); portico-firstboot.service runs `--first-boot` at the
+# first boot of every appliance to generate them and start the services.
 set -euo pipefail
 
-usage() { echo "usage: install.sh --binary PATH | --release VERSION [--no-start] [--render-only DIR]" >&2; exit 2; }
+usage() { echo "usage: install.sh --binary PATH | --release VERSION [--no-start] [--render-only DIR] | install.sh --first-boot" >&2; exit 2; }
 
-BINARY=""; RELEASE=""; START=1; ROOT=""; RENDER=0
+BINARY=""; RELEASE=""; START=1; ROOT=""; RENDER=0; FIRSTBOOT=0; RENDER_SECRETS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --binary) BINARY=${2:?}; shift 2 ;;
     --release) RELEASE=${2:?}; shift 2 ;;
     --no-start) START=0; shift ;;
+    --first-boot) FIRSTBOOT=1; shift ;;
     --render-only) ROOT=${2:?}; RENDER=1; START=0; shift 2 ;;
+    --render-secrets) RENDER_SECRETS=1; shift ;;  # tests: render the first-boot files too
     -h|--help) usage ;;
     *) echo "install.sh: unknown argument $1" >&2; usage ;;
   esac
@@ -85,29 +92,59 @@ fi
 # 4. Process settings (kept when present: the wizard edits them).
 [ -e "$ROOT/etc/portico/portico.yaml" ] || put 0640 root portico "$HERE/portico.appliance.yaml" /etc/portico/portico.yaml
 
-# 5. Keycloak secrets, generated once; shown by the console wizard only.
-if [ ! -e "$ROOT/etc/portico/keycloak.env" ]; then
-  umask 077
-  kcpw=$(openssl rand -base64 24 | tr -d '/+=')
-  dbpw=$(openssl rand -base64 24 | tr -d '/+=')
-  env=$(mktemp)
-  printf 'KC_BOOTSTRAP_ADMIN_USERNAME=kcadmin\nKC_BOOTSTRAP_ADMIN_PASSWORD=%s\nKC_DB_PASSWORD=%s\nPOSTGRES_PASSWORD=%s\n' "$kcpw" "$dbpw" "$dbpw" > "$env"
-  put 0600 root root "$env" /etc/portico/keycloak.env
-  rm -f "$env"; unset kcpw dbpw
-  umask 022
-fi
+# Secrets and TLS pairs: generated once per appliance, never at image build.
+generate_secrets() {
+  # Keycloak administrator and database passwords; shown by the console wizard only.
+  if [ ! -e "$ROOT/etc/portico/keycloak.env" ]; then
+    umask 077
+    kcpw=$(openssl rand -base64 24 | tr -d '/+=')
+    dbpw=$(openssl rand -base64 24 | tr -d '/+=')
+    env=$(mktemp)
+    printf 'KC_BOOTSTRAP_ADMIN_USERNAME=kcadmin\nKC_BOOTSTRAP_ADMIN_PASSWORD=%s\nKC_DB_PASSWORD=%s\nPOSTGRES_PASSWORD=%s\n' "$kcpw" "$dbpw" "$dbpw" > "$env"
+    put 0600 root root "$env" /etc/portico/keycloak.env
+    rm -f "$env"; unset kcpw dbpw
+    umask 022
+  fi
+  # Self-signed pairs: internal (the admin listener, ten years) and public
+  # (a placeholder so the service starts; the wizard installs the real one).
+  local name
+  for name in internal public; do
+    [ -e "$ROOT/etc/portico/tls/$name.key" ] && continue
+    umask 077
+    tlsd=$(mktemp -d)
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+      -keyout "$tlsd/$name.key" -out "$tlsd/$name.crt" -subj "/CN=portico" -addext "subjectAltName=DNS:portico" >/dev/null 2>&1
+    put 0644 root portico "$tlsd/$name.crt" "/etc/portico/tls/$name.crt"
+    put 0640 root portico "$tlsd/$name.key" "/etc/portico/tls/$name.key"
+    rm -rf "$tlsd"
+    umask 022
+  done
+}
 
-# 6. Internal TLS pair for the admin listener, generated once (self-signed,
-#    ten years; the public pair is the wizard's business).
-if [ ! -e "$ROOT/etc/portico/tls/internal.key" ]; then
-  umask 077
-  tlsd=$(mktemp -d)
-  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
-    -keyout "$tlsd/internal.key" -out "$tlsd/internal.crt" -subj "/CN=portico" -addext "subjectAltName=DNS:portico" >/dev/null 2>&1
-  put 0644 root portico "$tlsd/internal.crt" /etc/portico/tls/internal.crt
-  put 0640 root portico "$tlsd/internal.key" /etc/portico/tls/internal.key
-  rm -rf "$tlsd"
-  umask 022
+# Firewall: the portico service (443, 8443) in the default zone, cockpit
+# and dhcpv6-client out; permanent, through the daemon when it runs.
+configure_firewall() {
+  if systemctl is-active -q firewalld; then
+    firewall-cmd -q --permanent --add-service=portico
+    firewall-cmd -q --permanent --remove-service=cockpit 2>/dev/null || true
+    firewall-cmd -q --permanent --remove-service=dhcpv6-client 2>/dev/null || true
+    firewall-cmd -q --reload
+  else
+    firewall-offline-cmd -q --add-service=portico 2>/dev/null || true
+    firewall-offline-cmd -q --remove-service=cockpit 2>/dev/null || true
+    firewall-offline-cmd -q --remove-service=dhcpv6-client 2>/dev/null || true
+  fi
+}
+
+if [ $FIRSTBOOT -eq 1 ]; then
+  log "first boot: secrets, TLS pairs, firewall, services"
+  generate_secrets
+  restorecon -R /etc/portico >/dev/null 2>&1 || true
+  configure_firewall
+  systemctl start postgres.service keycloak.service keycloak-hostname.path
+  systemctl restart portico.service
+  log "first boot done"
+  exit 0
 fi
 
 # 7. Quadlets, units, drop-ins.
@@ -122,24 +159,24 @@ put 0644 root root "$HERE/keycloak-hostname.service" /etc/systemd/system/keycloa
 put 0644 root root "$HERE/firewalld/portico.xml" /etc/firewalld/services/portico.xml
 put 0600 root root "$HERE/sshd/00-portico.conf" /etc/ssh/sshd_config.d/00-portico.conf
 put 0644 root root "$HERE/sysctl/60-portico.conf" /etc/sysctl.d/60-portico.conf
+# This script itself, for the first boot of an appliance.
+put 0755 root root "$0" /usr/local/sbin/portico-install
+put 0644 root root "$HERE/portico-firstboot.service" /etc/systemd/system/portico-firstboot.service
+# On a host of your own the secrets are generated now; the image build
+# leaves them to the first boot.
+if [ $START -eq 1 ] || [ $RENDER_SECRETS -eq 1 ]; then generate_secrets; fi
 
 if [ $RENDER -eq 1 ]; then log "rendered under $ROOT"; exit 0; fi
 
 # 8. Apply: SELinux labels, kernel parameters, units, firewall, sshd.
-restorecon -R /etc/portico /usr/local/bin/portico /etc/containers/systemd /etc/systemd/system /var/lib/portico
+restorecon -R /etc/portico /usr/local/bin/portico /usr/local/sbin/portico-install /etc/containers/systemd /etc/systemd/system /var/lib/portico
 sysctl -q --system >/dev/null
 systemctl daemon-reload
-systemctl enable firewalld >/dev/null 2>&1 || true
+systemctl enable firewalld portico keycloak-hostname.path portico-firstboot >/dev/null 2>&1 || true
+if sshd -t 2>/dev/null; then systemctl reload sshd 2>/dev/null || true; fi
 if [ $START -eq 1 ]; then
   systemctl start firewalld
-  firewall-cmd -q --permanent --add-service=portico
-  firewall-cmd -q --permanent --remove-service=cockpit 2>/dev/null || true
-  firewall-cmd -q --permanent --remove-service=dhcpv6-client 2>/dev/null || true
-  firewall-cmd -q --reload
-fi
-if sshd -t 2>/dev/null; then systemctl reload sshd 2>/dev/null || true; fi
-systemctl enable portico keycloak-hostname.path >/dev/null 2>&1 || true
-if [ $START -eq 1 ]; then
+  configure_firewall
   log "starting the services"
   systemctl start postgres.service keycloak.service keycloak-hostname.path
   systemctl restart portico.service
@@ -150,4 +187,6 @@ if [ $START -eq 1 ]; then
   done
   log "portico did not answer within 60 s: journalctl -u portico" >&2; exit 1
 fi
-log "installed without starting the services (--no-start)"
+# Image build: the firewall's permanent configuration now, the rest at the first boot.
+configure_firewall
+log "installed without starting the services (--no-start): portico-firstboot.service completes the setup at the first boot"

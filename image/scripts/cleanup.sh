@@ -23,3 +23,5 @@ rm -f /home/build/.bash_history
 restorecon -R /etc /var/lib/portico >/dev/null 2>&1 || true
 sync
 fstrim -av >/dev/null 2>&1 || true
+# The image carries no secret: whatever the build generated goes, the first boot makes new ones.
+rm -f /etc/portico/keycloak.env /etc/portico/tls/*
