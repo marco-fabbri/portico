@@ -129,7 +129,7 @@ func TestDefaultsForTenants(t *testing.T) {
 	if cfg.Keycloak.AdminClientID != "portico-admin" {
 		t.Errorf("Keycloak.AdminClientID = %q", cfg.Keycloak.AdminClientID)
 	}
-	if cfg.Tenants.ClusterExtID != "cl-1" || cfg.PrismCentral.SAMLIdPName != "lab-idp" {
+	if cfg.Tenants.ClusterExtID != "cl-1" || cfg.PrismCentral.SAMLIdPName != "portico-idp" {
 		t.Errorf("values from the file not loaded: %+v %+v", cfg.Tenants, cfg.PrismCentral)
 	}
 }

@@ -11,7 +11,7 @@ import (
 var t0 = time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
 
 func newSession(id string) Session {
-	return Session{ID: id, Subject: "sub-" + id, Email: id + "@lab.portico.test", CreatedAt: t0, LastSeen: t0}
+	return Session{ID: id, Subject: "sub-" + id, Email: id + "@example.test", CreatedAt: t0, LastSeen: t0}
 }
 
 func TestMemoryStoreIdleExpiry(t *testing.T) {
@@ -106,7 +106,7 @@ func TestSessionFromRequest(t *testing.T) {
 	r = httptest.NewRequest("GET", "https://prism.test/", nil)
 	r.AddCookie(&http.Cookie{Name: SessionCookie, Value: "known"})
 	s, ok := SessionFromRequest(st, r, t0.Add(time.Minute))
-	if !ok || s.Email != "known@lab.portico.test" {
+	if !ok || s.Email != "known@example.test" {
 		t.Errorf("known id: ok=%v s=%+v", ok, s)
 	}
 }

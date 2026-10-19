@@ -156,7 +156,7 @@ func TestCallbackRoundTripCreatesSession(t *testing.T) {
 	}
 	body := make([]byte, 100)
 	n, _ := resp.Body.Read(body)
-	if resp.StatusCode != 200 || resp.Request.URL.Path != "/console/" || string(body[:n]) != "console for alice@lab.portico.test" {
+	if resp.StatusCode != 200 || resp.Request.URL.Path != "/console/" || string(body[:n]) != "console for alice@example.test" {
 		t.Fatalf("final: %d %s %q (visited %v)", resp.StatusCode, resp.Request.URL, body[:n], *visited)
 	}
 	u, _ := url.Parse("https://prism.test/")
@@ -170,7 +170,7 @@ func TestCallbackRoundTripCreatesSession(t *testing.T) {
 		t.Fatal("no session cookie in the jar")
 	}
 	s, ok := st.Get(sid, time.Now())
-	if !ok || s.Subject != "alice" || s.Email != "alice@lab.portico.test" {
+	if !ok || s.Subject != "alice" || s.Email != "alice@example.test" {
 		t.Errorf("session = %+v ok=%v", s, ok)
 	}
 }
@@ -281,14 +281,14 @@ func TestRequireRejectsAPICalls(t *testing.T) {
 func TestRequirePassesWithSession(t *testing.T) {
 	idp := newFakeIDP(t)
 	a, st := newTestAuth(t, idp)
-	st.Create(Session{ID: "sid", Subject: "alice", Email: "alice@lab.portico.test", CreatedAt: time.Now(), LastSeen: time.Now()})
+	st.Create(Session{ID: "sid", Subject: "alice", Email: "alice@example.test", CreatedAt: time.Now(), LastSeen: time.Now()})
 	called := false
 	rec := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "https://prism.test/console/", nil)
 	r.AddCookie(&http.Cookie{Name: SessionCookie, Value: "sid"})
 	a.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
-		if s, ok := SessionFromContext(r.Context()); !ok || s.Email != "alice@lab.portico.test" {
+		if s, ok := SessionFromContext(r.Context()); !ok || s.Email != "alice@example.test" {
 			t.Errorf("session in context = %+v ok=%v", s, ok)
 		}
 	})).ServeHTTP(rec, r)
@@ -403,7 +403,7 @@ func TestCallbackWithoutStateRestartsOnce(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != 200 || !strings.Contains(string(body), "console for alice@lab.portico.test") || len(st.sessions) != 1 {
+	if resp.StatusCode != 200 || !strings.Contains(string(body), "console for alice@example.test") || len(st.sessions) != 1 {
 		t.Fatalf("restarted login: %d %q sessions %d", resp.StatusCode, body, len(st.sessions))
 	}
 }

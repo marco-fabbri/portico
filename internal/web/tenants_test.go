@@ -110,7 +110,7 @@ func TestUserCreatedPageShowsPasswordOnce(t *testing.T) {
 	e := newEnv(t, true)
 	e.login(t)
 	e.createTenant(t, "acme")
-	rec := e.do("POST", "/tenants/acme/users", e.form("email", "carol@acme.test", "first_name", "Carol", "last_name", "Lab"), true)
+	rec := e.do("POST", "/tenants/acme/users", e.form("email", "carol@acme.test", "first_name", "Carol", "last_name", "Rossi"), true)
 	m := rePassword.FindStringSubmatch(rec.Body.String())
 	if rec.Code != 201 || m == nil || len(m[1]) != 20 {
 		t.Fatalf("user created page: %d %s", rec.Code, rec.Body.String())

@@ -16,7 +16,7 @@ import (
 
 const testAdminPassword = "kc-admin-pw-456"
 
-const testDescriptor = `<?xml version="1.0" encoding="UTF-8"?><EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://id.example.test/realms/lab"><IDPSSODescriptor/></EntityDescriptor>`
+const testDescriptor = `<?xml version="1.0" encoding="UTF-8"?><EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://id.example.test/realms/msp"><IDPSSODescriptor/></EntityDescriptor>`
 
 // adminState is the realm-administration side of the fake: realms
 // created at the root, clients with their secrets, service-account
@@ -60,7 +60,7 @@ func (f *fakeKC) handleUnauthenticated(w http.ResponseWriter, r *http.Request) b
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(fmt.Sprintf(`{"access_token":"tok-m%d","expires_in":60,"token_type":"Bearer"}`, n)))
 		return true
-	case "/realms/lab/protocol/saml/descriptor":
+	case "/realms/msp/protocol/saml/descriptor":
 		if r.Header.Get("Authorization") != "" {
 			w.WriteHeader(400)
 			return true
@@ -87,7 +87,7 @@ func (f *fakeKC) handleAdmin(w http.ResponseWriter, r *http.Request, rec recorde
 	// A realm created at the root answers on its own path.
 	if rest, ok := strings.CutPrefix(r.URL.Path, "/admin/realms/"); ok {
 		name, p, _ := strings.Cut(rest, "/")
-		if name != "lab" {
+		if name != "msp" {
 			rep, exists := a.realms[name]
 			if !exists {
 				w.WriteHeader(404)
@@ -98,13 +98,13 @@ func (f *fakeKC) handleAdmin(w http.ResponseWriter, r *http.Request, rec recorde
 				return true
 			}
 		} else if p == "" && r.Method == "GET" && f.realm == nil {
-			if rep, exists := a.realms["lab"]; exists {
+			if rep, exists := a.realms["msp"]; exists {
 				json.NewEncoder(w).Encode(rep)
 				return true
 			}
 		}
 	}
-	p := strings.TrimPrefix(r.URL.Path, "/admin/realms/lab")
+	p := strings.TrimPrefix(r.URL.Path, "/admin/realms/msp")
 	parts := strings.Split(strings.TrimPrefix(p, "/"), "/")
 	switch {
 	case p == "/clients" && r.Method == "GET":
@@ -120,7 +120,7 @@ func (f *fakeKC) handleAdmin(w http.ResponseWriter, r *http.Request, rec recorde
 		rep := rec.Body
 		rep["id"] = id
 		a.clients[id] = rep
-		w.Header().Set("Location", f.srv.URL+"/admin/realms/lab/clients/"+id)
+		w.Header().Set("Location", f.srv.URL+"/admin/realms/msp/clients/"+id)
 		w.WriteHeader(201)
 	case len(parts) == 2 && parts[0] == "clients" && r.Method == "PUT":
 		if _, ok := a.clients[parts[1]]; !ok {
@@ -181,7 +181,7 @@ func adminClient(f *fakeKC, buf *bytes.Buffer) *Client {
 	if buf != nil {
 		log = slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	}
-	return NewWithPassword(f.srv.URL, "lab", "kcadmin", testAdminPassword, nil, log)
+	return NewWithPassword(f.srv.URL, "msp", "kcadmin", testAdminPassword, nil, log)
 }
 
 func TestPasswordGrantUsesMasterRealmAndAdminCli(t *testing.T) {
@@ -196,7 +196,7 @@ func TestPasswordGrantUsesMasterRealmAndAdminCli(t *testing.T) {
 	if a.masterTokenReqs != 1 || f.tokenReqs != 0 || a.masterForm.Get("grant_type") != "password" || a.masterForm.Get("client_id") != "admin-cli" || a.masterForm.Get("username") != "kcadmin" {
 		t.Fatalf("master token form = %v (master %d, realm %d)", a.masterForm, a.masterTokenReqs, f.tokenReqs)
 	}
-	wrong := NewWithPassword(f.srv.URL, "lab", "kcadmin", "nope-pw", nil, slog.New(slog.NewJSONHandler(&buf, nil)))
+	wrong := NewWithPassword(f.srv.URL, "msp", "kcadmin", "nope-pw", nil, slog.New(slog.NewJSONHandler(&buf, nil)))
 	_, err := wrong.FindGroup(context.Background(), "tenant-a")
 	if err == nil || !strings.Contains(err.Error(), "token") {
 		t.Fatalf("wrong password: %v", err)
@@ -213,7 +213,7 @@ func TestCreateRealmPostsToAdminRoot(t *testing.T) {
 	if _, err := c.Realm(ctx); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Realm before creation = %v, want ErrNotFound", err)
 	}
-	rep := map[string]any{"realm": "lab", "enabled": true, "displayName": "Lab", "loginWithEmailAllowed": true}
+	rep := map[string]any{"realm": "msp", "enabled": true, "displayName": "MSP", "loginWithEmailAllowed": true}
 	if err := c.CreateRealm(ctx, rep); err != nil {
 		t.Fatalf("CreateRealm: %v", err)
 	}
@@ -224,11 +224,11 @@ func TestCreateRealmPostsToAdminRoot(t *testing.T) {
 			post = &rr
 		}
 	}
-	if post == nil || post.Body["realm"] != "lab" || post.Body["loginWithEmailAllowed"] != true {
+	if post == nil || post.Body["realm"] != "msp" || post.Body["loginWithEmailAllowed"] != true {
 		t.Fatalf("POST /admin/realms = %+v", post)
 	}
 	got, err := c.Realm(ctx)
-	if err != nil || got["displayName"] != "Lab" {
+	if err != nil || got["displayName"] != "MSP" {
 		t.Fatalf("Realm after creation = %v, %v", got, err)
 	}
 }
@@ -249,7 +249,7 @@ func TestEnsureClientCreatesThenUpdates(t *testing.T) {
 	}
 	var put *recorded
 	for _, r := range f.requests() {
-		if r.Method == "PUT" && r.Path == "/admin/realms/lab/clients/cli-portico" {
+		if r.Method == "PUT" && r.Path == "/admin/realms/msp/clients/cli-portico" {
 			rr := r
 			put = &rr
 		}
@@ -281,7 +281,7 @@ func TestEnsureClientRolesAddsOnlyMissing(t *testing.T) {
 	}
 	var post *recorded
 	for _, r := range f.requests() {
-		if r.Method == "POST" && r.Path == "/admin/realms/lab/users/sa-portico-admin/role-mappings/clients/cli-realm-management" {
+		if r.Method == "POST" && r.Path == "/admin/realms/msp/users/sa-portico-admin/role-mappings/clients/cli-realm-management" {
 			rr := r
 			post = &rr
 		}
@@ -316,7 +316,7 @@ func TestSAMLDescriptorNeedsNoToken(t *testing.T) {
 	f := newFakeKC(t)
 	c := adminClient(f, nil)
 	xml, err := c.SAMLDescriptor(context.Background())
-	if err != nil || !strings.Contains(string(xml), `entityID="https://id.example.test/realms/lab"`) {
+	if err != nil || !strings.Contains(string(xml), `entityID="https://id.example.test/realms/msp"`) {
 		t.Fatalf("SAMLDescriptor = %q, %v", xml, err)
 	}
 	if f.admin().masterTokenReqs != 0 {

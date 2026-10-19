@@ -4,7 +4,7 @@ public:
 prism_central:
   url: https://pc.example.test:9440
   api_key_file: /nonexistent-key
-  saml_idp_name: lab-idp
+  saml_idp_name: portico-idp
 keycloak:
   realm: portico
   admin_client_secret_file: /nonexistent-kc

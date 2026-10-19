@@ -33,7 +33,7 @@ internal:
 # by hand (the pre-created path below) stays possible.
 prism_central:
   url: https://10.0.0.10:9440    # required
-  tls_verify: true               # false only in a lab
+  tls_verify: true               # false only with a self-signed certificate you cannot install
   ca_file: ""                    # CA that signed Prism Central's certificate
   # Service account "portico" (userType SERVICE_ACCOUNT, member of the
   # predefined Project Manager_acp policy) and its API key, one line in a

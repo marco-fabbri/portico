@@ -112,7 +112,7 @@ func TestIDPolicyCheck(t *testing.T) {
 		rule    string
 		allowed bool
 	}{
-		{"/realms/portico-lab/protocol/openid-connect/auth", "", true},
+		{"/realms/portico/protocol/openid-connect/auth", "", true},
 		{"/resources/abc/login/keycloak/css/x.css", "", true},
 		{"/realms/master", "id-master-realm", false},
 		{"/realms/master/protocol/openid-connect/token", "id-master-realm", false},

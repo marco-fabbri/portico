@@ -76,7 +76,7 @@ func (h *publicHarness) do(method, rawURL string, hdr map[string]string, session
 		r.Header.Set(k, v)
 	}
 	if session {
-		h.store.Create(auth.Session{ID: "sid", Subject: "alice", Email: "alice@lab.portico.test", CreatedAt: time.Now(), LastSeen: time.Now()})
+		h.store.Create(auth.Session{ID: "sid", Subject: "alice", Email: "alice@example.test", CreatedAt: time.Now(), LastSeen: time.Now()})
 		r.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: "sid"})
 	}
 	rec := httptest.NewRecorder()
@@ -187,7 +187,7 @@ func TestPublicPorticoPrefixNeverProxied(t *testing.T) {
 
 func TestPublicIDHostProxiesRealm(t *testing.T) {
 	h := newPublicHarness(t)
-	rec := h.do("GET", "https://id.test/realms/portico-lab/protocol/openid-connect/auth?client_id=portico", nil, false)
+	rec := h.do("GET", "https://id.test/realms/portico/protocol/openid-connect/auth?client_id=portico", nil, false)
 	if rec.Code != 200 || len(*h.keycloak) != 1 || (*h.keycloak)[0].Host != "id.test" || (*h.keycloak)[0].Query != "client_id=portico" {
 		t.Errorf("got %d keycloak %+v", rec.Code, *h.keycloak)
 	}

@@ -17,7 +17,7 @@ func writeAdminConfig(t *testing.T) (cfgPath, dbPath string) {
 	dbPath = filepath.Join(dir, "portico.db")
 	cfgPath = filepath.Join(dir, "portico.yaml")
 	cfg := "public:\n  prism_host: prism.example.test\n  id_host: id.example.test\n" +
-		"prism_central:\n  url: https://pc.example.test:9440\n  api_key_file: /nonexistent-key\n  saml_idp_name: lab-idp\n" +
+		"prism_central:\n  url: https://pc.example.test:9440\n  api_key_file: /nonexistent-key\n  saml_idp_name: portico-idp\n" +
 		"keycloak:\n  realm: portico\n  admin_client_secret_file: /nonexistent-kc\n" +
 		"oidc:\n  issuer: https://id.example.test/realms/portico\n  client_id: portico\n  client_secret_file: /nonexistent\n" +
 		"tenants:\n  cluster_ext_id: cl-1\n  storage_container_ext_id: sc-1\n" +
@@ -80,7 +80,7 @@ func writeFullConfig(t *testing.T) (cfgPath, dbPath string) {
 	cli := write("oidc-secret", "client-secret-from-file\n")
 	ca := write("ca.pem", "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n")
 	cfg := "public:\n  prism_host: prism.example.test\n  id_host: id.example.test\n" +
-		"prism_central:\n  url: https://pc.example.test:9440\n  tls_verify: true\n  ca_file: " + ca + "\n  api_key_file: " + key + "\n  saml_idp_name: lab-idp\n" +
+		"prism_central:\n  url: https://pc.example.test:9440\n  tls_verify: true\n  ca_file: " + ca + "\n  api_key_file: " + key + "\n  saml_idp_name: portico-idp\n" +
 		"keycloak:\n  realm: portico\n  admin_client_secret_file: " + adm + "\n" +
 		"oidc:\n  issuer: https://id.example.test/realms/portico\n  client_id: portico\n  client_secret_file: " + cli + "\n" +
 		"tenants:\n  cluster_ext_id: cl-1\n  storage_container_ext_id: sc-1\n" +

@@ -45,7 +45,7 @@ func newFakeIDP(t *testing.T) *fakeIDP {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeIDP{t: t, key: key, clientID: "portico", clientSecret: "secret", subject: "alice", email: "alice@lab.portico.test", codes: map[string]codeRecord{}}
+	f := &fakeIDP{t: t, key: key, clientID: "portico", clientSecret: "secret", subject: "alice", email: "alice@example.test", codes: map[string]codeRecord{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", f.discovery)
 	mux.HandleFunc("/auth", f.auth)

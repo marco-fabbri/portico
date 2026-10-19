@@ -112,10 +112,10 @@ func (f *fakePC) handle(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(p, PathMultidomain+"/config/resource-groups/") && r.Method == "DELETE":
 		reply(202, map[string]any{"extId": "task-delete-rg"})
 	case p == PathIAM1+"/authn/saml-identity-providers" && r.Method == "GET":
-		reply(200, []map[string]any{{"extId": "idp-1", "name": "portico-lab-keycloak", "isSharedWithAllProjects": false, "sharedWithProjects": []string{"p-ext-1"}}})
+		reply(200, []map[string]any{{"extId": "idp-1", "name": "portico-keycloak", "isSharedWithAllProjects": false, "sharedWithProjects": []string{"p-ext-1"}}})
 	case strings.HasPrefix(p, PathIAM1+"/authn/saml-identity-providers/") && r.Method == "GET":
 		w.Header().Set("ETag", f.etag)
-		reply(200, map[string]any{"extId": "idp-1", "name": "portico-lab-keycloak", "isSharedWithAllProjects": false, "sharedWithProjects": []string{"p-ext-1"}})
+		reply(200, map[string]any{"extId": "idp-1", "name": "portico-keycloak", "isSharedWithAllProjects": false, "sharedWithProjects": []string{"p-ext-1"}})
 	case strings.HasSuffix(p, "/$actions/share") || strings.HasSuffix(p, "/$actions/unshare"):
 		reply(200, map[string]any{"message": "done"})
 	case p == PathIAM0+"/authn/user-groups" && r.Method == "GET":
