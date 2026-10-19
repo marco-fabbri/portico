@@ -22,7 +22,7 @@ const (
 	tokenPath    = "/etc/cloudflared/token"
 	keycloakEnv  = "/etc/portico/keycloak.env"
 	porticoBin   = "/usr/local/bin/portico"
-	tunnelListen = "127.0.0.1:8080"
+	tunnelListen = "127.0.0.1:8081" // 8080 is Keycloak's published port
 	directListen = ":443"
 )
 

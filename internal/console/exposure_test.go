@@ -29,7 +29,7 @@ func testPair(t *testing.T, name string) (certPEM, keyPEM string) {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: kder}))
 }
 
-const sampleYAML = "public:\n  listen: \":443\"                 # tunnel mode: \"127.0.0.1:8080\" with no tls block\n  tls:                           # both empty = plain HTTP behind cloudflared\n    cert_file: /etc/portico/tls/public.crt\n    key_file: /etc/portico/tls/public.key\n  prism_host: prism.msp.example\n"
+const sampleYAML = "public:\n  listen: \":443\"                 # tunnel mode: \"127.0.0.1:8081\" with no tls block\n  tls:                           # both empty = plain HTTP behind cloudflared\n    cert_file: /etc/portico/tls/public.crt\n    key_file: /etc/portico/tls/public.key\n  prism_host: prism.msp.example\n"
 
 func TestAdminPasswordScreenExecsSetPasswordAsPortico(t *testing.T) {
 	sys := newFakeSystem(Interface{Name: "eth0", Up: true})
@@ -115,7 +115,7 @@ func TestExposureTunnelWritesTheTokenAndEnablesCloudflared(t *testing.T) {
 	}
 	// Tunnel mode: Portico's public listener moves to the loopback for cloudflared (design 4.6).
 	y := string(sys.files["/etc/portico/portico.yaml"])
-	if !strings.Contains(y, "listen: \"127.0.0.1:8080\"") || !strings.Contains(y, "cert_file: \"\"") || !strings.Contains(y, "key_file: \"\"") || !strings.Contains(y, "prism_host: prism.msp.example") {
+	if !strings.Contains(y, "listen: \"127.0.0.1:8081\"") || !strings.Contains(y, "cert_file: \"\"") || !strings.Contains(y, "key_file: \"\"") || !strings.Contains(y, "prism_host: prism.msp.example") {
 		t.Fatalf("yaml not switched to tunnel mode:\n%s", y)
 	}
 }

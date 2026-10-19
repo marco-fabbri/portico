@@ -72,7 +72,7 @@ sets the break-glass password by running `portico admin set-password` as
 the `portico` user, installs the public certificate and key in
 `/etc/portico/tls/` or the tunnel token in `/etc/cloudflared/token` and
 switches the `public` block of the process YAML between direct mode
-(`:443` with the pair) and tunnel mode (`127.0.0.1:8080`, no TLS), and
+(`:443` with the pair) and tunnel mode (`127.0.0.1:8081`, no TLS: 8080 is Keycloak's published port; point the Cloudflare tunnel's ingress at `http://127.0.0.1:8081`), and
 shows the Keycloak administrator credentials from
 `/etc/portico/keycloak.env` on request. It re-runs at any time with the
 current values as defaults; a wrong entry is refused with the field
