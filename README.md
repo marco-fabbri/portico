@@ -68,8 +68,8 @@ flowchart LR
     end
     A["MSP administrator<br/>(LAN / VPN)"]
 
-    T -->|"443, Portico session required"| P
-    T -->|"login"| K
+    T -->|"443: prism and id hosts, Portico session required"| P
+    P -->|"login pages, loopback"| K
     P -->|"9440, service account"| PC
     K -->|"SAML trust"| PC
     P --- DB
