@@ -41,3 +41,4 @@ here runs on the appliance.
 Secrets rule: credentials live in `~/portico-secrets/` (mode 0600). Scripts
 read them from there and never print, log, or copy them under the
 repository.
+- `appliance/deploy.sh [--run ID | --image PATH]` puts the image built by `.github/workflows/image.yml` on NTNX-01: artifact download, HTTP server on the lab VM for Prism Central's image service, `deploy/tofu/nutanix` with the lab values (VM `portico-appliance`, `10.23.210.191`, cloud-init network and SSH key), the break-glass password from `~/portico-secrets-appliance/portico-admin-pw` (write-up 19); `appliance/destroy.sh` removes VM and image. The acceptance scripts take the appliance's names from the environment: `PORTICO_SECRETS`, `LAB_VM_IP`, `LAB_SSH_USER=admin`, `LAB_REALM`, `LAB_SERVICE_ACCOUNT`, `LAB_SAML_IDP`, `LAB_PROJECT_PREFIX`, `LAB_TENANT_*`.

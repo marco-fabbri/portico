@@ -571,10 +571,15 @@ internal admin UI. Nothing else is configurable from the console.
     (pasted or self-signed for a trial) or a Cloudflare tunnel token.
     These need root and a tty, which the web UI does not have; the
     exposure card in the web UI and ACME are deferred.
-  - Keycloak learns its public name from the request
-    (`KC_HOSTNAME_STRICT=false`, Portico forwards the host and
-    `X-Forwarded-*`), so the installer needs no public name: to be
-    measured in the Milestone 3 lab run.
+  - Keycloak needs its public name as `KC_HOSTNAME` (measured, write-up
+    19: with `KC_HOSTNAME_STRICT=false` alone the SAML descriptor read on
+    the loopback names the loopback). Portico writes it into a file the
+    Keycloak quadlet loads on every settings save that carries the
+    identity host, and a path unit restarts Keycloak; the installer
+    needs no public name.
+  - Secrets (Keycloak administrator and database passwords) and the TLS
+    pairs are generated at the first boot of every appliance by
+    `portico-firstboot.service`, never in the image.
   - Release: a tag `v*` builds the image, the OpenSCAP report, the
     checksums and the binary tarball and attaches them to a GitHub
     release; `deploy/tofu/nutanix` (reusing the Nutanix module of the
