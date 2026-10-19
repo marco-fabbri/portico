@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"strings"
 	"testing"
@@ -130,5 +131,29 @@ func TestKeycloakCredentialsScreenShowsThemOnceFromTheEnvFile(t *testing.T) {
 	// Shown until Enter, then the screen is cleared.
 	if !strings.Contains(out[strings.Index(out, "generated-pw-1"):], "\x1b[2J") {
 		t.Fatalf("screen not cleared after the credentials")
+	}
+}
+
+// Review of Milestone 3: a failed cloudflared start or Portico restart is
+// reported, not hidden behind the success line.
+func TestExposureReportsAFailedCommand(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true})
+	sys.files["/etc/portico/portico.yaml"] = []byte(sampleYAML)
+	sys.execErr["systemctl enable --now cloudflared"] = errors.New("Unit cloudflared.service not found")
+	out := run(t, sys, "3\n3\neyJhIjoiYiJ9.token-value\n\n0\n")
+	if !strings.Contains(out, "cloudflared.service not found") || strings.Contains(out, "tunnel mode: Portico listens") {
+		t.Fatalf("failure hidden:\n%s", out)
+	}
+}
+
+// A process YAML whose public block is not in the shape the wizard edits
+// is left untouched, and the wizard says so (no silent no-op restart).
+func TestExposureRefusesAYAMLItCannotEdit(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true})
+	odd := "public:\n  listen: :443\n"
+	sys.files["/etc/portico/portico.yaml"] = []byte(odd)
+	out := run(t, sys, "3\n3\neyJhIjoiYiJ9.token-value\n\n0\n")
+	if string(sys.files["/etc/portico/portico.yaml"]) != odd || !strings.Contains(out, "public.listen") || sys.execd("systemctl", "restart", "portico") {
+		t.Fatalf("odd YAML edited or restarted:\n%s\n%q", out, sys.files["/etc/portico/portico.yaml"])
 	}
 }

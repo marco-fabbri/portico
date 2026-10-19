@@ -21,12 +21,13 @@ type fakeSystem struct {
 	execs    [][]string // argv of every Exec, in order
 	stdins   []string   // what each Exec read on stdin
 	execOut  map[string]string
+	execErr  map[string]error // argv joined by spaces -> error
 	health   string
 	units    map[string]string
 }
 
 func newFakeSystem(ifaces ...Interface) *fakeSystem {
-	return &fakeSystem{ifaces: ifaces, keyfiles: map[string]NetConfig{}, files: map[string][]byte{}, modes: map[string]os.FileMode{}, execOut: map[string]string{}, health: "ok", units: map[string]string{"portico": "active", "keycloak": "active", "postgres": "active", "cloudflared": "inactive"}}
+	return &fakeSystem{ifaces: ifaces, keyfiles: map[string]NetConfig{}, files: map[string][]byte{}, modes: map[string]os.FileMode{}, execOut: map[string]string{}, execErr: map[string]error{}, health: "ok", units: map[string]string{"portico": "active", "keycloak": "active", "postgres": "active", "cloudflared": "inactive"}}
 }
 
 func (f *fakeSystem) Interfaces() ([]Interface, error) { return f.ifaces, nil }
@@ -59,7 +60,7 @@ func (f *fakeSystem) Exec(stdin io.Reader, argv ...string) (string, error) {
 		in = string(b)
 	}
 	f.stdins = append(f.stdins, in)
-	return f.execOut[strings.Join(argv, " ")], nil
+	return f.execOut[strings.Join(argv, " ")], f.execErr[strings.Join(argv, " ")]
 }
 func (f *fakeSystem) ReadFile(path string) ([]byte, error) {
 	b, ok := f.files[path]

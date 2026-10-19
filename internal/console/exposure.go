@@ -160,8 +160,12 @@ func (s *session) installDirect(cert, key []byte) {
 		fmt.Fprintln(s.out, "  "+err.Error())
 		return
 	}
+	// cloudflared may be absent (install.sh tolerates it): stopping it is best effort.
 	s.sys.Exec(nil, "systemctl", "disable", "--now", "cloudflared")
-	s.sys.Exec(nil, "systemctl", "restart", "portico")
+	if _, err := s.sys.Exec(nil, "systemctl", "restart", "portico"); err != nil {
+		fmt.Fprintln(s.out, "  portico did not restart: "+err.Error())
+		return
+	}
 	fmt.Fprintln(s.out, "direct exposure on port 443 with the installed certificate")
 }
 
@@ -179,12 +183,21 @@ func (s *session) tunnel() {
 		fmt.Fprintln(s.out, "  "+err.Error())
 		return
 	}
+	// cloudflared first: when it cannot start (not installed, bad token)
+	// Portico stays where it is and the screen says why.
+	if _, err := s.sys.Exec(nil, "systemctl", "enable", "--now", "cloudflared"); err != nil {
+		fmt.Fprintln(s.out, "  cloudflared did not start: "+err.Error())
+		fmt.Fprintln(s.out, "  Portico keeps its current exposure; check `journalctl -u cloudflared`")
+		return
+	}
 	if err := s.setMode(true); err != nil {
 		fmt.Fprintln(s.out, "  "+err.Error())
 		return
 	}
-	s.sys.Exec(nil, "systemctl", "enable", "--now", "cloudflared")
-	s.sys.Exec(nil, "systemctl", "restart", "portico")
+	if _, err := s.sys.Exec(nil, "systemctl", "restart", "portico"); err != nil {
+		fmt.Fprintln(s.out, "  portico did not restart: "+err.Error())
+		return
+	}
 	fmt.Fprintln(s.out, "tunnel mode: Portico listens on the loopback for cloudflared")
 }
 
@@ -208,20 +221,27 @@ func (s *session) setMode(tunnel bool) error {
 		listen, cert, key = tunnelListen, `""`, `""`
 	}
 	text := string(y)
-	text = replaceFirst(listenRe, text, `${1}"`+listen+`"`)
-	text = replaceFirst(certRe, text, "${1}"+cert)
-	text = replaceFirst(keyRe, text, "${1}"+key)
+	for _, r := range []struct {
+		re   *regexp.Regexp
+		repl string
+		key  string
+	}{{listenRe, `${1}"` + listen + `"`, "public.listen"}, {certRe, "${1}" + cert, "public.tls.cert_file"}, {keyRe, "${1}" + key, "public.tls.key_file"}} {
+		var ok bool
+		if text, ok = replaceFirst(r.re, text, r.repl); !ok {
+			return fmt.Errorf("console: %s: %s not found in the shape the wizard edits (a quoted value); edit the file by hand", configPath, r.key)
+		}
+	}
 	return s.sys.WriteFile(configPath, []byte(text), 0o640)
 }
 
-func replaceFirst(re *regexp.Regexp, text, repl string) string {
+func replaceFirst(re *regexp.Regexp, text, repl string) (string, bool) {
 	loc := re.FindStringSubmatchIndex(text)
 	if loc == nil {
-		return text
+		return text, false
 	}
 	var dst []byte
 	dst = re.ExpandString(dst, repl, text, loc)
-	return text[:loc[0]] + string(dst) + text[loc[1]:]
+	return text[:loc[0]] + string(dst) + text[loc[1]:], true
 }
 
 // SelfSigned makes an ECDSA P-256 certificate for the names, one year.
