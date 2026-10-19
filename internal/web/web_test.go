@@ -282,12 +282,12 @@ func TestLayoutCarriesThePorticoMark(t *testing.T) {
 	page := e.do("GET", "/login", nil, false).Body.String()
 	// Static URLs carry the binary's version: the assets are cached for
 	// a day, and a new binary must not run on the old stylesheet.
-	for _, want := range []string{`<link rel="icon" type="image/svg+xml" href="/static/portico-mark.svg?v=`, `<link rel="stylesheet" href="/static/portico.css?v=`, `<img class="mark" src="/static/portico-mark-white.svg?v=`} {
+	for _, want := range []string{`<link rel="icon" type="image/svg+xml" href="/static/portico-mark.svg?v=`, `<link rel="stylesheet" href="/static/portico.css?v=`, `<img class="mark-large" src="/static/portico-mark.svg?v=`} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("layout lacks %q:\n%s", want, page)
 		}
 	}
-	for _, f := range []string{"/static/portico-mark.svg", "/static/portico-mark-white.svg"} {
+	for _, f := range []string{"/static/portico-mark.svg"} {
 		rec := e.do("GET", f, nil, false)
 		if rec.Code != 200 || !strings.Contains(rec.Body.String(), "<svg") {
 			t.Fatalf("%s: %d", f, rec.Code)
