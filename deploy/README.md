@@ -34,10 +34,10 @@ tar -xzf install-<version>.tar.gz && cd deploy && ./install.sh --release <versio
 
 The installer verifies the binary's checksum, installs everything above,
 generates the Keycloak secrets and the internal TLS pair once, starts the
-services and leaves the host in setup mode. Then either open the console
-(`portico console` on tty1, or run it over SSH as root) to set the
-break-glass password and the exposure, or do the same by hand and open
-`https://<address>:8443/`.
+services and leaves the host in setup mode with the factory password
+(`admin` / `portico/4u`, changed at the first login). Then either open the
+console (`portico console` on tty1, or run it over SSH as root) for the
+exposure, or do the same by hand and open `https://<address>:8443/`.
 
 Re-running the installer upgrades the binary and the files and keeps
 every secret, the store and the settings.

@@ -181,9 +181,15 @@ The design turns on four rules, and the code is reviewed against them
   appliance (`/var/lib/portico/master.key`, mode 0600, created at first
   start).
 
+Every appliance starts with the factory password `admin` / `portico/4u`
+for the admin UI (Nutanix's own convention); the first login opens the
+password page and nothing else until a new one is set, and the API
+refuses the factory one. Between the first boot and that first login,
+whoever reaches port 8443 on the internal network can claim the
+appliance: never publish 8443, and log in soon after the first boot.
 Lab defaults that must change before any real use: the lab certificate
-authority, `tls_verify: false` towards a Prism Central with a self-signed
-certificate, and the break-glass password set by the lab deploy script.
+authority and `tls_verify: false` towards a Prism Central with a
+self-signed certificate.
 
 ## Repository layout
 

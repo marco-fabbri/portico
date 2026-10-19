@@ -196,6 +196,11 @@ per-session CSRF token on every state-changing form, and a delay after
 failed logins shared with the API's Basic check. Off the loopback the
 listener must have TLS (enforced since 2a). OIDC login for admins can be
 added later; the break-glass account stays.
+Marco's call on 2026-10-19 (Milestone 3): the account starts with the
+factory password `portico/4u` (Nutanix's convention) and the first login
+on the admin UI forces a new one; the API refuses the factory password.
+The window between the first boot and that login is the same one
+Nutanix accepts with `nutanix/4u`, mitigated by never publishing 8443.
 
 ### 4.3 Request flow on the public path
 

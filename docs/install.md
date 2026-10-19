@@ -34,20 +34,23 @@ here is supported yet; the first release (Milestone 4) will say what is.
    tty1.
    - *Network*: hostname, address, prefix, gateway, DNS for each
      interface; skip it when cloud-init already set them.
-   - *Admin password*: the break-glass account `admin` of the admin UI
-     and API.
    - *Keycloak administrator credentials*: shown once, for the Keycloak
      card of the setup page.
    - *Exposure*: a certificate and key for the public names, a
      self-signed pair, or the Cloudflare tunnel token.
-4. **The setup page**, `https://<address>:8443/` (self-signed internal
-   certificate; the break-glass password): public names, Prism Central
+   - *Admin password*: optional here; the web does it at the first login.
+4. **The first login**, `https://<address>:8443/` (self-signed internal
+   certificate): `admin` with the factory password `portico/4u`; the
+   appliance asks for a new password (at least 12 characters) before
+   showing anything else. Do it soon after the first boot: until then
+   anyone reaching 8443 on your internal network could do it instead.
+5. **The setup page**: public names, Prism Central
    (URL, then "Let Portico create the service account" with the one-time
    account), Identity (the Keycloak credentials from the console, "Let
    Portico create the realm and clients"), SAML trust, Tenants (cluster,
    container, prefixes), then Apply and restart. The appliance leaves
    setup mode and the public path opens.
-5. **Branding** and the first **tenant** from the admin UI; the tenant's
+6. **Branding** and the first **tenant** from the admin UI; the tenant's
    user signs in at `https://prism.<msp>.example/`.
 
 The appliance has no root password and no SSH user unless cloud-init
@@ -70,9 +73,9 @@ The installer (deploy/README.md) installs the packages, the service, the
 Keycloak and PostgreSQL containers, the console on tty1, the firewalld
 service (443, 8443) and the SSH policy (keys only, no root); it
 generates the Keycloak secrets and the internal certificate once and
-starts in setup mode. Then run the console (`portico console` as root on
-tty1, or over SSH in a terminal) for the password and the exposure, and
-continue at step 4 above. The host's own hardening is yours: the image's
+starts in setup mode with the factory password. Then run the console
+(`portico console` as root on tty1, or over SSH in a terminal) for the
+exposure, and continue at step 4 above. The host's own hardening is yours: the image's
 CIS baseline (image/oscap) is applied only by the image build.
 
 Re-running `install.sh --release <new version>` upgrades.
