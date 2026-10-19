@@ -101,7 +101,7 @@ for _ in $(seq 1 30); do
   code=$(curl -sk -o /dev/null -w '%{http_code}' "https://$LAB_VM_IP:8443/healthz" || true)
   if [ "$code" = 200 ]; then
     echo "portico ready"
-    [ $fresh -eq 1 ] && "${SSH[@]}" sudo journalctl -u portico -n 20 --no-pager | grep -o 'setup mode.*' | head -1
+    [ $fresh -eq 1 ] && { "${SSH[@]}" sudo journalctl -u portico -n 20 --no-pager | grep -o 'setup mode.*' | head -1 || true; }
     echo "admin UI: https://$LAB_PRISM_HOST:8443/ (resolve the name to $LAB_VM_IP; user admin, password in $S/portico-admin-pw)"; exit 0
   fi
   sleep 1
