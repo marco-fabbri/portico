@@ -17,7 +17,9 @@ source lab/projects/lib.sh
 # the Mac; after the 2e bootstrap the key lives in the store only and the
 # reads fall back to the admin credentials of lab/env.sh.
 if [ -s "$S/portico-sa-key" ]; then export PC_API_KEY; PC_API_KEY=$(cut -d= -f2- "$S/portico-sa-key" | tr -d '\r\n'); fi
-slug="tenant-b"; project="portico-lab-$slug"; group="tenant-$slug"; email="carol@lab.portico.test"
+# Against the appliance (Milestone 3) the names are the definitive ones: LAB_PROJECT_PREFIX=portico, LAB_REALM=portico, LAB_TENANT_SLUG=acme.
+PREFIX="${LAB_PROJECT_PREFIX:-portico-lab}"; REALM="${LAB_REALM:-portico-lab}"
+slug="${LAB_TENANT_SLUG:-tenant-b}"; project="$PREFIX-$slug"; group="tenant-$slug"; email="${LAB_TENANT_EMAIL:-carol@lab.portico.test}"
 umask 077; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 fail=0
 line() { local ok=ok; [ "$2" = "$3" ] || { ok=FAIL; fail=1; }; printf '%-4s %-66s -> %s (%s)\n' "$ok" "$1" "$2" "$3"; }
@@ -35,7 +37,7 @@ snap_internal() { lab/pc.sh GET "$MD/config/projects" 2>/dev/null | jq -S 'del(.
 
 if [ "${1:-}" != "--delete" ]; then
   # 1. create
-  jq -n --arg s "$slug" '{slug:$s, display_name:"Tenant B (lab)", contacts:"ops@lab.portico.test"}' > "$tmp/create.json"
+  jq -n --arg s "$slug" --arg d "${LAB_TENANT_NAME:-Tenant B (lab)}" --arg c "${LAB_TENANT_CONTACT:-ops@lab.portico.test}" '{slug:$s, display_name:$d, contacts:$c}' > "$tmp/create.json"
   code=$(api POST /api/v1/tenants "$tmp/create.json")
   [ "$code" = 409 ] && { echo "     tenant exists already, continuing"; code=202; }
   line "POST /api/v1/tenants ($slug)" "$code" 202
@@ -66,10 +68,10 @@ if [ "${1:-}" != "--delete" ]; then
   line "POST /users ($email)" "$code" 201
   # 6. disable / enable
   code=$(api POST "/api/v1/tenants/$slug/disable"); line "POST /disable" "$code $(jq -r .status "$tmp/out")" "200 disabled"
-  en=$(lab/saml/kc.sh GET "/portico-lab/users?email=$email&exact=true" 2>/dev/null | jq -r '.[0].enabled')
+  en=$(lab/saml/kc.sh GET "/$REALM/users?email=$email&exact=true" 2>/dev/null | jq -r '.[0].enabled')
   line "carol enabled in Keycloak while disabled" "$en" false
   code=$(api POST "/api/v1/tenants/$slug/enable"); line "POST /enable" "$code $(jq -r .status "$tmp/out")" "200 active"
-  en=$(lab/saml/kc.sh GET "/portico-lab/users?email=$email&exact=true" 2>/dev/null | jq -r '.[0].enabled')
+  en=$(lab/saml/kc.sh GET "/$REALM/users?email=$email&exact=true" 2>/dev/null | jq -r '.[0].enabled')
   line "carol enabled in Keycloak after enable" "$en" true
   echo "browser check pending: log in as $email on https://$LAB_PRISM_HOST/ (then run with --delete)"
 else
@@ -80,15 +82,15 @@ else
   line "tenant row after deletion" "$(wait_status gone 900)" gone
   line "project $project in Prism Central after deletion" "$([ -z "$(project_extid "$project")" ] && echo absent || echo present)" absent
   line "SAML group $group after deletion" "$([ -z "$(user_group_extid "$group")" ] && echo absent || echo present)" absent
-  kg=$(lab/saml/kc.sh GET "/portico-lab/groups?search=$group&exact=true" 2>/dev/null | jq -r 'length')
+  kg=$(lab/saml/kc.sh GET "/$REALM/groups?search=$group&exact=true" 2>/dev/null | jq -r 'length')
   line "Keycloak group $group after deletion" "$kg" 0
   snap_internal "$tmp/internal-after.json"
   line "_internal project unchanged" "$(diff -q "$tmp/internal-before.json" "$tmp/internal-after.json" >/dev/null && echo yes || echo no)" yes
   # The test user is removed too, so the next run creates her again with a
   # fresh temporary password (Portico itself leaves tenant users in place).
-  uid=$(lab/saml/kc.sh GET "/portico-lab/users?email=$email&exact=true" 2>/dev/null | jq -r '.[0].id // empty')
-  [ -n "$uid" ] && lab/saml/kc.sh DELETE "/portico-lab/users/$uid" >/dev/null 2>&1
-  line "Keycloak test user $email removed" "$(lab/saml/kc.sh GET "/portico-lab/users?email=$email&exact=true" 2>/dev/null | jq -r 'length')" 0
+  uid=$(lab/saml/kc.sh GET "/$REALM/users?email=$email&exact=true" 2>/dev/null | jq -r '.[0].id // empty')
+  [ -n "$uid" ] && lab/saml/kc.sh DELETE "/$REALM/users/$uid" >/dev/null 2>&1
+  line "Keycloak test user $email removed" "$(lab/saml/kc.sh GET "/$REALM/users?email=$email&exact=true" 2>/dev/null | jq -r 'length')" 0
   rm -f "$S/carol-tmp-pw" "$S/carol-pw"
 fi
 if [ $fail -eq 0 ]; then echo "PASS: every line matched"; else echo "FAIL: see lines marked FAIL" >&2; exit 1; fi
