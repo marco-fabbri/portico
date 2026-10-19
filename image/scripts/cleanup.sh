@@ -7,7 +7,7 @@ dnf -y -q clean all
 rm -rf /var/cache/dnf /var/lib/dnf/history*
 rm -f /etc/ssh/ssh_host_*
 truncate -s 0 /etc/machine-id
-rm -f /var/lib/dbus/machine-id && ln -s /etc/machine-id /var/lib/dbus/machine-id
+mkdir -p /var/lib/dbus && rm -f /var/lib/dbus/machine-id && ln -s /etc/machine-id /var/lib/dbus/machine-id
 cloud-init clean --logs --seed
 # Anaconda wrote a DHCP profile for the build network; the appliance gets
 # its network from the console wizard or from cloud-init's bootcmd.
