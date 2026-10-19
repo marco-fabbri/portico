@@ -143,6 +143,11 @@ func setAdminPassword(cfg *config.Config, stdin io.Reader, stdout, stderr io.Wri
 		fmt.Fprintf(stderr, "portico: %v\n", err)
 		return 1
 	}
+	// A password set by hand is a chosen one: no forced change at login.
+	if err := st.SetSetting(context.Background(), "admin.password_change_required", []byte("0")); err != nil {
+		fmt.Fprintf(stderr, "portico: %v\n", err)
+		return 1
+	}
 	fmt.Fprintln(stdout, "password set for admin")
 	return 0
 }

@@ -105,6 +105,13 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	} else {
 		log.Info("settings source", "source", "file")
 	}
+	// A fresh store gets the factory password (admin / portico/4u), to be
+	// changed at the first login on the admin UI (design 4.2).
+	if set, err := api.EnsureFactoryPassword(ctx, st); err != nil {
+		return fmt.Errorf("factory password: %w", err)
+	} else if set {
+		log.Warn("factory password set for admin: change it at the first login on the admin UI")
+	}
 	// Branding: read by every tenant-facing page and error page.
 	brand := branding.NewService(st, log)
 	// Settings: the API and the setup page edit the stored document.
