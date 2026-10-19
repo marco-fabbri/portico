@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016  # the single-quoted commands run on the appliance over SSH
 # Boot test of the built image on a host with KVM (the CI runner): a
 # NoCloud seed gives the appliance an SSH user and the static network the
 # OpenTofu module would write; the test then checks what the first boot
