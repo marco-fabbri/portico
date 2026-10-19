@@ -12,3 +12,11 @@ output "admin_url" {
   description = "The admin UI, once the network is up"
   value       = var.network == null ? "set the network on the VM console (Prism Central > VM > Launch console), then https://<address>:8443/" : "https://${var.network.address}:8443/"
 }
+
+# A template that renders invalid YAML would make cloud-init drop the whole
+# document silently (measured on NTNX-01: no user, no network). Decoding it
+# here fails the plan instead.
+output "cloud_init_valid" {
+  description = "true when the rendered cloud-init user data is valid YAML"
+  value       = yamldecode(local.user_data) != null
+}

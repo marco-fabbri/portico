@@ -22,7 +22,7 @@ write_files:
     permissions: "0600"
     owner: root:root
     content: |
-${indent(6, keyfile)}
+      ${indent(6, keyfile)}
 runcmd:
   - [nmcli, connection, reload]
   - [nmcli, connection, up, "${nic}"]

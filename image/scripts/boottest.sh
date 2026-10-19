@@ -11,7 +11,16 @@ cd "$(dirname "$0")/.."
 QPID=""
 W=$(mktemp -d); trap 'rm -rf "$W"; [ -n "$QPID" ] && kill "$QPID" 2>/dev/null || true' EXIT
 ssh-keygen -q -t ed25519 -N '' -f "$W/key"
-cat > "$W/user-data" <<UD
+# The user data is the one deploy/tofu/nutanix would send (rendered from its
+# template with tofu console, so a template defect fails here): an admin
+# user with the key, the static network of QEMU's user-mode subnet.
+KEY=$(cat "$W/key.pub")
+if command -v tofu >/dev/null; then
+  (cd ../deploy/tofu/nutanix && tofu init -input=false -backend=false >/dev/null 2>&1 && printf '%s\n' "templatefile(\"cloud-init.tftpl\", { hostname = \"boottest\", nic = \"eth0\", ssh_public_key = \"$KEY\", keyfile = \"[connection]\\nid=eth0\\ntype=ethernet\\ninterface-name=eth0\\nautoconnect=true\\n\\n[ipv4]\\nmethod=manual\\naddress1=10.0.2.15/24,10.0.2.2\\ndns=10.0.2.3;\\n\\n[ipv6]\\nmethod=disabled\\n\" })" | tofu console 2>/dev/null | sed 's/^<<EOT$//; s/^EOT$//' > "$W/user-data")
+  grep -q '^#cloud-config' "$W/user-data" || { echo "boottest: the module's template did not render"; cat "$W/user-data"; exit 1; }
+  echo "boottest: user data rendered from deploy/tofu/nutanix/cloud-init.tftpl"
+else
+  cat > "$W/user-data" <<UD
 #cloud-config
 hostname: boottest
 users:
@@ -21,7 +30,7 @@ users:
     shell: /bin/bash
     lock_passwd: true
     ssh_authorized_keys:
-      - $(cat "$W/key.pub")
+      - $KEY
 write_files:
   - path: /etc/NetworkManager/system-connections/eth0.nmconnection
     permissions: "0600"
@@ -44,6 +53,8 @@ runcmd:
   - [nmcli, connection, reload]
   - [nmcli, connection, up, eth0]
 UD
+  echo "boottest: user data written by hand (no tofu on this host)"
+fi
 # SEED_FORMAT=nocloud (default) is the cidata disk; configdrive is what AHV
 # attaches (CONFIG_DRIVE_V2): label config-2, openstack/latest/user_data
 # and meta_data.json.

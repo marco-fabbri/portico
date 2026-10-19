@@ -59,6 +59,9 @@ jobs:
           # The plugin getter asks the GitHub API; unauthenticated it is rate limited.
           PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ../image/build.sh "$VER" "$PWD/../dist/portico"
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.8.5"
       - name: Boot test (KVM, config drive as AHV attaches it)
         run: |
           sudo apt-get install -y -q genisoimage openssh-client >/dev/null
