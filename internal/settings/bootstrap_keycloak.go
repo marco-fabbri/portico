@@ -66,6 +66,12 @@ func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Setti
 		return KeycloakResult{}, s, &StateError{Msg: "the Keycloak administrator's username and password are required"}
 	}
 	res := KeycloakResult{Created: []string{}}
+	// Saving the public names restarts Keycloak (its hostname file): wait
+	// for it to answer before the first call, bounded.
+	if !waitKeycloakReady(ctx, keycloakURL) {
+		res.Message = "Keycloak is not answering yet: it restarts with its public name after the public names are saved; try again in a minute"
+		return res, s, nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	kc := keycloak.NewWithPassword(keycloakURL, in.Realm, in.AdminUsername, in.AdminPassword, &http.Client{Timeout: 15 * time.Second}, b.log)
@@ -170,4 +176,39 @@ func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Setti
 	}
 	res.OK, res.Stored = true, stored
 	return res, out, nil
+}
+
+// KeycloakReadyWait bounds the wait for Keycloak before a bootstrap;
+// KeycloakReadyPoll is the interval. Tests shorten both.
+var (
+	KeycloakReadyWait = 120 * time.Second
+	KeycloakReadyPoll = 2 * time.Second
+)
+
+// waitKeycloakReady polls the master realm's public endpoint until
+// Keycloak answers at all with something other than a 5xx (a restarting
+// container refuses the connection or answers 503), or the wait is over.
+func waitKeycloakReady(ctx context.Context, keycloakURL string) bool {
+	deadline := time.Now().Add(KeycloakReadyWait)
+	client := &http.Client{Timeout: 5 * time.Second}
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(keycloakURL, "/")+"/realms/master", nil)
+		if err != nil {
+			return false
+		}
+		if resp, err := client.Do(req); err == nil {
+			resp.Body.Close()
+			if resp.StatusCode < 500 {
+				return true
+			}
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(KeycloakReadyPoll):
+		}
+	}
 }
