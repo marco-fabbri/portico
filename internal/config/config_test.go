@@ -259,3 +259,23 @@ func TestLoadAcceptsProcessOnlyYAML(t *testing.T) {
 		t.Fatal("ValidateRuntime should still fail on a process-only YAML")
 	}
 }
+
+// The public listener must not take the loopback port Keycloak is
+// published on (review of Milestone 3: tunnel mode listened on
+// 127.0.0.1:8080, Keycloak's port, and cloudflared would have reached
+// Keycloak instead of Portico).
+func TestValidateRefusesThePublicListenerOnKeycloaksPort(t *testing.T) {
+	cfg, err := Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Keycloak.URL = "http://127.0.0.1:8080"
+	cfg.Public.Listen, cfg.Public.TLS = "127.0.0.1:8080", TLS{}
+	if err := cfg.ValidateProcess(); err == nil || !strings.Contains(err.Error(), "keycloak.url") {
+		t.Fatalf("public.listen on Keycloak's port: %v", err)
+	}
+	cfg.Public.Listen = "127.0.0.1:8081"
+	if err := cfg.ValidateProcess(); err != nil {
+		t.Fatalf("a free loopback port refused: %v", err)
+	}
+}

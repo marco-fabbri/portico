@@ -163,10 +163,23 @@ func (s Settings) Missing() []string {
 
 var rePrefix = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
+// reHost is a host name with an optional port: labels of letters, digits
+// and dashes, not starting with a dash. The identity host ends up in
+// Keycloak's environment file, so nothing else may pass.
+var reHost = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*(:[0-9]{1,5})?$`)
+
+// ValidHost reports whether h is a host name with an optional port.
+func ValidHost(h string) bool { return reHost.MatchString(h) }
+
 // ValidateFormat checks the shape of the values that are set and says
 // nothing about the empty ones, so a draft can be stored card by card.
 func (s Settings) ValidateFormat() error {
 	var errs []error
+	for _, r := range []struct{ key, value string }{{"prism_host", s.PrismHost}, {"id_host", s.IDHost}} {
+		if r.value != "" && !ValidHost(r.value) {
+			errs = append(errs, fmt.Errorf("settings: %s %q must be a host name (letters, digits, dots, dashes, optional :port)", r.key, r.value))
+		}
+	}
 	for _, r := range []struct{ key, value string }{{"prism_central.url", s.PrismCentral.URL}, {"oidc.issuer", s.OIDC.Issuer}} {
 		if r.value == "" {
 			continue

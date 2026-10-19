@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
@@ -90,9 +91,16 @@ func TestOpenWrongKeyAndTamper(t *testing.T) {
 	if _, err := newSealer(t, 2).Open(sealed); !errors.Is(err, ErrOpen) {
 		t.Fatalf("wrong key: %v", err)
 	}
-	tampered := []byte(sealed)
-	tampered[len(tampered)-2] ^= 0x01
-	if _, err := s.Open(string(tampered)); !errors.Is(err, ErrOpen) {
+	// Flip a bit of the decoded ciphertext, not of the base64 text: a bit
+	// flipped in a base64 character can land in the padding bits and
+	// decode to the same bytes (the test failed now and then that way).
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(sealed, prefix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw[len(raw)-1] ^= 0x01
+	tampered := prefix + base64.StdEncoding.EncodeToString(raw)
+	if _, err := s.Open(tampered); !errors.Is(err, ErrOpen) {
 		t.Fatalf("tampered: %v", err)
 	}
 	if _, err := s.Open("plain"); !errors.Is(err, ErrNotSealed) {

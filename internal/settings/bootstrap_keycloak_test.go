@@ -11,7 +11,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // fakeKCAdmin is an httptest Keycloak for the bootstrap: the master
@@ -245,8 +247,9 @@ func TestKeycloakBootstrapPreconditionsAndRefusal(t *testing.T) {
 	if err != nil || res.OK || res.Message != "Keycloak refused the administrator credentials" || kc.realms() != 0 {
 		t.Fatalf("wrong password: %+v %v realms=%d", res, err, kc.realms())
 	}
+	shortKeycloakWait(t)
 	res, _, err = b.Keycloak(context.Background(), "http://127.0.0.1:1", s, KeycloakInput{AdminUsername: "kcadmin", AdminPassword: "adm-pw-1", Realm: "msp"})
-	if err != nil || res.OK || !strings.HasPrefix(res.Message, "Keycloak did not answer: ") {
+	if err != nil || res.OK || !strings.Contains(res.Message, "Keycloak is not answering") {
 		t.Fatalf("keycloak down: %+v %v", res, err)
 	}
 }
@@ -308,4 +311,48 @@ func TestKeycloakBootstrapSetsAPasswordPolicy(t *testing.T) {
 	if got != RealmPasswordPolicy || RealmPasswordPolicy != "length(12) and notUsername and notEmail" {
 		t.Fatalf("passwordPolicy = %v", got)
 	}
+}
+
+// Review of Milestone 3: saving the public names restarts Keycloak (the
+// hostname file), and the Keycloak card is the next thing an administrator
+// does. The bootstrap waits for Keycloak to answer (bounded) instead of
+// failing on the restart.
+func TestKeycloakBootstrapWaitsForARestartingKeycloak(t *testing.T) {
+	kc := newFakeKCAdmin(t)
+	var down atomic.Int32
+	down.Store(3) // three refused calls, as while the container restarts
+	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if down.Load() > 0 {
+			down.Add(-1)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		kc.handle(w, r)
+	}))
+	t.Cleanup(front.Close)
+	shortKeycloakWait(t)
+	KeycloakReadyWait = 5 * time.Second
+	b := NewBootstrapper(nil, nil)
+	s := Defaults()
+	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	res, _, err := b.Keycloak(context.Background(), front.URL, s, KeycloakInput{AdminUsername: "kcadmin", AdminPassword: "adm-pw-1", Realm: "msp"})
+	if err != nil || !res.OK {
+		t.Fatalf("bootstrap during a restart: %+v %v", res, err)
+	}
+	// Still down after the wait: the message says so.
+	down.Store(1 << 20)
+	KeycloakReadyWait = 50 * time.Millisecond
+	res, _, _ = b.Keycloak(context.Background(), front.URL, s, KeycloakInput{AdminUsername: "kcadmin", AdminPassword: "adm-pw-1", Realm: "msp"})
+	if res.OK || !strings.Contains(res.Message, "restarts") {
+		t.Fatalf("down Keycloak: %+v", res)
+	}
+}
+
+// shortKeycloakWait makes the bootstrap's wait for Keycloak short for one
+// test and restores it afterwards.
+func shortKeycloakWait(t *testing.T) {
+	t.Helper()
+	w, p := KeycloakReadyWait, KeycloakReadyPoll
+	KeycloakReadyWait, KeycloakReadyPoll = 50*time.Millisecond, 10*time.Millisecond
+	t.Cleanup(func() { KeycloakReadyWait, KeycloakReadyPoll = w, p })
 }

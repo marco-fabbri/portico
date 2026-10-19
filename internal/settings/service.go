@@ -38,11 +38,22 @@ type Service struct {
 	st     store.Store
 	sealer *secrets.Sealer
 	mu     sync.Mutex // serialises the read-modify-write of Update and Patch
+	hooks  []func(ctx context.Context, in Settings) error
 }
 
 // NewService returns a service over the store with the sealer.
 func NewService(st store.Store, sealer *secrets.Sealer) *Service {
 	return &Service{st: st, sealer: sealer}
+}
+
+// OnChange registers a function run after every successful save with the
+// document as saved (secrets unsealed). The appliance uses it to give
+// Keycloak its public hostname as soon as id_host is known. A hook error
+// is returned by the save; the document is stored regardless.
+func (s *Service) OnChange(fn func(ctx context.Context, in Settings) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hooks = append(s.hooks, fn)
 }
 
 // Stored reports whether a document exists.
@@ -122,6 +133,11 @@ func (s *Service) set(ctx context.Context, in Settings) error {
 	}
 	if err := s.st.SetSetting(ctx, SettingKey, raw); err != nil {
 		return fmt.Errorf("settings: store: %w", err)
+	}
+	for _, h := range s.hooks {
+		if err := h(ctx, in); err != nil {
+			return fmt.Errorf("settings: after save: %w", err)
+		}
 	}
 	return nil
 }
