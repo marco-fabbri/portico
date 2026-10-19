@@ -71,7 +71,7 @@ esac
 echo "boottest: seed format ${SEED_FORMAT:-nocloud}"
 qemu-system-x86_64 -enable-kvm -cpu host -m 3072 -smp 2 -display none -daemonize -pidfile "$W/qemu.pid" \
   -snapshot -drive "file=$IMG,if=virtio,discard=unmap" -cdrom "$W/seed.iso" \
-  -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2222-:22 -device virtio-net,netdev=n0 \
+  -netdev user,id=n0,restrict=on,hostfwd=tcp:127.0.0.1:2222-:22 -device virtio-net,netdev=n0 \
   -serial "file:boottest-serial-${SEED_FORMAT:-nocloud}.log"
 QPID=$(cat "$W/qemu.pid")
 SSH=(ssh -i "$W/key" -p 2222 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 admin@127.0.0.1)

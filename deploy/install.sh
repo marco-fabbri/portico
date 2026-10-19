@@ -55,43 +55,6 @@ putdir() {
 }
 log() { echo "install.sh: $*"; }
 
-# 1. Packages.
-if [ $RENDER -eq 0 ]; then
-  log "packages"
-  dnf -y -q install podman firewalld NetworkManager policycoreutils-python-utils openssl curl tar
-  if [ ! -r /etc/yum.repos.d/cloudflared.repo ]; then
-    curl -fsSL https://pkg.cloudflare.com/cloudflared.repo -o /etc/yum.repos.d/cloudflared.repo || log "warning: the cloudflared repository is not reachable; tunnel mode needs it later"
-  fi
-  dnf -y -q install cloudflared || log "warning: cloudflared not installed; tunnel mode needs it later"
-  id -u portico >/dev/null 2>&1 || useradd -r -s /sbin/nologin -d /var/lib/portico portico
-fi
-
-# 2. Directories.
-putdir 0750 root portico /etc/portico
-putdir 0750 root portico /etc/portico/tls
-putdir 0700 root root /etc/cloudflared
-putdir 0755 portico portico /var/lib/portico
-putdir 0755 portico portico /var/lib/portico/keycloak-theme
-
-# 3. The binary.
-if [ -n "$BINARY" ]; then
-  put 0755 root root "$BINARY" /usr/local/bin/portico
-elif [ -n "$RELEASE" ]; then
-  tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-  base="$REPO/releases/download/v$RELEASE/portico-$RELEASE-linux-amd64.tar.gz"
-  log "downloading $base"
-  curl -fsSL -o "$tmp/portico.tar.gz" "$base"
-  curl -fsSL -o "$tmp/portico.tar.gz.sha256" "$base.sha256"
-  (cd "$tmp" && sed 's#  .*#  portico.tar.gz#' portico.tar.gz.sha256 | sha256sum -c --quiet -)
-  tar -xzf "$tmp/portico.tar.gz" -C "$tmp" portico
-  put 0755 root root "$tmp/portico" /usr/local/bin/portico
-elif [ ! -x "$ROOT/usr/local/bin/portico" ]; then
-  echo "install.sh: no binary: give --binary PATH or --release VERSION" >&2; exit 1
-fi
-
-# 4. Process settings (kept when present: the wizard edits them).
-[ -e "$ROOT/etc/portico/portico.yaml" ] || put 0640 root portico "$HERE/portico.appliance.yaml" /etc/portico/portico.yaml
-
 # Secrets and TLS pairs: generated once per appliance, never at image build.
 generate_secrets() {
   # Keycloak administrator and database passwords; shown by the console wizard only.
@@ -136,10 +99,14 @@ configure_firewall() {
   fi
 }
 
+
 if [ $FIRSTBOOT -eq 1 ]; then
   # Runs from portico-firstboot.service, ordered before the services:
   # they start by themselves once this exits (a blocking systemctl start
   # from here would wait for this very unit).
+  # No package, no download: a first boot may have no route to the
+  # Internet yet (measured on NTNX-01: dnf failed on the cloudflared repo
+  # and the whole first boot with it).
   log "first boot: secrets, TLS pairs, firewall"
   generate_secrets
   restorecon -R /etc/portico >/dev/null 2>&1 || true
@@ -147,6 +114,43 @@ if [ $FIRSTBOOT -eq 1 ]; then
   log "first boot done"
   exit 0
 fi
+
+# 1. Packages.
+if [ $RENDER -eq 0 ]; then
+  log "packages"
+  dnf -y -q install podman firewalld NetworkManager policycoreutils-python-utils openssl curl tar
+  if [ ! -r /etc/yum.repos.d/cloudflared.repo ]; then
+    curl -fsSL https://pkg.cloudflare.com/cloudflared.repo -o /etc/yum.repos.d/cloudflared.repo || log "warning: the cloudflared repository is not reachable; tunnel mode needs it later"
+  fi
+  dnf -y -q install cloudflared || log "warning: cloudflared not installed; tunnel mode needs it later"
+  id -u portico >/dev/null 2>&1 || useradd -r -s /sbin/nologin -d /var/lib/portico portico
+fi
+
+# 2. Directories.
+putdir 0750 root portico /etc/portico
+putdir 0750 root portico /etc/portico/tls
+putdir 0700 root root /etc/cloudflared
+putdir 0755 portico portico /var/lib/portico
+putdir 0755 portico portico /var/lib/portico/keycloak-theme
+
+# 3. The binary.
+if [ -n "$BINARY" ]; then
+  put 0755 root root "$BINARY" /usr/local/bin/portico
+elif [ -n "$RELEASE" ]; then
+  tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+  base="$REPO/releases/download/v$RELEASE/portico-$RELEASE-linux-amd64.tar.gz"
+  log "downloading $base"
+  curl -fsSL -o "$tmp/portico.tar.gz" "$base"
+  curl -fsSL -o "$tmp/portico.tar.gz.sha256" "$base.sha256"
+  (cd "$tmp" && sed 's#  .*#  portico.tar.gz#' portico.tar.gz.sha256 | sha256sum -c --quiet -)
+  tar -xzf "$tmp/portico.tar.gz" -C "$tmp" portico
+  put 0755 root root "$tmp/portico" /usr/local/bin/portico
+elif [ ! -x "$ROOT/usr/local/bin/portico" ]; then
+  echo "install.sh: no binary: give --binary PATH or --release VERSION" >&2; exit 1
+fi
+
+# 4. Process settings (kept when present: the wizard edits them).
+[ -e "$ROOT/etc/portico/portico.yaml" ] || put 0640 root portico "$HERE/portico.appliance.yaml" /etc/portico/portico.yaml
 
 # 7. Quadlets, units, drop-ins.
 put 0644 root root "$HERE/quadlets/portico.network" /etc/containers/systemd/portico.network

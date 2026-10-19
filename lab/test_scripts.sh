@@ -114,6 +114,8 @@ bash deploy/install.sh --render-only "$d" --render-secrets --binary "$bin" >/dev
 if [ "$(grep KC_BOOTSTRAP_ADMIN_PASSWORD "$d/etc/portico/keycloak.env")" = "$first" ] && [ "$(cat "$d/etc/portico/tls/internal.key")" = "$firstkey" ]; then ok "install.sh keeps the secrets on a second run"; else ko "install.sh regenerated a secret"; fi
 if grep -q 'ConditionPathExists=!/etc/portico/keycloak.env' "$d/etc/systemd/system/portico-firstboot.service" && grep -q 'portico-install --first-boot' "$d/etc/systemd/system/portico-firstboot.service"; then ok "first-boot unit runs once, before the services"; else ko "first-boot unit"; fi
 if grep -q 'rm -f /etc/portico/keycloak.env /etc/portico/tls/\*' image/scripts/cleanup.sh; then ok "the image cleanup removes every secret"; else ko "cleanup leaves secrets in the image"; fi
+# The first boot must work offline: its block comes before any dnf in install.sh (measured on NTNX-01).
+if [ "$(grep -n 'FIRSTBOOT -eq 1 \]; then' deploy/install.sh | head -1 | cut -d: -f1)" -lt "$(grep -n 'dnf -y -q install' deploy/install.sh | head -1 | cut -d: -f1)" ]; then ok "install.sh --first-boot runs before any package install"; else ko "install.sh --first-boot would run dnf"; fi
 # Milestone 3 Task 5: the appliance lab scripts keep the Prism password off the command line and off the tfvars file.
 if grep -q 'TF_VAR_nutanix_password="$PC_PASS"' lab/appliance/deploy.sh && ! grep -q '^nutanix_password' lab/appliance/deploy.sh; then ok "appliance deploy.sh passes the password in the environment only"; else ko "appliance deploy.sh leaks the password"; fi
 out=$(env -i PATH="$PATH" HOME="$HOME" bash lab/appliance/deploy.sh 2>&1); rc=$?
