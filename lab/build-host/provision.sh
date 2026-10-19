@@ -5,7 +5,7 @@
 # user. Idempotent; run as root by lab/build-host/deploy.sh.
 set -euo pipefail
 GO_VERSION="${GO_VERSION:-1.27.2}"
-dnf -y -q install qemu-kvm qemu-img genisoimage git curl tar jq openssl ShellCheck dnf-plugins-core >/dev/null
+dnf -y -q install qemu-kvm qemu-img genisoimage git curl tar jq openssl dnf-plugins-core >/dev/null
 [ -c /dev/kvm ] || { echo "no /dev/kvm: the VM needs CPU type host and nested virtualization on the Proxmox host" >&2; exit 1; }
 usermod -aG kvm build 2>/dev/null || true
 # HashiCorp (Packer) and OpenTofu repositories, GitHub CLI.
