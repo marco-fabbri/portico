@@ -1,0 +1,18 @@
+# First boot of an appliance built from the image: generate the Keycloak
+# secrets and the TLS pairs (never part of the image), configure the
+# firewall and start the services. Runs once: the condition fails as soon
+# as the secrets exist.
+[Unit]
+Description=Portico first-boot setup
+ConditionPathExists=!/etc/portico/keycloak.env
+After=network-online.target firewalld.service
+Wants=network-online.target
+Before=postgres.service keycloak.service portico.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/portico-install --first-boot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Portico listeners (design 4.2): the public path and the admin UI.
+     The pass-through to Prism Central (9440) binds the loopback until an
+     administrator moves it to an internal interface in portico.yaml and
+     opens the port on that interface only. -->
+<service>
+  <short>Portico</short>
+  <description>Portico public path (443) and admin listener (8443)</description>
+  <port protocol="tcp" port="443"/>
+  <port protocol="tcp" port="8443"/>
+</service>
