@@ -114,3 +114,15 @@ dt { color: var(--muted); } dd { margin: 0; word-break: break-all; }
   dl { grid-template-columns: 1fr; gap: .1rem; }
   dt { margin-top: .5rem; }
 }
+
+/* Setup cards: one line says whether the card is done; the bootstrap
+   form folds away once it is. */
+.state { display: flex; align-items: center; gap: .5rem; margin: 0 0 .9rem; font-size: .92rem; font-weight: 500; }
+.state::before { content: ""; flex: none; width: .6rem; height: .6rem; border-radius: 50%; }
+.state.done { color: var(--ok); } .state.done::before { background: var(--ok); }
+.state.todo { color: var(--warn); } .state.todo::before { background: var(--warn); }
+.state code { font-weight: 400; color: var(--fg); }
+details { margin-top: 1rem; border-top: 1px solid var(--line-soft); padding-top: .6rem; }
+summary { cursor: pointer; font-weight: 500; color: var(--muted); }
+summary:hover { color: var(--fg); }
+details .bootstrap { margin-top: .4rem; padding-top: 0; border-top: 0; }
