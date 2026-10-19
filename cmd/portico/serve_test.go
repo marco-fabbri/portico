@@ -79,7 +79,7 @@ func testServeConfig(t *testing.T, prismURL string) *config.Config {
 	cfg.OIDC.ClientID = "portico"
 	cfg.OIDC.ClientSecretFile = secret
 	cfg.PrismCentral.APIKeyFile = secret
-	cfg.PrismCentral.SAMLIdPName = "lab-idp"
+	cfg.PrismCentral.SAMLIdPName = "portico-idp"
 	cfg.Keycloak.Realm = "x"
 	cfg.Keycloak.AdminClientSecretFile = secret
 	cfg.Store.Path = filepath.Join(t.TempDir(), "portico.db")

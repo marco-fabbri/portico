@@ -40,7 +40,7 @@ func sampleSettings(pcURL string) settings.Settings {
 	var s settings.Settings
 	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
 	s.PrismCentral.URL, s.PrismCentral.TLSVerify = pcURL, false
-	s.PrismCentral.APIKey, s.PrismCentral.SAMLIdPName = "key-secret-1", "lab-idp"
+	s.PrismCentral.APIKey, s.PrismCentral.SAMLIdPName = "key-secret-1", "portico-idp"
 	s.Keycloak.Realm, s.Keycloak.AdminClientID, s.Keycloak.AdminClientSecret = "portico", "portico-admin", "admin-secret-1"
 	s.OIDC.Issuer, s.OIDC.ClientID, s.OIDC.ClientSecret = "https://id.example.test/realms/portico", "portico", "client-secret-1"
 	s.Tenants.ProjectPrefix, s.Tenants.GroupPrefix, s.Tenants.Role = "portico", "tenant-", "Project Admin"
@@ -94,7 +94,7 @@ func newSettingsEnv(t *testing.T, stored bool) *settingsEnv {
 		}
 	}
 	log := slog.New(slog.NewJSONHandler(e.log, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	tsvc := tenant.NewService(st, tenanttest.NewPC("lab-idp"), tenanttest.NewKC(), tenant.Config{SAMLIdPName: "lab-idp", ClusterExtID: "cl", StorageContainerExtID: "sc"}, log)
+	tsvc := tenant.NewService(st, tenanttest.NewPC("portico-idp"), tenanttest.NewKC(), tenant.Config{SAMLIdPName: "portico-idp", ClusterExtID: "cl", StorageContainerExtID: "sc"}, log)
 	file := sampleSettings(pc.URL)
 	e.busy = 0
 	e.kcAdmin = newFakeKCAdmin(t)
@@ -157,7 +157,7 @@ func TestSettingsGetHidesSecrets(t *testing.T) {
 
 func TestSettingsPutKeepsSecretsWhenOmitted(t *testing.T) {
 	e := newSettingsEnv(t, true)
-	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","tls_verify":false,"saml_idp_name":"lab-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"12m"}}`)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","tls_verify":false,"saml_idp_name":"portico-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"12m"}}`)
 	if rec.Code != 200 || out["prism_central"].(map[string]any)["api_key_set"] != true || out["tenants"].(map[string]any)["operation_timeout"] != "12m0s" {
 		t.Fatalf("PUT: %d %v", rec.Code, out)
 	}
@@ -169,7 +169,7 @@ func TestSettingsPutKeepsSecretsWhenOmitted(t *testing.T) {
 
 func TestSettingsPutValidationNamesField(t *testing.T) {
 	e := newSettingsEnv(t, true)
-	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","saml_idp_name":"lab-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"Bad Prefix","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","saml_idp_name":"portico-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"Bad Prefix","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
 	if rec.Code != 400 || !strings.Contains(out["error"].(string), "tenants.project_prefix") {
 		t.Fatalf("PUT invalid: %d %v", rec.Code, out)
 	}
@@ -177,7 +177,7 @@ func TestSettingsPutValidationNamesField(t *testing.T) {
 
 func TestSettingsPutNeverLogsSecret(t *testing.T) {
 	e := newSettingsEnv(t, false)
-	rec, _ := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","saml_idp_name":"lab-idp","api_key":"brand-new-key-xyz"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin","admin_client_secret":"adm-xyz"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico","client_secret":"cli-xyz"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
+	rec, _ := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","saml_idp_name":"portico-idp","api_key":"brand-new-key-xyz"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin","admin_client_secret":"adm-xyz"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico","client_secret":"cli-xyz"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
 	if rec.Code != 200 {
 		t.Fatalf("PUT: %d %s", rec.Code, rec.Body.String())
 	}
@@ -285,7 +285,7 @@ func TestSettingsCheckKeepsTLSVerifyWhenOmitted(t *testing.T) {
 
 func TestSettingsPutAdoptsFileSecrets(t *testing.T) {
 	e := newSettingsEnv(t, false)
-	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","tls_verify":false,"saml_idp_name":"lab-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","tls_verify":false,"saml_idp_name":"portico-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
 	if rec.Code != 200 || out["stored"] != true || out["source"] != "store" {
 		t.Fatalf("PUT on a file-based installation: %d %v", rec.Code, out)
 	}
@@ -358,7 +358,7 @@ func (failingStore) SetSetting(context.Context, string, []byte) error {
 func TestSettingsPutStoreFailureIs500(t *testing.T) {
 	e := newSettingsEnv(t, true)
 	e.so.Service = settings.NewService(failingStore{e.st}, e.sealer)
-	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","saml_idp_name":"lab-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","saml_idp_name":"portico-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
 	if rec.Code != 500 || !strings.Contains(out["error"].(string), "disk full") {
 		t.Fatalf("PUT on a broken store: %d %v", rec.Code, out)
 	}
