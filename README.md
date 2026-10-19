@@ -259,7 +259,7 @@ not enough for what comes next. If you can help
 with any of the following, it turns a design into a measurement:
 
 - **A decommissioned Nutanix node** (NX, or a Dell XC, HPE DX, Lenovo HX
-  equivalent), even an older one: out of your inventory, into the lab.
+  equivalent), even an older one: it does not need to be in support.
 - **A second cluster or Prism Central**, pc.7.6 or later, reachable from
   a lab network even for a few days at a time. The connected-services
   page (several Prism Central behind one Portico), the high-availability
