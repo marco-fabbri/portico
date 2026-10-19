@@ -251,6 +251,39 @@ scripts drive the real ones and need a lab of your own;
 [`CONTRIBUTING.md`](CONTRIBUTING.md) says how the project is built (plan,
 test first, measure on the lab, English everywhere, no secrets).
 
+## Supporting the project
+
+Portico is built and measured on one lab: a single-node AHV cluster
+with Prism Central pc.7.6, on my own hardware. That is enough for the
+single appliance, and not enough for what comes next. If you can help
+with any of the following, it turns a design into a measurement:
+
+- **A decommissioned Nutanix node**: an NX G5 or G6, or the Dell XC,
+  HPE DX, Lenovo HX equivalents, out of support and out of your
+  inventory. I can bring it to a current AOS and AHV myself; what it
+  gives the project is a second, independent Prism Central.
+- **A second cluster or Prism Central** reachable from a lab network,
+  even for a few days at a time: the connected-services page (several
+  Prism Central behind one Portico), the high-availability pair across
+  two sites, and the firewall rules of a real multi-site setup all need
+  one.
+- **Access to a Nutanix lab** (a partner lab, a demo environment, a test
+  tenant on a service provider's cluster): to try Portico against an
+  installation that is not mine, with projects, categories and users I
+  did not create.
+- **A workstation that runs Nutanix Community Edition**: a single node
+  with 256 GB of RAM and NVMe or SATA SSDs would let me run two Prism
+  Central instances side by side, and would make the test environment
+  reproducible by anyone with the same box.
+- **Review and field experience** from MSPs: which tenant operations you
+  do every week, which Prism Central versions you run, what your
+  customers expect at the public URL.
+
+Hardware is lent or donated, access is temporary and documented, and
+every measurement that comes out of it lands in `docs/lab/` with
+credit. Open an [issue](https://github.com/marco-fabbri/portico/issues)
+or reach me on LinkedIn (linked on my GitHub profile).
+
 ## License
 
 Copyright 2026 Marco Fabbri.
