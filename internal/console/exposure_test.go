@@ -157,3 +157,21 @@ func TestExposureRefusesAYAMLItCannotEdit(t *testing.T) {
 		t.Fatalf("odd YAML edited or restarted:\n%s\n%q", out, sys.files["/etc/portico/portico.yaml"])
 	}
 }
+
+// Review of Milestone 3: an appliance without an SSH user has no way to
+// put PEM files on disk, so the direct screen also takes the certificate
+// and the key pasted on the console (an empty path, then the PEM, then an
+// empty line).
+func TestExposureDirectTakesAPastedPair(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true})
+	sys.files["/etc/portico/portico.yaml"] = []byte(sampleYAML)
+	certPEM, keyPEM := testPair(t, "prism.msp.example")
+	in := "3\n1\n\n" + certPEM + "\n\n" + keyPEM + "\n\n0\n"
+	out := run(t, sys, in)
+	if strings.TrimSpace(string(sys.files["/etc/portico/tls/public.crt"])) != strings.TrimSpace(certPEM) || strings.TrimSpace(string(sys.files["/etc/portico/tls/public.key"])) != strings.TrimSpace(keyPEM) {
+		t.Fatalf("pasted pair not installed:\n%s", out)
+	}
+	if strings.Contains(out, strings.Split(keyPEM, "\n")[1]) {
+		t.Fatalf("the key was echoed:\n%s", out)
+	}
+}

@@ -105,21 +105,30 @@ func (s *session) exposure() {
 }
 
 func (s *session) directFromFiles() {
+	fmt.Fprintln(s.out, "Give the file paths, or press Enter at a path to paste the PEM instead (end it with an empty line).")
 	cp, ok := s.ask("Certificate file (PEM, full chain)", "")
 	if !ok {
+		return
+	}
+	var cert, key []byte
+	var err error
+	if cp == "" {
+		if cert, ok = s.pastePEM("Paste the certificate chain", true); !ok {
+			return
+		}
+	} else if cert, err = s.sys.ReadFile(cp); err != nil {
+		fmt.Fprintf(s.out, "  certificate: %v\n", err)
 		return
 	}
 	kp, ok := s.ask("Private key file (PEM)", "")
 	if !ok {
 		return
 	}
-	cert, err := s.sys.ReadFile(cp)
-	if err != nil {
-		fmt.Fprintf(s.out, "  certificate: %v\n", err)
-		return
-	}
-	key, err := s.sys.ReadFile(kp)
-	if err != nil {
+	if kp == "" {
+		if key, ok = s.pastePEM("Paste the private key (not echoed)", false); !ok {
+			return
+		}
+	} else if key, err = s.sys.ReadFile(kp); err != nil {
 		fmt.Fprintf(s.out, "  key: %v\n", err)
 		return
 	}
@@ -128,6 +137,34 @@ func (s *session) directFromFiles() {
 		return
 	}
 	s.installDirect(cert, key)
+}
+
+// pastePEM reads PEM lines until an empty line after an END line; the key
+// is read with the echo off.
+func (s *session) pastePEM(label string, echo bool) ([]byte, bool) {
+	fmt.Fprintf(s.out, "%s, then an empty line:\n", label)
+	if !echo {
+		s.echo(false)
+		defer func() { s.echo(true); fmt.Fprintln(s.out) }()
+	}
+	var b strings.Builder
+	ended := false
+	for {
+		line, ok := s.line()
+		if !ok {
+			return nil, false
+		}
+		if strings.TrimSpace(line) == "" {
+			if ended {
+				return []byte(b.String()), true
+			}
+			continue
+		}
+		b.WriteString(strings.TrimRight(line, "\r") + "\n")
+		if strings.HasPrefix(strings.TrimSpace(line), "-----END ") {
+			ended = true
+		}
+	}
 }
 
 func (s *session) selfSigned() {
