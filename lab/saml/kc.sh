@@ -10,7 +10,7 @@ set -euo pipefail
 : "${LAB_VM_IP:?source lab/env.sh first}"
 S="${PORTICO_SECRETS:-$HOME/portico-secrets}"
 method="${1:?}"; path="${2-}"; body="${3:-}"
-SSH=(ssh -o BatchMode=yes -o ConnectTimeout=5 "lab@$LAB_VM_IP")
+SSH=(ssh -o BatchMode=yes -o ConnectTimeout=5 "${LAB_SSH_USER:-lab}@$LAB_VM_IP")
 KC="http://127.0.0.1:8080"
 
 # 1. Admin token: the form body (with the password) goes through stdin.
