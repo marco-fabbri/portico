@@ -62,8 +62,8 @@ jobs:
       - name: Serial consoles
         if: always()
         run: |
-          echo "== install stage"; tail -n 80 image/output-install/serial-install.log 2>/dev/null || echo "(no install log)"
-          echo "== provision stage"; tail -n 40 image/output/serial-provision.log 2>/dev/null || echo "(no provision log)"
+          echo "== install stage"; tail -n 120 image/serial-install.log 2>/dev/null || echo "(no install log)"
+          echo "== provision stage"; tail -n 60 image/serial-provision.log 2>/dev/null || echo "(no provision log)"
       - name: Collect
         run: |
           mkdir -p release

@@ -66,12 +66,15 @@ source "qemu" "install" {
   http_port_min    = 8181
   http_port_max    = 8181
   communicator     = "none"
+  # With no communicator Packer waits for the VM to power itself off, up
+  # to this long; anaconda needs more than the 5-minute default.
+  shutdown_timeout = "60m"
   boot_wait        = "2s"
   qemuargs = [
     ["-kernel", "boot/vmlinuz"],
     ["-initrd", "boot/initrd.img"],
     ["-append", "inst.ks=http://10.0.2.2:8181/portico.ks inst.stage2=${var.mirror} inst.repo=${var.mirror} inst.text ip=dhcp console=ttyS0,115200n8"],
-    ["-serial", "file:output-install/serial-install.log"],
+    ["-serial", "file:serial-install.log"],
   ]
 }
 
@@ -98,7 +101,7 @@ source "qemu" "provision" {
   shutdown_command = "sudo bash /tmp/portico-build/scripts/poweroff.sh"
   shutdown_timeout = "5m"
   qemuargs = [
-    ["-serial", "file:output/serial-provision.log"],
+    ["-serial", "file:serial-provision.log"],
   ]
 }
 

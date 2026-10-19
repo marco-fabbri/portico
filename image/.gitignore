@@ -2,3 +2,4 @@ boot/
 output/
 output-install/
 packer_cache/
+serial-*.log

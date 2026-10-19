@@ -12,9 +12,9 @@ for f in vmlinuz initrd.img; do
   [ -s "boot/$f" ] || curl -fsSL -o "boot/$f" "$MIRROR/images/pxeboot/$f"
 done
 ls -la boot
-rm -rf output-install output
+rm -rf output-install output serial-install.log serial-provision.log
 packer init portico.pkr.hcl
 packer build -color=false -only=qemu.install -var "version=$1" -var "mirror=$MIRROR" portico.pkr.hcl
-tail -n 30 output-install/serial-install.log || true
+tail -n 30 serial-install.log || true
 packer build -color=false -only=qemu.provision -var "version=$1" -var "binary=$2" portico.pkr.hcl
 ls -la output
