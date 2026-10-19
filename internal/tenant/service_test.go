@@ -30,11 +30,11 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	pc := tenanttest.NewPC("lab-idp")
+	pc := tenanttest.NewPC("portico-idp")
 	kc := tenanttest.NewKC()
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	cfg := Config{ProjectPrefix: "portico", GroupPrefix: "tenant-", RoleName: "Project Admin", SAMLIdPName: "lab-idp",
+	cfg := Config{ProjectPrefix: "portico", GroupPrefix: "tenant-", RoleName: "Project Admin", SAMLIdPName: "portico-idp",
 		ClusterExtID: "cl-1", StorageContainerExtID: "sc-1", OperationTimeout: 5 * time.Second}
 	return &env{svc: NewService(st, pc, kc, cfg, log), st: st, pc: pc, kc: kc, log: &buf}
 }
@@ -161,7 +161,7 @@ func TestProvisionRefusesDefaultProject(t *testing.T) {
 }
 
 func TestProvisionRequiresExactlyOneIdP(t *testing.T) {
-	for _, idps := range [][]nutanix.SAMLIdP{nil, {{ExtID: "a", Name: "lab-idp"}, {ExtID: "b", Name: "lab-idp"}}} {
+	for _, idps := range [][]nutanix.SAMLIdP{nil, {{ExtID: "a", Name: "portico-idp"}, {ExtID: "b", Name: "portico-idp"}}} {
 		e := newEnv(t)
 		e.pc.IdPs = idps
 		e.create(t, "acme")
@@ -344,7 +344,7 @@ func TestCreateUserTemporaryPasswordShape(t *testing.T) {
 	e.create(t, "acme")
 	e.svc.Wait()
 	ctx := context.Background()
-	pw, err := e.svc.CreateUser(ctx, "acme", "carol@acme.test", "Carol", "Lab")
+	pw, err := e.svc.CreateUser(ctx, "acme", "carol@acme.test", "Carol", "Rossi")
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestCreateUserTemporaryPasswordShape(t *testing.T) {
 	if strings.Contains(e.log.String(), pw) {
 		t.Fatal("the temporary password reached the log")
 	}
-	if _, err := e.svc.CreateUser(ctx, "acme", "carol@acme.test", "Carol", "Lab"); !errors.Is(err, ErrExists) {
+	if _, err := e.svc.CreateUser(ctx, "acme", "carol@acme.test", "Carol", "Rossi"); !errors.Is(err, ErrExists) {
 		t.Fatalf("duplicate user = %v, want ErrExists", err)
 	}
 	tn.Status = store.StatusFailed

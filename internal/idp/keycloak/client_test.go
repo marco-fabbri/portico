@@ -28,7 +28,7 @@ type fakeKC struct {
 	fail      map[string]int
 	revoked   map[string]bool // tokens that no longer work
 	members   int             // number of members GroupMembers pages through
-	realm     map[string]any  // realm representation served on GET /admin/realms/lab
+	realm     map[string]any  // realm representation served on GET /admin/realms/msp
 	adm       *adminState     // realm administration (admin_test.go)
 }
 
@@ -55,7 +55,7 @@ func (f *fakeKC) handle(w http.ResponseWriter, r *http.Request) {
 	if f.handleUnauthenticated(w, r) {
 		return
 	}
-	if r.URL.Path == "/realms/lab/protocol/openid-connect/token" {
+	if r.URL.Path == "/realms/msp/protocol/openid-connect/token" {
 		r.ParseForm()
 		f.mu.Lock()
 		f.tokenReqs++
@@ -93,7 +93,7 @@ func (f *fakeKC) handle(w http.ResponseWriter, r *http.Request) {
 	if f.handleAdmin(w, r, rec) {
 		return
 	}
-	p := strings.TrimPrefix(r.URL.Path, "/admin/realms/lab")
+	p := strings.TrimPrefix(r.URL.Path, "/admin/realms/msp")
 	switch {
 	case p == "" && r.Method == "GET":
 		if f.realm == nil {
@@ -127,7 +127,7 @@ func (f *fakeKC) handle(w http.ResponseWriter, r *http.Request) {
 				max = 100 // Keycloak caps a page; the client must page
 			}
 			for i := first; i < f.members && i < first+max; i++ {
-				out = append(out, map[string]any{"id": fmt.Sprintf("m-%d", i), "email": fmt.Sprintf("m%d@lab.test", i), "enabled": true})
+				out = append(out, map[string]any{"id": fmt.Sprintf("m-%d", i), "email": fmt.Sprintf("m%d@example.test", i), "enabled": true})
 			}
 		} else {
 			for _, u := range f.users {
@@ -149,7 +149,7 @@ func (f *fakeKC) handle(w http.ResponseWriter, r *http.Request) {
 	case p == "/users" && r.Method == "POST":
 		id := "usr-1"
 		f.users[id] = map[string]any{"id": id, "username": rec.Body["username"], "email": rec.Body["email"], "firstName": rec.Body["firstName"], "lastName": rec.Body["lastName"], "enabled": true}
-		w.Header().Set("Location", f.srv.URL+"/admin/realms/lab/users/"+id)
+		w.Header().Set("Location", f.srv.URL+"/admin/realms/msp/users/"+id)
 		w.WriteHeader(201)
 	case strings.HasPrefix(p, "/users/") && strings.Contains(p, "/groups/") && r.Method == "PUT":
 		w.WriteHeader(204)
@@ -176,7 +176,7 @@ func newClient(f *fakeKC, buf *bytes.Buffer) *Client {
 	if buf != nil {
 		log = slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	}
-	return New(f.srv.URL, "lab", "portico-admin", testSecret, nil, log)
+	return New(f.srv.URL, "msp", "portico-admin", testSecret, nil, log)
 }
 
 func TestTokenIsRequestedOnceWhileValid(t *testing.T) {
@@ -203,11 +203,11 @@ func TestTokenIsRequestedOnceWhileValid(t *testing.T) {
 func TestCreateUserBody(t *testing.T) {
 	f := newFakeKC(t)
 	c := newClient(f, nil)
-	u, err := c.CreateUser(context.Background(), User{Email: "carol@lab.test", FirstName: "Carol", LastName: "Lab"}, testPassword)
+	u, err := c.CreateUser(context.Background(), User{Email: "carol@example.test", FirstName: "Carol", LastName: "MSP"}, testPassword)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	if u.ID != "usr-1" || u.Email != "carol@lab.test" {
+	if u.ID != "usr-1" || u.Email != "carol@example.test" {
 		t.Fatalf("user = %+v", u)
 	}
 	var post *recorded
@@ -221,7 +221,7 @@ func TestCreateUserBody(t *testing.T) {
 		t.Fatal("no POST /users")
 	}
 	b := post.Body
-	if b["username"] != "carol@lab.test" || b["email"] != "carol@lab.test" || b["enabled"] != true || b["emailVerified"] != true {
+	if b["username"] != "carol@example.test" || b["email"] != "carol@example.test" || b["enabled"] != true || b["emailVerified"] != true {
 		t.Fatalf("body = %v", b)
 	}
 	ra, _ := b["requiredActions"].([]any)
@@ -245,7 +245,7 @@ func TestFindGroupNotFound(t *testing.T) {
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("FindGroup = %v, want ErrNotFound", err)
 	}
-	_, err = c.FindUserByEmail(context.Background(), "nobody@lab.test")
+	_, err = c.FindUserByEmail(context.Background(), "nobody@example.test")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("FindUserByEmail = %v, want ErrNotFound", err)
 	}
@@ -261,10 +261,10 @@ func TestDeleteGroupTolerates404(t *testing.T) {
 
 func TestSecretAndPasswordNeverLogged(t *testing.T) {
 	f := newFakeKC(t)
-	f.fail["POST /admin/realms/lab/users"] = 500
+	f.fail["POST /admin/realms/msp/users"] = 500
 	var buf bytes.Buffer
 	c := newClient(f, &buf)
-	_, err := c.CreateUser(context.Background(), User{Email: "x@lab.test"}, testPassword)
+	_, err := c.CreateUser(context.Background(), User{Email: "x@example.test"}, testPassword)
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -313,14 +313,14 @@ func TestGroupMembersPages(t *testing.T) {
 
 func TestSetRealmLoginTheme(t *testing.T) {
 	f := newFakeKC(t)
-	f.realm = map[string]any{"realm": "lab", "loginTheme": "keycloak", "displayName": "Lab realm", "enabled": true}
+	f.realm = map[string]any{"realm": "msp", "loginTheme": "keycloak", "displayName": "MSP realm", "enabled": true}
 	c := newClient(f, nil)
 	if err := c.SetRealmLoginTheme(context.Background(), "portico"); err != nil {
 		t.Fatalf("SetRealmLoginTheme: %v", err)
 	}
 	var put *recorded
 	for _, r := range f.requests() {
-		if r.Method == "PUT" && r.Path == "/admin/realms/lab" {
+		if r.Method == "PUT" && r.Path == "/admin/realms/msp" {
 			rr := r
 			put = &rr
 		}
@@ -328,7 +328,7 @@ func TestSetRealmLoginTheme(t *testing.T) {
 	if put == nil {
 		t.Fatal("no PUT on the realm")
 	}
-	if put.Body["loginTheme"] != "portico" || put.Body["displayName"] != "Lab realm" || put.Body["enabled"] != true {
+	if put.Body["loginTheme"] != "portico" || put.Body["displayName"] != "MSP realm" || put.Body["enabled"] != true {
 		t.Fatalf("PUT body = %v", put.Body)
 	}
 }
@@ -337,7 +337,7 @@ func TestSetRealmLoginTheme(t *testing.T) {
 // so callers classify by status instead of by error text.
 func TestTokenRefusalIsAStatusError(t *testing.T) {
 	f := newFakeKC(t)
-	c := New(f.srv.URL, "lab", "portico-admin", "bad-secret", nil, nil)
+	c := New(f.srv.URL, "msp", "portico-admin", "bad-secret", nil, nil)
 	_, err := c.Realm(context.Background())
 	var se *StatusError
 	if !errors.As(err, &se) || se.Op != "token" || se.Status != 401 {

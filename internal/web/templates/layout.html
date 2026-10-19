@@ -9,21 +9,21 @@
 <script src="/static/htmx.min.js?v={{.Version}}" defer></script>
 </head>
 <body>
+{{if .Admin}}
 <header class="top">
-  <a class="brand" href="/"><img class="mark" src="/static/portico-mark-white.svg?v={{.Version}}" alt="">Portico</a>
+  <a class="brand" href="/"><img class="mark" src="/static/portico-mark.svg?v={{.Version}}" alt=""><span class="wordmark">Portico</span></a>
   <nav>
-    {{if .Admin}}
-    <a href="/">Tenants</a>
-    <a href="/settings/branding">Branding</a>
-    <a href="/setup">Setup</a>
-    <span class="who">{{.Admin}}</span>
-    <form method="post" action="/logout" class="inline">
-      <input type="hidden" name="_csrf" value="{{.CSRF}}">
-      <button type="submit" class="link">Log out</button>
-    </form>
-    {{end}}
+    <a href="/"{{if eq .Section "tenants"}} aria-current="page"{{end}}>Tenants</a>
+    <a href="/settings/branding"{{if eq .Section "branding"}} aria-current="page"{{end}}>Branding</a>
+    <a href="/setup"{{if eq .Section "setup"}} aria-current="page"{{end}}>Setup</a>
   </nav>
+  <span class="who">{{.Admin}}</span>
+  <form method="post" action="/logout" class="inline">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <button type="submit" class="quiet">Log out</button>
+  </form>
 </header>
+{{end}}
 <main>
 {{if .Error}}<div class="banner error">{{.Error}}</div>{{end}}
 {{if .Warning}}<div class="banner warning">{{.Warning}}</div>{{end}}
@@ -33,3 +33,4 @@
 <footer>Portico {{.Version}}</footer>
 </body>
 </html>
+{{define "lockup"}}<div class="lockup"><img class="mark-large" src="/static/portico-mark.svg?v={{.Version}}" alt=""><span class="wordmark">Portico</span><span class="claim">Admin console</span></div>{{end}}

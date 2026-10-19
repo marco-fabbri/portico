@@ -21,7 +21,7 @@ func setupSample(pcURL string) settings.Settings {
 	var s settings.Settings
 	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
 	s.PrismCentral.URL, s.PrismCentral.TLSVerify = pcURL, false
-	s.PrismCentral.APIKey, s.PrismCentral.SAMLIdPName = "key-secret-1", "lab-idp"
+	s.PrismCentral.APIKey, s.PrismCentral.SAMLIdPName = "key-secret-1", "portico-idp"
 	s.Keycloak.Realm, s.Keycloak.AdminClientID, s.Keycloak.AdminClientSecret = "portico", "portico-admin", "admin-secret-1"
 	s.OIDC.Issuer, s.OIDC.ClientID, s.OIDC.ClientSecret = "https://id.example.test/realms/portico", "portico", "client-secret-1"
 	s.Tenants.ProjectPrefix, s.Tenants.GroupPrefix, s.Tenants.Role = "portico", "tenant-", "Project Admin"
@@ -92,7 +92,7 @@ func TestSetupSaveSectionAndSecretsStayHidden(t *testing.T) {
 	for _, f := range []url.Values{
 		e.form("section", "hosts", "prism_host", "prism.example.test", "id_host", "id.example.test"),
 		e.form("section", "prism_central", "url", pc.URL, "tls_verify", "", "api_key", "key-secret-2"),
-		e.form("section", "saml", "saml_idp_name", "lab-idp"),
+		e.form("section", "saml", "saml_idp_name", "portico-idp"),
 		e.form("section", "keycloak", "realm", "portico", "admin_client_id", "portico-admin", "admin_client_secret", "admin-secret-1", "issuer", "https://id.example.test/realms/portico", "client_id", "portico", "client_secret", "client-secret-1"),
 		e.form("section", "tenants", "project_prefix", "portico", "group_prefix", "tenant-", "role", "Project Admin", "cluster_ext_id", "cl-1", "storage_container_ext_id", "sc-1", "operation_timeout", "10m"),
 	} {
@@ -115,12 +115,12 @@ func TestSetupSaveSectionAndSecretsStayHidden(t *testing.T) {
 	if rec.Code != 303 {
 		t.Fatalf("second save: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = e.do("POST", "/setup/save", e.form("section", "saml", "saml_idp_name", "lab-idp-2"), true)
+	rec = e.do("POST", "/setup/save", e.form("section", "saml", "saml_idp_name", "portico-idp-2"), true)
 	if rec.Code != 303 {
 		t.Fatalf("saml save: %d %s", rec.Code, rec.Body.String())
 	}
 	got, _ = svc.Get(context.Background())
-	if got.PrismCentral.APIKey != "key-secret-2" || got.PrismCentral.SAMLIdPName != "lab-idp-2" {
+	if got.PrismCentral.APIKey != "key-secret-2" || got.PrismCentral.SAMLIdPName != "portico-idp-2" {
 		t.Fatalf("stored after second save = %+v", got)
 	}
 }
@@ -241,5 +241,36 @@ func TestSetupSecretInputsStopPasswordManagers(t *testing.T) {
 	}
 	if n := strings.Count(page, `autocomplete="new-password"`); n < 6 {
 		t.Fatalf("%d new-password inputs, want at least 6:\n%s", n, page)
+	}
+}
+
+// Every card says whether it is configured, and the bootstrap forms are
+// folded away once it is (Marco, 2026-10-19: with the fields filled and
+// an open "let Portico create it" form, the page did not say Prism
+// Central was done). The Apply card states the whole.
+func TestSetupPageStatesWhatIsConfigured(t *testing.T) {
+	e := newEnv(t, true)
+	withSetup(t, e, true)
+	e.login(t)
+	body := e.do("GET", "/setup", nil, true).Body.String()
+	if n := strings.Count(body, `<p class="state done">`); n != 6 {
+		t.Fatalf("%d configured states, want 6 (five cards and Apply):\n%s", n, body)
+	}
+	if strings.Contains(body, `class="state todo"`) || strings.Contains(body, `<details open>`) {
+		t.Fatalf("a to-do state or an open bootstrap form on a complete store:\n%s", body)
+	}
+	for _, want := range []string{`<summary>Let Portico create the service account</summary>`, `<summary>Let Portico create the realm and clients</summary>`, `<summary>Let Portico create the SAML trust</summary>`, `<code>portico-idp</code>`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("setup page lacks %q:\n%s", want, body)
+		}
+	}
+
+	e = newEnv(t, true)
+	withSetup(t, e, false)
+	e.web.setup.File, e.web.setup.Mode = nil, "setup"
+	e.login(t)
+	body = e.do("GET", "/setup", nil, true).Body.String()
+	if n, o := strings.Count(body, `<p class="state todo">`), strings.Count(body, `<details open>`); n != 6 || o != 3 {
+		t.Fatalf("%d to-do states and %d open bootstrap forms on an empty store, want 6 and 3:\n%s", n, o, body)
 	}
 }

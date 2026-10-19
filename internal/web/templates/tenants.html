@@ -1,9 +1,9 @@
 {{define "content"}}
+<div class="page-head">
+  <div><h1>Tenants</h1><p>Each tenant is a Projects 2.0 project in Prism Central with its own group in Keycloak.</p></div>
+  <a class="button primary" href="/tenants/new">New tenant</a>
+</div>
 <section class="card">
-  <div class="actions" style="justify-content: space-between; margin: 0 0 .8rem">
-    <h1>Tenants</h1>
-    <a class="button" href="/tenants/new">New tenant</a>
-  </div>
   <table>
     <thead><tr><th>Slug</th><th>Display name</th><th>Status</th><th>Project</th><th>Updated</th></tr></thead>
     {{template "rows" .}}
@@ -13,10 +13,10 @@
 {{end}}
 {{define "rows"}}<tbody id="rows"{{if .Data.Polling}} hx-get="/?partial=rows" hx-trigger="every 10s" hx-swap="outerHTML"{{end}}>
 {{range .Data.Tenants}}<tr>
-  <td><a href="/tenants/{{.ID}}">{{.ID}}</a></td>
+  <td><a class="strong" href="/tenants/{{.ID}}">{{.ID}}</a></td>
   <td>{{.DisplayName}}</td>
   <td><span class="status status-{{.Status}}">{{.Status}}</span></td>
   <td><code>{{.ProjectID}}</code></td>
-  <td>{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
+  <td class="muted">{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
 </tr>{{end}}
 </tbody>{{end}}

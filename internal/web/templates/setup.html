@@ -1,5 +1,5 @@
 {{define "content"}}
-<h1>Setup</h1>
+<div class="page-head"><div><h1>Setup</h1><p>Where Portico reaches Prism Central and Keycloak, and how tenants are named.</p></div></div>
 {{if eq .Data.Mode "setup"}}
 <div class="banner warning">Setup mode: the public listener is off until every card is saved and applied.</div>
 {{end}}
@@ -13,6 +13,7 @@
 
 <section class="card" id="card-hosts">
   <h2>Public names</h2>
+  {{if index .Data.Done "hosts"}}<p class="state done">Configured: tenants reach Prism Central at <code>{{.Data.S.PrismHost}}</code> and sign in at <code>{{.Data.S.IDHost}}</code>.</p>{{else}}<p class="state todo">Not configured yet: both public names are needed.</p>{{end}}
   <form method="post" action="/setup/save">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
     <input type="hidden" name="section" value="hosts">
@@ -24,6 +25,7 @@
 
 <section class="card" id="card-prism_central">
   <h2>Prism Central</h2>
+  {{if index .Data.Done "prism_central"}}<p class="state done">Configured: Portico works on <code>{{.Data.S.PrismCentral.URL}}</code> with its service account; the API key is stored.</p>{{else}}<p class="state todo">Not configured yet: the URL and a service account API key are needed, typed here or created by Portico below.</p>{{end}}
   <form method="post" action="/setup/save" id="form-prism_central">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
     <input type="hidden" name="section" value="prism_central">
@@ -37,11 +39,12 @@
     </div>
     <div id="check-prism_central" class="check-result"></div>
   </form>
-  <div id="boot-prism_central" class="bootstrap">{{template "boot-form-prism_central" .}}</div>
+  <details{{if not (index .Data.Done "prism_central")}} open{{end}}><summary>Let Portico create the service account</summary><div id="boot-prism_central" class="bootstrap">{{template "boot-form-prism_central" .}}</div></details>
 </section>
 
 <section class="card" id="card-keycloak">
   <h2>Identity</h2>
+  {{if index .Data.Done "keycloak"}}<p class="state done">Configured: realm <code>{{.Data.S.Keycloak.Realm}}</code>, admin client <code>{{.Data.S.Keycloak.AdminClientID}}</code> and OIDC client <code>{{.Data.S.OIDC.ClientID}}</code>; both secrets are stored.</p>{{else}}<p class="state todo">Not configured yet: the realm, the admin client and the OIDC client are needed, typed here or created by Portico below.</p>{{end}}
   <form method="post" action="/setup/save" id="form-keycloak">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
     <input type="hidden" name="section" value="keycloak">
@@ -59,11 +62,12 @@
     <div id="check-keycloak" class="check-result"></div>
     <div id="check-oidc" class="check-result"></div>
   </form>
-  <div id="boot-keycloak" class="bootstrap">{{template "boot-form-keycloak" .}}</div>
+  <details{{if not (index .Data.Done "keycloak")}} open{{end}}><summary>Let Portico create the realm and clients</summary><div id="boot-keycloak" class="bootstrap">{{template "boot-form-keycloak" .}}</div></details>
 </section>
 
 <section class="card" id="card-saml">
   <h2>SAML trust</h2>
+  {{if index .Data.Done "saml"}}<p class="state done">Configured: Prism Central trusts the identity provider <code>{{.Data.S.PrismCentral.SAMLIdPName}}</code>.</p>{{else}}<p class="state todo">Not configured yet: create the trust below once Prism Central and Identity are done.</p>{{end}}
   <p class="muted">Prism Central trusts the Keycloak realm as its SAML identity provider; Keycloak holds Prism Central as a SAML client. Portico creates both.</p>
   <form method="post" action="/setup/save" id="form-saml">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
@@ -71,11 +75,12 @@
     <label>Identity provider name in Prism Central {{template "input-saml_idp_name" .Data}}</label>
     <div class="actions"><button type="submit" class="primary">Save</button></div>
   </form>
-  <div id="boot-saml" class="bootstrap">{{template "boot-form-saml" .}}</div>
+  <details{{if not (index .Data.Done "saml")}} open{{end}}><summary>Let Portico create the SAML trust</summary><div id="boot-saml" class="bootstrap">{{template "boot-form-saml" .}}</div></details>
 </section>
 
 <section class="card" id="card-tenants">
   <h2>Tenants</h2>
+  {{if index .Data.Done "tenants"}}<p class="state done">Configured: projects <code>{{.Data.S.Tenants.ProjectPrefix}}-&lt;slug&gt;</code> on cluster <code>{{.Data.S.Tenants.ClusterExtID}}</code>, groups <code>{{.Data.S.Tenants.GroupPrefix}}&lt;slug&gt;</code> with the role {{.Data.S.Tenants.Role}}.</p>{{else}}<p class="state todo">Not configured yet: prefixes, role, cluster and container are needed.</p>{{end}}
   <p class="muted">A successful Prism Central check or bootstrap fills the cluster and storage container pickers.</p>
   <form method="post" action="/setup/save">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
@@ -92,6 +97,7 @@
 
 <section class="card">
   <h2>Apply</h2>
+  {{if and .Data.Stored .Data.Complete}}<p class="state done">Every card is complete; Portico runs from the stored settings after Apply.</p>{{else}}<p class="state todo">Apply is available once every card is saved.</p>{{end}}
   <p class="muted">Portico restarts and reads the stored settings. Open sessions end; log in again afterwards.</p>
   {{if not .Data.Complete}}<p class="muted">Missing: {{range $i, $m := .Data.Missing}}{{if $i}}, {{end}}{{$m}}{{end}}</p>{{end}}
   <form method="post" action="/setup/apply">
@@ -113,7 +119,7 @@
 
 {{/* Bootstrap forms: one-time credentials, used for the call and not stored. */}}
 {{define "boot-form-prism_central"}}
-<p>Or let Portico create it: enter once the credentials of an account that can create users and edit authorization policies. They are used for this call and not stored.</p>
+<p>Enter once the credentials of an account that can create users and edit authorization policies. They are used for this call and not stored.</p>
 <form hx-post="/setup/bootstrap/prism-central" hx-include="#form-prism_central" hx-target="#boot-prism_central">
   <input type="hidden" name="_csrf" value="{{.CSRF}}">
   <label>Username <input type="text" name="username" value="{{index .Data.Form "username"}}" autocomplete="off"></label>
@@ -123,7 +129,7 @@
 </form>
 {{end}}
 {{define "boot-form-keycloak"}}
-<p>Or let Portico create them: enter once the Keycloak administrator's credentials. They are used for this call and not stored. The realm name comes from the field above.</p>
+<p>Enter once the Keycloak administrator's credentials. They are used for this call and not stored. The realm name comes from the field above.</p>
 <form hx-post="/setup/bootstrap/keycloak" hx-include="#form-keycloak" hx-target="#boot-keycloak">
   <input type="hidden" name="_csrf" value="{{.CSRF}}">
   <label>Keycloak administrator <input type="text" name="admin_username" value="{{index .Data.Form "admin_username"}}" autocomplete="off"></label>

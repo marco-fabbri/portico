@@ -28,6 +28,9 @@ type setupData struct {
 	// attempt does not make the administrator retype them; passwords
 	// are never echoed. Empty on the page itself.
 	Form map[string]string
+	// Done says, per card, whether its required fields and secrets are
+	// all there: the card states it and folds its bootstrap form away.
+	Done map[string]bool
 }
 
 func (h *Handler) setupRoutes(mux *http.ServeMux) {
@@ -59,6 +62,13 @@ func toSetupData(s settings.Settings, source, mode string) setupData {
 	d := setupData{Source: source, Stored: source == "store", Mode: mode, Missing: s.Missing(),
 		APIKeySet: s.PrismCentral.APIKey != "", AdminSecretSet: s.Keycloak.AdminClientSecret != "", ClientSecretSet: s.OIDC.ClientSecret != ""}
 	d.Complete = len(d.Missing) == 0
+	d.Done = map[string]bool{
+		"hosts":         s.PrismHost != "" && s.IDHost != "",
+		"prism_central": s.PrismCentral.URL != "" && d.APIKeySet,
+		"keycloak":      s.Keycloak.Realm != "" && s.Keycloak.AdminClientID != "" && d.AdminSecretSet && s.OIDC.Issuer != "" && s.OIDC.ClientID != "" && d.ClientSecretSet,
+		"saml":          s.PrismCentral.SAMLIdPName != "",
+		"tenants":       s.Tenants.ProjectPrefix != "" && s.Tenants.GroupPrefix != "" && s.Tenants.Role != "" && s.Tenants.ClusterExtID != "" && s.Tenants.StorageContainerExtID != "",
+	}
 	s.PrismCentral.APIKey, s.Keycloak.AdminClientSecret, s.OIDC.ClientSecret = "", "", ""
 	d.S = s
 	if s.Tenants.OperationTimeout > 0 {
