@@ -20,6 +20,22 @@ here is supported yet; the first release (Milestone 4) will say what is.
   SAML trust (the service account's role cannot create an identity
   provider on pc.7.6, write-up 15). Portico stores neither.
 
+## What listens where
+
+| Port | Bound to | Who reaches it |
+|---|---|---|
+| 443 | every address (direct mode) or `127.0.0.1:8081` (tunnel mode) | tenants, through your public names or the Cloudflare tunnel |
+| 8443 | every address with one interface; the internal interface's address once the console configures a second one without a gateway | MSP administrators: the admin UI and API, the factory password until the first login |
+| 9440 | `127.0.0.1` | nobody, until you bind the pass-through to an internal address in `portico.yaml` |
+| 8080 | `127.0.0.1` | Portico only: Keycloak |
+| 22 | every address, keys only | whoever has a key in `admin`'s `authorized_keys` (cloud-init) |
+
+**Never let 8443 be reachable from the Internet.** With two interfaces
+the console binds it to the internal one. With a single interface (a
+cloud instance, one public address) it answers on that address: forward
+only 443 to the appliance (security group, NAT, upstream firewall), and
+log in soon after the first boot to replace the factory password.
+
 ## The appliance image
 
 1. Download `portico-<version>.qcow2` and its `.sha256` from the
