@@ -5,6 +5,8 @@
 # user. Idempotent; run as root by lab/build-host/deploy.sh.
 set -euo pipefail
 GO_VERSION="${GO_VERSION:-1.27.2}"
+# An interrupted first run leaves dnf's cache inconsistent ("No such file" on a cached rpm).
+dnf -y -q clean packages >/dev/null 2>&1 || true
 dnf -y -q install qemu-kvm qemu-img genisoimage git curl tar jq openssl dnf-plugins-core >/dev/null
 [ -c /dev/kvm ] || { echo "no /dev/kvm: the VM needs CPU type host and nested virtualization on the Proxmox host" >&2; exit 1; }
 usermod -aG kvm build 2>/dev/null || true
