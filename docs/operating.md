@@ -54,3 +54,22 @@ a header value, a cookie, a token or a password.
 
 Replace the binary and restart the unit; the store format is versioned
 and migrated at start. The lab does this with `lab/portico/deploy.sh`.
+
+## The console wizard
+
+`portico console` (the appliance's tty1, through a getty override; on
+your own host run it as root in a terminal) is the only place that needs
+root: it writes NetworkManager keyfiles and applies them with `nmcli`,
+sets the break-glass password by running `portico admin set-password` as
+the `portico` user, installs the public certificate and key in
+`/etc/portico/tls/` or the tunnel token in `/etc/cloudflared/token` and
+switches the `public` block of the process YAML between direct mode
+(`:443` with the pair) and tunnel mode (`127.0.0.1:8080`, no TLS), and
+shows the Keycloak administrator credentials from
+`/etc/portico/keycloak.env` on request. It re-runs at any time with the
+current values as defaults; a wrong entry is refused with the field
+named. Nothing else is configurable from the console.
+
+On Apply, Portico writes `KC_HOSTNAME` for the identity host into
+`/var/lib/portico/keycloak.hostname.env`; the unit
+`keycloak-hostname.path` restarts Keycloak with it.

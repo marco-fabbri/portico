@@ -1,0 +1,85 @@
+# Installing Portico
+
+Pre-release: the paths below are what the lab exercises today. Nothing
+here is supported yet; the first release (Milestone 4) will say what is.
+
+## What you need
+
+- **Prism Central pc.7.6 or later** with Projects 2.0, and an AHV cluster
+  for the appliance (any hypervisor or cloud for the second form).
+- **Network**: one subnet for the appliance; port 9440 of Prism Central
+  reachable from the appliance's address and from your management
+  network only, never from the Internet. Two public names for the
+  tenants (`prism.<msp>.example`, `id.<msp>.example`) resolving to the
+  appliance, or to a Cloudflare tunnel.
+- **A certificate** for the two public names (direct mode), or a
+  Cloudflare tunnel with its connector token (tunnel mode). A
+  self-signed pair is available for a trial.
+- **Accounts used once**: a Prism Central account that can create users
+  and edit authorization policies, and administrator credentials for the
+  SAML trust (the service account's role cannot create an identity
+  provider on pc.7.6, write-up 15). Portico stores neither.
+
+## The appliance image
+
+1. Download `portico-<version>.qcow2` and its `.sha256` from the
+   [release](https://github.com/marco-fabbri/portico/releases); check
+   the checksum. The OpenSCAP report of that build is next to them.
+2. Create the VM: with OpenTofu, `deploy/tofu/nutanix` uploads the image
+   from the release URL and creates the VM (2 vCPU, 6 GiB, 40 GiB, legacy
+   BIOS), with an optional static network and SSH key through cloud-init
+   (see its README). By hand: import the qcow2 into the image service,
+   create a VM with those sizes and one NIC, power it on.
+3. **The console** (Prism Central, Launch console): the wizard is on
+   tty1.
+   - *Network*: hostname, address, prefix, gateway, DNS for each
+     interface; skip it when cloud-init already set them.
+   - *Admin password*: the break-glass account `admin` of the admin UI
+     and API.
+   - *Keycloak administrator credentials*: shown once, for the Keycloak
+     card of the setup page.
+   - *Exposure*: a certificate and key for the public names, a
+     self-signed pair, or the Cloudflare tunnel token.
+4. **The setup page**, `https://<address>:8443/` (self-signed internal
+   certificate; the break-glass password): public names, Prism Central
+   (URL, then "Let Portico create the service account" with the one-time
+   account), Identity (the Keycloak credentials from the console, "Let
+   Portico create the realm and clients"), SAML trust, Tenants (cluster,
+   container, prefixes), then Apply and restart. The appliance leaves
+   setup mode and the public path opens.
+5. **Branding** and the first **tenant** from the admin UI; the tenant's
+   user signs in at `https://prism.<msp>.example/`.
+
+The appliance has no root password and no SSH user unless cloud-init
+added one: the console is the way in. Everything Portico keeps lives in
+`/var/lib/portico` (the store and the master key; back them up together,
+docs/operating.md).
+
+## An existing Rocky Linux 9 host
+
+The same components on a Rocky Linux 9 host of yours (a VM on any
+hypervisor, a cloud instance): as root,
+
+```
+curl -fsSLO https://github.com/marco-fabbri/portico/releases/download/v<version>/install-<version>.tar.gz
+tar -xzf install-<version>.tar.gz
+./deploy/install.sh --release <version>
+```
+
+The installer (deploy/README.md) installs the packages, the service, the
+Keycloak and PostgreSQL containers, the console on tty1, the firewalld
+service (443, 8443) and the SSH policy (keys only, no root); it
+generates the Keycloak secrets and the internal certificate once and
+starts in setup mode. Then run the console (`portico console` as root on
+tty1, or over SSH in a terminal) for the password and the exposure, and
+continue at step 4 above. The host's own hardening is yours: the image's
+CIS baseline (image/oscap) is applied only by the image build.
+
+Re-running `install.sh --release <new version>` upgrades.
+
+## Updating
+
+A new image is the clean path: back up `/var/lib/portico`, create the
+new VM, restore the directory, set the network on the console. On an
+existing host, `install.sh --release` replaces the binary and the files
+and keeps the store.
