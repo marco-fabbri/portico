@@ -116,8 +116,10 @@ build {
 build {
   sources = ["source.qemu.provision"]
 
+  # /tmp is noexec on the appliance (CIS): every script runs through bash.
   provisioner "shell" {
-    inline = ["mkdir -p /tmp/portico-build"]
+    execute_command = "bash '{{ .Path }}'"
+    inline          = ["mkdir -p /tmp/portico-build"]
   }
   provisioner "file" {
     source      = var.binary
