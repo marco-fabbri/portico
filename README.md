@@ -254,8 +254,8 @@ test first, measure on the lab, English everywhere, no secrets).
 ## Supporting the project
 
 Portico is built and measured on one lab: a single-node AHV cluster
-with Prism Central pc.7.6, on my own hardware. That is enough for the
-single appliance, and not enough for what comes next. If you can help
+with Prism Central pc.7.6. That is enough for the single appliance, and
+not enough for what comes next. If you can help
 with any of the following, it turns a design into a measurement:
 
 - **A second cluster or Prism Central**, pc.7.6 or later: a node that
