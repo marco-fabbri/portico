@@ -1,0 +1,16 @@
+# Portico console wizard on tty1 (design 4.8). Installed by install.sh as
+# /etc/systemd/system/getty@tty1.service.d/override.conf: the first
+# virtual console runs `portico console` as root instead of a login
+# prompt. The wizard loops back to its menu; Restart=always brings it
+# back after "Log out" or a crash. The other consoles (tty2 and up) keep
+# the normal login for whoever has the root password.
+[Service]
+ExecStart=
+ExecStart=-/usr/local/bin/portico console -config /etc/portico/portico.yaml
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Restart=always
+RestartSec=1

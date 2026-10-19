@@ -1,0 +1,12 @@
+# Restart Keycloak when Portico writes its public hostname (Apply on the
+# setup page): Portico runs unprivileged and cannot restart a unit, so a
+# file it owns triggers the restart through systemd.
+[Unit]
+Description=Watch the Keycloak hostname file written by Portico
+
+[Path]
+PathChanged=/var/lib/portico/keycloak.hostname.env
+Unit=keycloak-hostname.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,42 @@
+# Podman quadlet: Keycloak, the identity provider (design 4.1). Installed
+# by deploy/install.sh. Portico fronts it on the public identity name and
+# reaches it on the loopback.
+[Unit]
+Description=Keycloak
+Requires=postgres.service
+After=postgres.service
+
+[Container]
+Image=quay.io/keycloak/keycloak:26.3
+ContainerName=keycloak
+Network=portico.network
+EnvironmentFile=/etc/portico/keycloak.env
+# The public identity name is known only once the settings are applied:
+# Portico writes KC_HOSTNAME into this file on Apply, and a path unit
+# restarts Keycloak (keycloak-hostname.path). Until then the hostname is
+# derived from each request (KC_HOSTNAME_STRICT=false), enough for the
+# loopback admin API the Keycloak bootstrap uses. The file always exists
+# (empty until Apply): a quadlet has no "optional" EnvironmentFile.
+EnvironmentFile=/var/lib/portico/keycloak.hostname.env
+Environment=KC_DB=postgres
+Environment=KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
+Environment=KC_DB_USERNAME=keycloak
+Environment=KC_HOSTNAME_STRICT=false
+Environment=KC_HTTP_ENABLED=true
+Environment=KC_PROXY_HEADERS=xforwarded
+Environment=KC_HEALTH_ENABLED=true
+# Portico writes the login theme here (Milestone 2c); caches off so a
+# saved theme applies without a restart (write-up 13).
+Volume=/var/lib/portico/keycloak-theme:/opt/keycloak/themes/portico:ro,z
+Environment=KC_SPI_THEME_CACHE_THEMES=false
+Environment=KC_SPI_THEME_CACHE_TEMPLATES=false
+Environment=KC_SPI_THEME_STATIC_MAX_AGE=-1
+PublishPort=127.0.0.1:8080:8080
+Exec=start
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

@@ -2,7 +2,7 @@
 # Secrets are never written here: they are referenced by file path.
 
 public:
-  listen: ":443"                 # tunnel mode: "127.0.0.1:8080" with no tls block
+  listen: ":443"                 # tunnel mode: "127.0.0.1:8081" with no tls block (8080 is Keycloak)
   tls:                           # both empty = plain HTTP behind cloudflared
     cert_file: /etc/portico/tls/public.crt
     key_file: /etc/portico/tls/public.key
