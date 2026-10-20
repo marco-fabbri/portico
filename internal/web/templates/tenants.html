@@ -1,11 +1,11 @@
 {{define "content"}}
 <div class="page-head">
-  <div><h1>Tenants</h1><p>Each tenant is a Projects 2.0 project in Prism Central with its own group in Keycloak.</p></div>
+  <div><h1>Tenants</h1><p>Each tenant has its own group in Keycloak and a Projects 2.0 project on every site where it has resources.</p></div>
   <a class="button primary" href="/tenants/new">New tenant</a>
 </div>
 <section class="card">
   <table>
-    <thead><tr><th>Slug</th><th>Display name</th><th>Status</th><th>Project</th><th>Updated</th></tr></thead>
+    <thead><tr><th>Slug</th><th>Display name</th><th>Status</th><th>Sites</th><th>Updated</th></tr></thead>
     {{template "rows" .}}
   </table>
   {{if not .Data.Tenants}}<p class="muted">No tenants yet.</p>{{end}}
@@ -16,7 +16,7 @@
   <td><a class="strong" href="/tenants/{{.ID}}">{{.ID}}</a></td>
   <td>{{.DisplayName}}</td>
   <td><span class="status status-{{.Status}}">{{.Status}}</span></td>
-  <td><code>{{.ProjectID}}</code></td>
+  <td>{{range $i, $s := .Sites}}{{if $i}}, {{end}}{{$s}}{{end}}</td>
   <td class="muted">{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
 </tr>{{end}}
 </tbody>{{end}}

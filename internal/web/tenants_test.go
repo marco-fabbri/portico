@@ -26,13 +26,13 @@ func TestTenantListShowsRowsAndPollsWhileCreating(t *testing.T) {
 	e.createTenant(t, "acme")
 	rec := e.do("GET", "/", nil, true)
 	body := rec.Body.String()
-	if rec.Code != 200 || !strings.Contains(body, "acme") || !strings.Contains(body, `class="status status-active"`) || !strings.Contains(body, "portico-acme") {
+	if rec.Code != 200 || !strings.Contains(body, "acme") || !strings.Contains(body, `class="status status-active"`) || !strings.Contains(body, "SITE-A") {
 		t.Fatalf("list: %d %s", rec.Code, body)
 	}
 	if strings.Contains(body, "hx-trigger") {
 		t.Fatal("the list polls although nothing is in progress")
 	}
-	if err := e.st.CreateTenant(context.Background(), &store.Tenant{ID: "beta", Status: store.StatusCreating, ProjectID: "portico-beta"}); err != nil {
+	if err := e.st.CreateTenant(context.Background(), &store.Tenant{ID: "beta", Status: store.StatusCreating}); err != nil {
 		t.Fatal(err)
 	}
 	rec = e.do("GET", "/", nil, true)
@@ -96,7 +96,7 @@ func TestDetailShowsVisibilityFindings(t *testing.T) {
 	e := newEnv(t, true)
 	e.login(t)
 	e.createTenant(t, "acme")
-	tn, _ := e.st.GetTenant(context.Background(), "acme")
+	tn, _ := e.st.GetPlacement(context.Background(), "acme", "site-a")
 	e.pc.Memberships = append(e.pc.Memberships, nutanix.RoleMembership{ExtID: "rm-x", IdentityExtID: tn.SAMLGroupExtID, IdentityType: "GROUP", ProjectExtID: "p-other", RoleExtID: "role-pa", ScopeTemplateName: nutanix.ScopeTemplate})
 	rec := e.do("GET", "/tenants/acme", nil, true)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "p-other") || !strings.Contains(rec.Body.String(), `class="bad"`) {

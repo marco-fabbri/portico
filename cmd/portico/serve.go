@@ -229,10 +229,24 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		return err
 	}
 	kcClient := keycloak.New(cfg.Keycloak.URL, cfg.Keycloak.Realm, cfg.Keycloak.AdminClientID, kcSecret, &http.Client{Timeout: 15 * time.Second}, log)
-	tenants := tenant.NewService(st, pcClient, kcClient, tenant.Config{
+	// One Prism Central client per site, through that site's service
+	// account (design sites §4.1).
+	var tenantSites []tenant.Site
+	for _, site := range runDoc.OrderedSites() {
+		_, siteTLS, err := siteTarget(site, log)
+		if err != nil {
+			return fmt.Errorf("site %s: %w", site.ID, err)
+		}
+		c, err := nutanix.New(site.URL, string(site.APIKey), siteTLS, log)
+		if err != nil {
+			return fmt.Errorf("site %s: %w", site.ID, err)
+		}
+		tenantSites = append(tenantSites, tenant.Site{ID: site.ID, Code: site.Code, PC: c, SAMLIdPName: site.SAMLIdPName,
+			ClusterExtID: site.ClusterExtID, StorageContainerExtID: site.StorageContainerExtID})
+	}
+	tenants := tenant.NewService(st, tenantSites, kcClient, tenant.Config{
 		ProjectPrefix: cfg.Tenants.ProjectPrefix, GroupPrefix: cfg.Tenants.GroupPrefix, RoleName: cfg.Tenants.Role,
-		SAMLIdPName: cfg.PrismCentral.SAMLIdPName, ClusterExtID: cfg.Tenants.ClusterExtID,
-		StorageContainerExtID: cfg.Tenants.StorageContainerExtID, OperationTimeout: cfg.Tenants.OperationTimeout,
+		OperationTimeout: cfg.Tenants.OperationTimeout,
 	}, log)
 	if n, err := tenants.RecoverInterrupted(ctx); err != nil {
 		return fmt.Errorf("tenant recovery: %w", err)

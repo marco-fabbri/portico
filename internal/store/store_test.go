@@ -23,9 +23,7 @@ func openTemp(t *testing.T) *SQLite {
 func sampleTenant() *Tenant {
 	return &Tenant{
 		ID: "acme", DisplayName: "ACME", Contacts: "ops@acme.test", Status: StatusCreating,
-		ProjectID: "portico-acme", ProjectExtID: "p-1", ResourceGroupExtID: "rg-1",
-		SAMLGroupExtID: "g-1", KeycloakGroupID: "kc-1", RoleMembershipExtID: "rm-1",
-		IdPShared: true, LastError: "", LastOp: OpProvision,
+		KeycloakGroupID: "kc-1", LastError: "", LastOp: OpProvision,
 	}
 }
 
