@@ -172,23 +172,29 @@ func redacted(d settings.Settings) map[string]any {
 		}
 		return "<set>"
 	}
+	present := func(v string) string {
+		if v == "" {
+			return "<unset>"
+		}
+		return "<set>"
+	}
+	sites := []map[string]any{}
+	for _, site := range d.OrderedSites() {
+		sites = append(sites, map[string]any{
+			"id": site.ID, "code": site.Code, "name": site.Name, "order": site.Order,
+			"url": site.URL, "tls_verify": site.TLSVerify, "ca_pem": present(site.CAPEM),
+			"api_key": set(site.APIKey), "saml_idp_name": site.SAMLIdPName, "saml_entity_id": site.SAMLEntityID,
+			"cluster_ext_id": site.ClusterExtID, "storage_container_ext_id": site.StorageContainerExtID,
+		})
+	}
 	return map[string]any{
-		"public": map[string]any{"prism_host": d.PrismHost, "id_host": d.IDHost},
-		"prism_central": map[string]any{
-			"url": d.PrismCentral.URL, "tls_verify": d.PrismCentral.TLSVerify,
-			"ca_pem": func() string {
-				if d.PrismCentral.CAPEM == "" {
-					return "<unset>"
-				}
-				return "<set>"
-			}(),
-			"api_key": set(d.PrismCentral.APIKey), "saml_idp_name": d.PrismCentral.SAMLIdPName,
-		},
-		"keycloak": map[string]any{"realm": d.Keycloak.Realm, "admin_client_id": d.Keycloak.AdminClientID, "admin_client_secret": set(d.Keycloak.AdminClientSecret)},
-		"oidc":     map[string]any{"issuer": d.OIDC.Issuer, "client_id": d.OIDC.ClientID, "client_secret": set(d.OIDC.ClientSecret)},
+		"public":           map[string]any{"prism_host": d.PrismHost, "id_host": d.IDHost},
+		"sites":            sites,
+		"passthrough_site": d.PassthroughSite,
+		"keycloak":         map[string]any{"realm": d.Keycloak.Realm, "admin_client_id": d.Keycloak.AdminClientID, "admin_client_secret": set(d.Keycloak.AdminClientSecret)},
+		"oidc":             map[string]any{"issuer": d.OIDC.Issuer, "client_id": d.OIDC.ClientID, "client_secret": set(d.OIDC.ClientSecret)},
 		"tenants": map[string]any{
 			"project_prefix": d.Tenants.ProjectPrefix, "group_prefix": d.Tenants.GroupPrefix, "role": d.Tenants.Role,
-			"cluster_ext_id": d.Tenants.ClusterExtID, "storage_container_ext_id": d.Tenants.StorageContainerExtID,
 			"operation_timeout": d.Tenants.OperationTimeout.String(),
 		},
 	}

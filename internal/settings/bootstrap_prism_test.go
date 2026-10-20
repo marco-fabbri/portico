@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -84,12 +85,22 @@ func (f *fakePCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 			reply(200, out)
 		case p == nutanix.PathIAM1+"/authn/saml-identity-providers" && r.Method == "POST":
 			f.idpPost = body
-			idp := map[string]any{"extId": "idp-" + body["name"].(string), "name": body["name"], "entityIssuer": "https://prism.example.test/api/iam/authn", "redirectURL": body["redirectURL"]}
+			issuer, _ := body["entityIssuer"].(string)
+			if issuer == "" {
+				issuer = "https://prism.example.test/api/iam/authn"
+			}
+			idp := map[string]any{"extId": "idp-" + body["name"].(string), "name": body["name"], "entityIssuer": issuer, "redirectURL": body["redirectURL"]}
 			f.idps = append(f.idps, idp)
 			reply(201, idp)
 		case strings.HasSuffix(p, "/sp-metadata"):
+			issuer := "https://prism.example.test/api/iam/authn"
+			for _, i := range f.idps {
+				if strings.Contains(p, "/"+i["extId"].(string)+"/") {
+					issuer = i["entityIssuer"].(string)
+				}
+			}
 			w.Header().Set("Content-Type", "application/xml")
-			w.Write([]byte(`<?xml version="1.0"?><md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://prism.example.test/api/iam/authn"><md:SPSSODescriptor><md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://prism.example.test/api/iam/authn/callback" index="1"/></md:SPSSODescriptor></md:EntityDescriptor>`))
+			w.Write([]byte(`<?xml version="1.0"?><md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="` + issuer + `"><md:SPSSODescriptor><md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://prism.example.test/api/iam/authn/callback" index="1"/></md:SPSSODescriptor></md:EntityDescriptor>`))
 		default:
 			w.WriteHeader(404)
 		}
@@ -163,13 +174,13 @@ func prismInput(url string) PrismInput {
 func TestPrismBootstrapCreatesAccountKeyAndPolicyMember(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	b := NewBootstrapper(nil, nil)
-	s := Defaults()
+	s := withSite(Defaults())
 	s.PrismHost = "prism.example.test"
-	res, out, err := b.PrismCentral(context.Background(), s, prismInput(pc.srv.URL))
+	res, out, err := b.PrismCentral(context.Background(), s, "site-a", prismInput(pc.srv.URL))
 	if err != nil || !res.OK || len(res.Created) != 3 || res.Created[0] != "service account portico" || res.Created[2] != "policy member" {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
-	if out.PrismCentral.APIKey != Secret(pc.issuedKey) || out.PrismCentral.URL != pc.srv.URL || out.PrismCentral.TLSVerify {
+	if out.Sites[0].APIKey != Secret(pc.issuedKey) || out.Sites[0].URL != pc.srv.URL || out.Sites[0].TLSVerify {
 		t.Fatalf("out = %+v", out)
 	}
 	if len(res.Clusters) != 1 || res.Clusters[0].ExtID != "cl-1" || len(res.Containers) != 1 || res.ServiceAccount != "portico" || res.ServiceAccountExtID != "sa-1" || !strings.HasPrefix(res.KeyName, "portico-") || res.KeyExpires.IsZero() {
@@ -184,7 +195,7 @@ func TestPrismBootstrapExistingAccountGetsNewKey(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	pc.user = map[string]any{"extId": "sa-1", "username": "portico", "userType": "SERVICE_ACCOUNT"}
 	pc.inPolicy = true
-	res, _, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), Defaults(), prismInput(pc.srv.URL))
+	res, _, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), withSite(Defaults()), "site-a", prismInput(pc.srv.URL))
 	if err != nil || !res.OK || len(res.Created) != 1 || !strings.HasPrefix(res.Created[0], "api key portico-") {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -194,9 +205,9 @@ func TestPrismBootstrapWrongCredentials(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	in := prismInput(pc.srv.URL)
 	in.Password = "wrong"
-	s := Defaults()
-	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), s, in)
-	if err != nil || res.OK || res.Message != "Prism Central refused the credentials (401)" || len(pc.posts) != 0 || out != s {
+	s := withSite(Defaults())
+	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), s, "site-a", in)
+	if err != nil || res.OK || res.Message != "Prism Central refused the credentials (401)" || len(pc.posts) != 0 || !reflect.DeepEqual(out, s) {
 		t.Fatalf("res=%+v err=%v posts=%v", res, err, pc.posts)
 	}
 }
@@ -204,12 +215,12 @@ func TestPrismBootstrapWrongCredentials(t *testing.T) {
 func TestPrismBootstrapPolicyMissingDeletesTheKey(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	pc.noPolicy = true
-	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), Defaults(), prismInput(pc.srv.URL))
+	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), withSite(Defaults()), "site-a", prismInput(pc.srv.URL))
 	if err != nil || res.OK || res.Message != `authorization policy "Project Manager_acp" not found` || pc.keyDeleted != 1 {
 		t.Fatalf("res=%+v err=%v deleted=%d", res, err, pc.keyDeleted)
 	}
 	// The revoked key leaves no trace in the document or the result.
-	if out.PrismCentral.APIKey != "" || res.KeyName != "" || !res.KeyExpires.IsZero() {
+	if out.Sites[0].APIKey != "" || res.KeyName != "" || !res.KeyExpires.IsZero() {
 		t.Fatalf("revoked key still in the result: %+v", res)
 	}
 	for _, c := range res.Created {
@@ -225,7 +236,7 @@ func TestPrismBootstrapPolicyMissingDeletesTheKey(t *testing.T) {
 // A URL with credentials inside (https://user:pw@host) is refused before
 // any call, and the refusal does not repeat it.
 func TestPrismBootstrapRefusesURLWithCredentials(t *testing.T) {
-	_, _, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), Defaults(), PrismInput{Username: "admin", Password: "x", URL: "https://admin:pw-in-url@10.0.0.10:9440"})
+	_, _, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), withSite(Defaults()), "site-a", PrismInput{Username: "admin", Password: "x", URL: "https://admin:pw-in-url@10.0.0.10:9440"})
 	var se *StateError
 	if !errors.As(err, &se) || !strings.Contains(se.Msg, "must not carry credentials") || strings.Contains(se.Msg, "pw-in-url") {
 		t.Fatalf("err = %v", err)
@@ -241,7 +252,7 @@ func TestPrismBootstrapPreconditions(t *testing.T) {
 		"bad url":        {Username: "admin", Password: "x", URL: "not a url"},
 		"bad account":    {Username: "admin", Password: "x", URL: pc.srv.URL, ServiceAccount: "Bad Name"},
 	} {
-		if _, _, err := b.PrismCentral(context.Background(), Defaults(), in); !errors.As(err, &se) {
+		if _, _, err := b.PrismCentral(context.Background(), withSite(Defaults()), "site-a", in); !errors.As(err, &se) {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
@@ -253,14 +264,14 @@ func TestPrismBootstrapPreconditions(t *testing.T) {
 func TestPrismBootstrapRevokesAKeyLostInTransit(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	pc.keyLost = true
-	s := Defaults()
+	s := withSite(Defaults())
 	s.PrismHost = "prism.example.test"
-	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), s, prismInput(pc.srv.URL))
+	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), s, "site-a", prismInput(pc.srv.URL))
 	if err != nil || res.OK || !strings.Contains(res.Message, "Prism Central") {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
-	if out.PrismCentral.APIKey != "" || pc.keyDeleted != 1 {
-		t.Fatalf("key stored=%q deleted=%d", out.PrismCentral.APIKey, pc.keyDeleted)
+	if out.Sites[0].APIKey != "" || pc.keyDeleted != 1 {
+		t.Fatalf("key stored=%q deleted=%d", out.Sites[0].APIKey, pc.keyDeleted)
 	}
 }
 
@@ -271,9 +282,9 @@ func TestPrismBootstrapRevokesTheKeyWithACancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	pc.onPolicies = cancel
-	s := Defaults()
+	s := withSite(Defaults())
 	s.PrismHost = "prism.example.test"
-	res, _, err := NewBootstrapper(nil, nil).PrismCentral(ctx, s, prismInput(pc.srv.URL))
+	res, _, err := NewBootstrapper(nil, nil).PrismCentral(ctx, s, "site-a", prismInput(pc.srv.URL))
 	if err != nil || res.OK {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -294,9 +305,9 @@ func (failingStore) SetSetting(context.Context, string, []byte) error {
 func TestPrismBootstrapRevokesTheKeyWhenTheStoreFails(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	svc := NewService(failingStore{newStore(t)}, sealerFor(t, 1))
-	s := Defaults()
+	s := withSite(Defaults())
 	s.PrismHost = "prism.example.test"
-	res, _, err := NewBootstrapper(nil, svc).PrismCentral(context.Background(), s, prismInput(pc.srv.URL))
+	res, _, err := NewBootstrapper(nil, svc).PrismCentral(context.Background(), s, "site-a", prismInput(pc.srv.URL))
 	if err != nil || res.OK || res.Stored || !strings.Contains(res.Message, "not stored") {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
