@@ -310,3 +310,74 @@ func TestPlacementChangeHookFires(t *testing.T) {
 		t.Fatal("no change reported for the deletion")
 	}
 }
+
+// Review I2: a site whose removal failed is never provisioned again by a
+// retry; the removal is repeated instead.
+func TestRetrySkipsAFailedRemoval(t *testing.T) {
+	e := newEnv2(t)
+	ctx := context.Background()
+	e.createOn(t, "acme", "site-a", "site-b")
+	e.pcB.FailOnce["DeleteUserGroup"] = &nutanix.APIError{Status: 500, Message: "group busy"}
+	if err := e.svc.RemoveSite(ctx, "acme", "site-b", false); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	b := e.placement(t, "acme", "site-b")
+	if b.Status != store.PlacementRemoveFailed || !strings.Contains(b.LastError, "group busy") {
+		t.Fatalf("site-b after a failed removal = %+v", b)
+	}
+	before := e.pcB.Creates["CreateRoleMembership"]
+	if err := e.svc.Retry(ctx, "acme"); !errors.Is(err, ErrState) {
+		t.Fatalf("Retry after a failed removal = %v, want ErrState", err)
+	}
+	e.svc.Wait()
+	if e.pcB.Creates["CreateRoleMembership"] != before {
+		t.Fatal("a retry re-granted the access being removed")
+	}
+	if err := e.svc.RemoveSite(ctx, "acme", "site-b", false); err != nil {
+		t.Fatalf("RemoveSite again: %v", err)
+	}
+	e.svc.Wait()
+	if _, err := e.st.GetPlacement(ctx, "acme", "site-b"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("site-b after the second removal: %v", err)
+	}
+}
+
+// A site added later that failed, next to a failed removal: the retry
+// provisions only the first.
+func TestRetryProvisionsOnlyFailedProvisioning(t *testing.T) {
+	e := newEnv2(t)
+	ctx := context.Background()
+	e.createOn(t, "acme", "site-a")
+	e.pcB.FailOnce["ShareIdP"] = &nutanix.APIError{Status: 500, Message: "share failed"}
+	e.svc.AddSite(ctx, "acme", PlacementRequest{Site: "site-b"})
+	e.svc.Wait()
+	a := e.placement(t, "acme", "site-a")
+	a.Status = store.PlacementRemoveFailed
+	e.st.UpdatePlacement(ctx, a)
+	membershipsA := e.pcA.Creates["CreateRoleMembership"]
+	if err := e.svc.Retry(ctx, "acme"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if e.placement(t, "acme", "site-b").Status != store.PlacementActive || e.placement(t, "acme", "site-a").Status != store.PlacementRemoveFailed || e.pcA.Creates["CreateRoleMembership"] != membershipsA {
+		t.Fatalf("retry: a=%+v b=%+v", e.placement(t, "acme", "site-a"), e.placement(t, "acme", "site-b"))
+	}
+}
+
+// An interrupted removal ends as a failed removal, not a failed
+// provisioning.
+func TestRecoverInterruptedRemoval(t *testing.T) {
+	e := newEnv2(t)
+	ctx := context.Background()
+	e.createOn(t, "acme", "site-a", "site-b")
+	b := e.placement(t, "acme", "site-b")
+	b.Status = store.PlacementRemoving
+	e.st.UpdatePlacement(ctx, b)
+	if _, err := e.svc.RecoverInterrupted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.placement(t, "acme", "site-b").Status; got != store.PlacementRemoveFailed {
+		t.Fatalf("interrupted removal = %q", got)
+	}
+}

@@ -453,8 +453,9 @@ func TestRecoverInterruptedMarksFailedAndRetryWorks(t *testing.T) {
 		if want == store.StatusFailed && !strings.Contains(tn.LastError, "interrupted") {
 			t.Fatalf("tenant %s LastError %q", id, tn.LastError)
 		}
-		if p := e.place(t, id); want == store.StatusFailed && p.Status != store.PlacementFailed {
-			t.Fatalf("placement of %s = %q, want failed", id, p.Status)
+		wantP := map[string]store.PlacementStatus{"a": store.PlacementFailed, "b": store.PlacementRemoveFailed, "c": store.PlacementActive}[id]
+		if p := e.place(t, id); p.Status != wantP {
+			t.Fatalf("placement of %s = %q, want %q", id, p.Status, wantP)
 		}
 	}
 	if err := e.svc.Retry(ctx, "a"); err != nil {
