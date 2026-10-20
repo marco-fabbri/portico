@@ -2,8 +2,8 @@ package auth
 
 import (
 	"context"
-	"errors"
 	"crypto/tls"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
