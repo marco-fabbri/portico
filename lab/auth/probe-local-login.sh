@@ -7,11 +7,16 @@
 # line differs.
 #   lab/auth/probe-local-login.sh [BASE_URL]   default https://$LAB_PRISM_HOST
 # Requires `source lab/env.sh` (admin password for the login attempts).
+# LAB_REALM names the realm (default portico-lab). LAB_PASSTHROUGH=loopback
+# (the appliance's default, passthrough_listen on 127.0.0.1) expects the
+# internal pass-through NOT to answer on LAB_VM_IP:9440; the default,
+# exposed, expects it to accept local credentials there.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 : "${LAB_PRISM_HOST:?source lab/env.sh first}" "${LAB_ID_HOST:?}" "${LAB_VM_IP:?}" "${PC_PASS:?}"
 S="${PORTICO_SECRETS:-$HOME/portico-secrets}"
 base="${1:-https://$LAB_PRISM_HOST}"
+realm="${LAB_REALM:-portico-lab}"
 host="${base#https://}"; host="${host%%/*}"
 C=(-s --cacert "$S/lab-ca.crt" --resolve "$host:443:$LAB_VM_IP" --resolve "$LAB_ID_HOST:443:$LAB_VM_IP" -o /dev/null)
 umask 077; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
@@ -56,16 +61,21 @@ check POST "/api/nutanix/v3/groups (no session, no credentials)" 401 -- -X POST 
 # Logout: Portico sends the browser to Keycloak's end-session endpoint, which
 # must accept the post-logout URI (400 "invalid redirect uri" otherwise).
 logout_loc=$(curl "${C[@]}" -w '%{redirect_url}' "$base/.portico/logout")
-check GET "/.portico/logout" 302 "https://$LAB_ID_HOST/realms/portico-lab/protocol/openid-connect/logout?" -- "$base/.portico/logout"
+check GET "/.portico/logout" 302 "https://$LAB_ID_HOST/realms/$realm/protocol/openid-connect/logout?" -- "$base/.portico/logout"
 # Without a Keycloak session the end-session endpoint goes straight back to
 # the Prism Central host (a browser with a session gets a confirmation page).
 check GET "end-session URL from the logout redirect (through the identity host)" 302 "$base/" -- "$logout_loc"
 
 # Public name of the identity provider
 check GET "https://$LAB_ID_HOST/admin/master/console/" 403 -- "https://$LAB_ID_HOST/admin/master/console/"
-check GET "https://$LAB_ID_HOST/realms/portico-lab/" 200 -- "https://$LAB_ID_HOST/realms/portico-lab/"
+check GET "https://$LAB_ID_HOST/realms/$realm/" 200 -- "https://$LAB_ID_HOST/realms/$realm/"
 
-# Internal pass-through (lab certificate has no IP SAN: -k)
-check GET "https://$LAB_VM_IP:9440/PrismGateway/services/rest/v1/cluster (Basic admin, internal)" 200 -- -k --config "$tmp/basic.cfg" "https://$LAB_VM_IP:9440/PrismGateway/services/rest/v1/cluster"
+# Internal pass-through (lab certificate has no IP SAN: -k). On the
+# appliance it is on the loopback: nothing answers on the VM's address.
+if [ "${LAB_PASSTHROUGH:-exposed}" = loopback ]; then
+  check GET "https://$LAB_VM_IP:9440/PrismGateway/services/rest/v1/cluster (Basic admin, pass-through on loopback)" 000 -- -k --connect-timeout 5 --config "$tmp/basic.cfg" "https://$LAB_VM_IP:9440/PrismGateway/services/rest/v1/cluster"
+else
+  check GET "https://$LAB_VM_IP:9440/PrismGateway/services/rest/v1/cluster (Basic admin, internal)" 200 -- -k --config "$tmp/basic.cfg" "https://$LAB_VM_IP:9440/PrismGateway/services/rest/v1/cluster"
+fi
 
 if [ $fail -eq 0 ]; then echo "PASS: every line matched"; else echo "FAIL: see lines marked FAIL" >&2; exit 1; fi
