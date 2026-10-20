@@ -17,8 +17,9 @@ for s in create bind-group delete; do
   if [ "$rc" -eq 2 ] && grep -q 'refusing' <<<"$out"; then ok "$s.sh refuses non-lab project names"; else ko "$s.sh accepted a non-lab name (rc=$rc): $out"; fi
 done
 
-# I3: the lab IdP is selected by name, never "the first one".
-if grep -q 'select(.name=="portico-lab-keycloak")' lab/projects/lib.sh; then ok "lib.sh selects the lab IdP by name"; else ko "lib.sh picks the first SAML IdP"; fi
+# I3: the lab IdP is selected by name (LAB_SAML_IDP, default the lab
+# VM's), never "the first one".
+if grep -q 'select(.name==$n)' lab/projects/lib.sh && grep -q 'LAB_SAML_IDP:-portico-lab-keycloak' lab/projects/lib.sh; then ok "lib.sh selects the lab IdP by name"; else ko "lib.sh picks the first SAML IdP"; fi
 
 # I4: create-vm.sh checks the IP (ping + Prism Central NIC list) before creating.
 if grep -q 'learnedIpAddresses' lab/vm/create-vm.sh && grep -q 'ping -c' lab/vm/create-vm.sh; then ok "create-vm.sh checks the IP before creating"; else ko "create-vm.sh does not check the IP"; fi

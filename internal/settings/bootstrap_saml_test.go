@@ -32,7 +32,8 @@ func TestSAMLBootstrapCreatesIdPAndKeycloakClient(t *testing.T) {
 	if pc.idpPost["redirectURL"] != "https://prism.example.test" || pc.idpPost["name"] != "portico-keycloak" || pc.idpPost["idpMetadataXml"] == nil {
 		t.Fatalf("IdP POST = %v", pc.idpPost)
 	}
-	if res.IdPExtID != "idp-portico-keycloak" || res.EntityID != "https://prism.example.test/api/iam/authn" || res.ACSURL != "https://prism.example.test/api/iam/authn/callback" || res.KeycloakClientID != res.EntityID {
+	// Each site's Prism Central is named by its own issuer (D3, write-up 20).
+	if res.IdPExtID != "idp-portico-keycloak" || res.EntityID != "https://prism.example.test/api/iam/authn/site-a" || res.ACSURL != "https://prism.example.test/api/iam/authn/callback" || res.KeycloakClientID != res.EntityID {
 		t.Fatalf("res = %+v", res)
 	}
 	cl := kc.client(res.EntityID)
@@ -95,8 +96,8 @@ func TestSAMLBootstrapIsIdempotent(t *testing.T) {
 	if err != nil || !res.OK || len(res.Created) != 0 || res.IdPExtID != "idp-msp-idp" || out.Sites[0].SAMLIdPName != "msp-idp" {
 		t.Fatalf("second run: %+v %v", res, err)
 	}
-	if len(pc.idps) != 1 || len(kc.mappers[clientUUID("https://prism.example.test/api/iam/authn")]) != 2 {
-		t.Fatalf("duplicates: idps=%d mappers=%d", len(pc.idps), len(kc.mappers[clientUUID("https://prism.example.test/api/iam/authn")]))
+	if len(pc.idps) != 1 || len(kc.mappers[clientUUID("https://prism.example.test/api/iam/authn/site-a")]) != 2 {
+		t.Fatalf("duplicates: idps=%d mappers=%d", len(pc.idps), len(kc.mappers[clientUUID("https://prism.example.test/api/iam/authn/site-a")]))
 	}
 }
 
