@@ -20,6 +20,9 @@ if [ -s "$S/portico-sa-key" ]; then export PC_API_KEY; PC_API_KEY=$(cut -d= -f2-
 # Against the appliance (Milestone 3) the names are the definitive ones: LAB_PROJECT_PREFIX=portico, LAB_REALM=portico, LAB_TENANT_SLUG=acme.
 PREFIX="${LAB_PROJECT_PREFIX:-portico-lab}"; REALM="${LAB_REALM:-portico-lab}"
 slug="${LAB_TENANT_SLUG:-tenant-b}"; project="$PREFIX-$slug"; group="tenant-$slug"; email="${LAB_TENANT_EMAIL:-carol@lab.portico.test}"
+# The test user's temporary password, named after the tenant: the
+# appliance's carol-tmp-pw belongs to tenant acme and is never touched.
+pwfile="$S/$slug-user-tmp-pw"
 umask 077; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 fail=0
 line() { local ok=ok; [ "$2" = "$3" ] || { ok=FAIL; fail=1; }; printf '%-4s %-66s -> %s (%s)\n' "$ok" "$1" "$2" "$3"; }
@@ -33,6 +36,10 @@ wait_status() {  # wait_status WANT MAX_SECONDS → prints the final status
     sleep 10; waited=$((waited + 10))
   done
 }
+# gone LOOKUP ARGS: "absent" only when Prism Central answered and the
+# object is not there; "error" when the lookup itself failed (a 504 body
+# is not JSON), never "absent".
+gone() { local out; out=$("$@") || { echo error; return; }; [ -z "$out" ] && echo absent || echo present; }
 snap_internal() { lab/pc.sh GET "$MD/config/projects" 2>/dev/null | jq -S 'del(.data[] | select(.name!="_internal")) | .data[0] | del(.modifiedTimestamp)' > "$1"; }
 
 if [ "${1:-}" != "--delete" ]; then
@@ -65,17 +72,17 @@ if [ "${1:-}" != "--delete" ]; then
   # 5. first user
   jq -n --arg e "$email" '{email:$e, first_name:"Carol", last_name:"Lab"}' > "$tmp/user.json"
   code=$(api POST "/api/v1/tenants/$slug/users" "$tmp/user.json")
-  if [ "$code" = 201 ]; then jq -r .temporary_password "$tmp/out" > "$S/carol-tmp-pw"; echo "     temporary password saved to $S/carol-tmp-pw"; fi
+  if [ "$code" = 201 ]; then jq -r .temporary_password "$tmp/out" > "$pwfile"; echo "     temporary password saved to $pwfile"; fi
   # A pre-existing user is not attached to the new group (Portico refuses
   # with 409): run --delete first so the user is recreated.
   line "POST /users ($email)" "$code" 201
   # 6. disable / enable
   code=$(api POST "/api/v1/tenants/$slug/disable"); line "POST /disable" "$code $(jq -r .status "$tmp/out")" "200 disabled"
   en=$(lab/saml/kc.sh GET "/$REALM/users?email=$email&exact=true" 2>/dev/null | jq -r '.[0].enabled')
-  line "carol enabled in Keycloak while disabled" "$en" false
+  line "test user enabled in Keycloak while disabled" "$en" false
   code=$(api POST "/api/v1/tenants/$slug/enable"); line "POST /enable" "$code $(jq -r .status "$tmp/out")" "200 active"
   en=$(lab/saml/kc.sh GET "/$REALM/users?email=$email&exact=true" 2>/dev/null | jq -r '.[0].enabled')
-  line "carol enabled in Keycloak after enable" "$en" true
+  line "test user enabled in Keycloak after enable" "$en" true
   echo "browser check pending: log in as $email on https://$LAB_PRISM_HOST/ (then run with --delete)"
 else
   snap_internal "$tmp/internal-before.json"
@@ -83,17 +90,17 @@ else
   [ "$code" = 404 ] && { echo "     tenant already absent, cleaning the rest"; code=202; }
   line "DELETE ?delete_project=true" "$code" 202
   line "tenant row after deletion" "$(wait_status gone 900)" gone
-  line "project $project in Prism Central after deletion" "$([ -z "$(project_extid "$project")" ] && echo absent || echo present)" absent
-  line "SAML group $group after deletion" "$([ -z "$(user_group_extid "$group")" ] && echo absent || echo present)" absent
+  line "project $project in Prism Central after deletion" "$(gone project_extid "$project")" absent
+  line "SAML group $group after deletion" "$(gone user_group_extid "$group")" absent
   kg=$(lab/saml/kc.sh GET "/$REALM/groups?search=$group&exact=true" 2>/dev/null | jq -r 'length')
   line "Keycloak group $group after deletion" "$kg" 0
   snap_internal "$tmp/internal-after.json"
   line "_internal project unchanged" "$(diff -q "$tmp/internal-before.json" "$tmp/internal-after.json" >/dev/null && echo yes || echo no)" yes
-  # The test user is removed too, so the next run creates her again with a
+  # The test user is removed too, so the next run creates it again with a
   # fresh temporary password (Portico itself leaves tenant users in place).
   uid=$(lab/saml/kc.sh GET "/$REALM/users?email=$email&exact=true" 2>/dev/null | jq -r '.[0].id // empty')
   [ -n "$uid" ] && lab/saml/kc.sh DELETE "/$REALM/users/$uid" >/dev/null 2>&1
   line "Keycloak test user $email removed" "$(lab/saml/kc.sh GET "/$REALM/users?email=$email&exact=true" 2>/dev/null | jq -r 'length')" 0
-  rm -f "$S/carol-tmp-pw" "$S/carol-pw"
+  rm -f "$pwfile"
 fi
 if [ $fail -eq 0 ]; then echo "PASS: every line matched"; else echo "FAIL: see lines marked FAIL" >&2; exit 1; fi

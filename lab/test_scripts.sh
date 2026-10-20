@@ -134,5 +134,14 @@ if ! grep -rn '10\.23\.210\|lab\.portico\.test\|portico-lab' deploy/ | grep -q .
 rm -rf "$d"
 
 
+# Milestone 4 (write-up 21): the tenant acceptance writes and removes only
+# its own test user's password file, never the appliance's carol-tmp-pw of
+# tenant acme; a deletion check never reads a failed lookup as "absent";
+# the local-login probe takes the appliance's realm and loopback
+# pass-through.
+if grep -nE '\$S/carol' lab/tenants/acceptance.sh | grep -q .; then ko "tenants/acceptance.sh touches \$S/carol-*"; else ok "tenants/acceptance.sh keeps to its own password file"; fi
+if grep -q '^gone()' lab/tenants/acceptance.sh && ! grep -q 'absent || echo present)" absent' lab/tenants/acceptance.sh; then ok "tenants/acceptance.sh: a failed lookup is not absent"; else ko "tenants/acceptance.sh reads a failed lookup as absent"; fi
+if grep -q 'realm="${LAB_REALM:-portico-lab}"' lab/auth/probe-local-login.sh && grep -q 'LAB_PASSTHROUGH:-exposed' lab/auth/probe-local-login.sh && ! grep -q 'realms/portico-lab/' lab/auth/probe-local-login.sh; then ok "probe-local-login.sh: realm and pass-through from LAB_*"; else ko "probe-local-login.sh hardcodes the lab VM"; fi
+
 if shellcheck -x lab/*.sh lab/*/*.sh deploy/install.sh; then ok "shellcheck"; else ko "shellcheck"; fi
 if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi
