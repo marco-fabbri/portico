@@ -51,16 +51,22 @@ model. Small MSPs have no turnkey answer.
   exclusion list so Portico never touches them.
 - Legacy projects on pc.2024.3–7.5 (separate adapter, reduced guarantees), if
   ever.
-- Multiple Prism Central instances behind one Portico (the data model allows
-  it from day one; step 1 implements and tests one).
+- Multiple Prism Central instances behind one Portico: brought forward and
+  built in Milestone 4 as **sites** (design
+  `2026-10-20-sites-design.md`, ADR 0004). Still deferred from it:
+  configuring disaster recovery between sites (replication, protection
+  policies, recovery plans: the MSP does it in Prism Central; a DR site is
+  a site like any other), grouping sites by region on the site page, and
+  choosing API versions per site.
 - Nutanix Enterprise AI and Nutanix Kubernetes Platform as further services.
   For NKP the direction is one MSP-managed control plane with tenant-only
   worker nodes, "real provider" style. To be measured, not designed yet.
 - Cluster-per-customer isolation (the gate must not prevent it; nothing in
   step 1 builds it).
 - A Portico-owned tenant console (VM list, create, console) that hides
-  Prism Central's UI entirely. An idea raised on 2026-10-18, not planned and
-  possibly never built. Its prerequisite is per-user identity towards the
+  Prism Central's UI entirely, chosen per tenant instead of the Prism
+  Central console (Marco, 2026-10-20: the direction the one-public-name
+  site model is built for). Not planned yet. Its prerequisite is per-user identity towards the
   v4 API (the deferred Portico-issued keys): with the service account alone,
   Portico would decide what each user sees and the project barrier in Prism
   Central would stop being the first control. The API boundary (section
@@ -156,7 +162,8 @@ tenants) does not need nginx performance.
 | internal | internal IP `:8443` | MSP admins | Portico admin UI/API; raw pass-through to Prism Central with local login allowed |
 | console | tty1 | whoever opens the VM console | network wizard, status, URL to open |
 
-Firewall rule the design depends on: Prism Central port 9440 must be reachable
+Firewall rule the design depends on: port 9440 of every site's Prism
+Central (Milestone 4) must be reachable
 only from Portico's internal IP and from the MSP management network. Portico
 documents and checks this (it can test from its own address only; the MSP
 enforces it on the network). The internal pass-through is a convenience, not
@@ -235,7 +242,14 @@ Nutanix accepts with `nutanix/4u`, mitigated by never publishing 8443.
    configurable). Portico's cookies are stripped before
    forwarding. `lab/auth/probe-local-login.sh` is the acceptance test
    (write-up 09).
-4. Request is proxied to Prism Central on 9440 with the public host name.
+4. Request is proxied on 9440, with the public host name, to the Prism
+   Central of the session's site (Milestone 4): the site must be among
+   the tenant's active placements at every request; without one, a
+   single placement is chosen when available and several send the
+   browser to the site page (`/.portico/sites`), anything else gets 403.
+   A site in maintenance or unreachable refuses new entries with a
+   branded page; sessions already on it keep working (design sites §4.1,
+   §4.3).
 5. Prism Central's own login page (`/ui/iam/providers`) offers two buttons,
    SAML and local account (write-up 04). Since Milestone 2c Portico answers
    that path on the public host with its own landing page (section 4.10)
@@ -260,7 +274,10 @@ and the user never sees a Nutanix login page.
 
 ### 4.4 Tenant model
 
-A tenant in Portico is a row that ties together:
+A tenant in Portico is a row that ties together (since Milestone 4 the
+Prism Central parts below are one **placement** per site where the tenant
+has resources; the Keycloak group stays one per tenant, so one login
+serves every site; design `2026-10-20-sites-design.md` §4.2):
 
 - a Projects 2.0 project in a given Prism Central (`id` slug and `extId`),
   with a resource group allocating clusters and storage containers to it.
@@ -508,14 +525,23 @@ Portico, and both carry the MSP's identity, not Nutanix's or Portico's.
   `foreignObject` is refused, because Keycloak serves the theme's copy
   from the login origin), minimum landing display time. Edited on the admin UI and the
   API; applied to Portico's pages at once and to the Keycloak theme on
-  save. Several Prism Centrals (deferred, section 2): the page is a
-  selector, one entry per Prism Central the tenant has a project in. An
-  optional banner is a link that opens in a new tab and never blocks the
-  redirect.
+  save. Several Prism Centrals (Milestone 4): after the Keycloak login a
+  tenant with more than one site gets the **site page**, one tile per
+  site with its code, name and status (design sites §2, variant B); with
+  one site it goes straight on, and the landing page offers a "switch
+  site" link when there are several. An optional banner is a link that
+  opens in a new tab and never blocks the redirect.
 - **Host names.** Prism Central uses absolute paths from `/`, so it cannot
-  live under a prefix: each Prism Central gets its own public host name
-  in front of the same Portico. Moving between them costs no password:
-  the Keycloak session is shared, the per-host OIDC round trip is silent.
+  live under a prefix. Decided with Marco on 2026-10-20 (Milestone 4,
+  ADR 0004), replacing "one public host name per Prism Central": every
+  site shares the one Prism Central public name. The tenant's chosen site
+  is held in the Portico session and checked against the tenant's active
+  placements on every request; the routing sends each request to that
+  site's Prism Central on the internal network. The browser holds one
+  site at a time; Prism Central's cookies of the other sites wait in
+  per-site stash cookies that never reach an upstream, so returning to a
+  site needs no new login. No Prism Central address is ever shown to the
+  tenant.
 
 ### 4.8 Console wizard
 
@@ -609,9 +635,9 @@ the Nutanix VM high availability: the VM restarts on another host.
 **Pair**: two appliance VMs, typically in two datacenters, both able to
 reach every connected Prism Central on port 9440 across the datacenter
 interconnect (the firewall rule of section 4.2 then names both Portico
-addresses). The nodes are equal in front of the tenants: every public
-host name (one per Prism Central, section 4.10, plus the identity host)
-resolves to both, through two `cloudflared` connectors on the same tunnel
+addresses). The nodes are equal in front of the tenants: the two public
+host names (Prism Central, shared by every site since Milestone 4,
+section 4.10, and identity) resolve to both, through two `cloudflared` connectors on the same tunnel
 or a DNS/GSLB with health checks in direct mode. Serving a Prism Central
 from the node in the other datacenter costs the interconnect round trip;
 origin priority in the tunnel or GSLB affinity keeps the local node
@@ -619,7 +645,8 @@ preferred.
 
 What each kind of state does in the pair:
 
-- **Sessions**: the Portico session becomes a cookie encrypted with a key
+- **Sessions**: the Portico session (with the tenant's chosen site since
+  Milestone 4) becomes a cookie encrypted with a key
   shared by the two nodes, so a node restart or a switch between nodes
   does not log the user out. Small change, planned for Milestone 2b
   together with the landing page.
@@ -757,8 +784,10 @@ portico/
 | 2d | Setup wizard, settings and secrets at rest | done 2026-10-18 (write-up 14): settings in the store sealed with the master key; `portico settings import` and `settings show`; setup page with connectivity checks and pickers; Apply = controlled restart; the lab runs from the store with no secret file on the VM |
 | 2e | Bootstrap and setup mode | done 2026-10-18 (write-up 15): a fresh appliance (process YAML, empty store) starts in setup mode and is configured card by card from the setup page; Portico creates the service account and its key in Prism Central, the Keycloak realm and clients, and the SAML identity provider from one-time credentials; the service account cannot create the IdP (`Project Manager_acp`), so that step asks for an administrator once; 41 s end to end on the lab |
 | 2f | Minor sweep after 2d and 2e | done 2026-10-18 (write-up 16): the deferred minors of write-ups 14 and 15 closed with a test each (password policy on the realm Portico creates, login restarted once when its state expired, logo above the realm name, URL with credentials refused, store failures as 500, typed Keycloak errors, no start limit on the service); the older deferred findings live in `docs/backlog.md` |
-| 3 | Appliance image | Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
-| 4 | First release (step 1 complete) | README, install guide, release artefacts, known limits documented |
+| 3 | Appliance image | done 2026-10-20 (write-up 19): Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
+| 4 | Sites | several Prism Centrals behind one Portico, shown to tenants as sites on one public name (design `2026-10-20-sites-design.md`, ADR 0004); accepted on the appliance with one site (write-up 21), the two-site live test when a second pc.7.6 lab cluster is up |
+| 5 | Backlog sweep | the findings in `docs/backlog.md` that must not ship in a release closed with a test each |
+| 6 | First release (step 1 complete) | README, install guide, release artefacts, known limits documented; tag `v0.1.0` |
 
 Step 2 (later): richer UI, MSP features, brownfield inventory with exclusion
 list, multi-Prism Central, further services.

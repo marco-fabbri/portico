@@ -5,20 +5,24 @@ here is supported yet; the first release (Milestone 4) will say what is.
 
 ## What you need
 
-- **Prism Central pc.7.6 or later** with Projects 2.0, and an AHV cluster
-  for the appliance (any hypervisor or cloud for the second form).
-- **Network**: one subnet for the appliance; port 9440 of Prism Central
-  reachable from the appliance's address and from your management
-  network only, never from the Internet. Two public names for the
-  tenants (`prism.<msp>.example`, `id.<msp>.example`) resolving to the
-  appliance, or to a Cloudflare tunnel.
+- **One or more Prism Centrals, pc.7.6 or later**, with Projects 2.0:
+  each becomes a site, shown to tenants by a code such as `AZ-IT-MI1`.
+  An AHV cluster for the appliance (any hypervisor or cloud for the
+  second form).
+- **Network**: one subnet for the appliance; port 9440 of every site's
+  Prism Central reachable from the appliance's address and from your
+  management network only, never from the Internet. Two public names for
+  the tenants (`prism.<msp>.example`, `id.<msp>.example`) resolving to
+  the appliance, or to a Cloudflare tunnel: every site shares them, a
+  new site needs no DNS or certificate change.
 - **A certificate** for the two public names (direct mode), or a
   Cloudflare tunnel with its connector token (tunnel mode). A
   self-signed pair is available for a trial.
-- **Accounts used once**: a Prism Central account that can create users
-  and edit authorization policies, and administrator credentials for the
-  SAML trust (the service account's role cannot create an identity
-  provider on pc.7.6, write-up 15). Portico stores neither.
+- **Accounts used once per site**: a Prism Central account that can
+  create users and edit authorization policies, and administrator
+  credentials for the SAML trust (the service account's role cannot
+  create an identity provider on pc.7.6, write-up 15). Portico stores
+  neither.
 
 ## What listens where
 
@@ -26,7 +30,7 @@ here is supported yet; the first release (Milestone 4) will say what is.
 |---|---|---|
 | 443 | every address (direct mode) or `127.0.0.1:8081` (tunnel mode) | tenants, through your public names or the Cloudflare tunnel |
 | 8443 | every address with one interface; the internal interface's address once the console configures a second one without a gateway | MSP administrators: the admin UI and API, the factory password until the first login |
-| 9440 | `127.0.0.1` | nobody, until you bind the pass-through to an internal address in `portico.yaml` |
+| 9440 | `127.0.0.1` | nobody, until you bind the pass-through to an internal address in `portico.yaml`; it serves one site (`passthrough_site` in the settings, the first by default) |
 | 8080 | `127.0.0.1` | Portico only: Keycloak |
 | 22 | every address, keys only | whoever has a key in `admin`'s `authorized_keys` (cloud-init) |
 
@@ -60,14 +64,17 @@ log in soon after the first boot to replace the factory password.
    appliance asks for a new password (at least 12 characters) before
    showing anything else. Do it soon after the first boot: until then
    anyone reaching 8443 on your internal network could do it instead.
-5. **The setup page**: public names, Prism Central
-   (URL, then "Let Portico create the service account" with the one-time
-   account), Identity (the Keycloak credentials from the console, "Let
-   Portico create the realm and clients"), SAML trust, Tenants (cluster,
-   container, prefixes), then Apply and restart. The appliance leaves
-   setup mode and the public path opens.
-6. **Branding** and the first **tenant** from the admin UI; the tenant's
-   user signs in at `https://prism.<msp>.example/`.
+5. **The setup page**: public names; Identity (the Keycloak credentials
+   from the console, "Let Portico create the realm and clients"); Sites,
+   "Add site" for each Prism Central (code, name, URL), then on the
+   site's page "Let Portico create the service account" with the
+   one-time account, the default cluster and container for new tenants,
+   and "Let Portico create the SAML trust"; Tenants (prefixes, role);
+   then Apply and restart. The appliance leaves setup mode and the
+   public path opens.
+6. **Branding** and the first **tenant** from the admin UI, placed on
+   the sites where it gets resources; the tenant's user signs in at
+   `https://prism.<msp>.example/` and, with several sites, chooses one.
 
 The appliance has no root password and no SSH user unless cloud-init
 added one: the console is the way in. Everything Portico keeps lives in

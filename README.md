@@ -48,7 +48,8 @@ recognises. Portico is the path towards it, not a detour.
 |---|---|
 | **Public path** | `prism.<msp>.example` and `id.<msp>.example` behind a Cloudflare Tunnel or directly on port 443, same guarantees in both modes. No Portico session, no request to Prism Central: the public path fails closed, also with the identity provider down |
 | **Identity** | Keycloak (OIDC for Portico, SAML for Prism Central): one login for the tenant user, MFA and brokering to the customer's directory available. Prism Central local accounts, `admin` included, can never log in from outside: every local-login path and every `Authorization` header is refused |
-| **Tenant arrival** | One action creates a Projects 2.0 project with its resource group, a group in Keycloak, the SAML group and a project-scoped role membership in Prism Central, then runs a visibility check. Tenants can be disabled, enabled and deleted; users get a one-time temporary password |
+| **Sites** | Several Prism Centrals behind one Portico, shown to tenants as sites such as `AZ-IT-MI1` and `AZ-US-NYC1` on the one public name: the tenant signs in once and chooses a site; no Prism Central address is ever shown. The MSP puts a site in maintenance, sees who is still connected and disconnects them |
+| **Tenant arrival** | One action places a tenant on the sites where it gets resources: on each, a Projects 2.0 project with its resource group, the SAML group and a project-scoped role membership; one group in Keycloak; then a visibility check per site. Sites can be added and removed later; tenants can be disabled, enabled and deleted; users get a one-time temporary password |
 | **Branding** | The Keycloak login page, Portico's landing page and its error pages carry the MSP's name, claim, colour and logo |
 | **Admin path** | A web UI and a JSON API on an internal listener only, with a break-glass account; a raw pass-through to Prism Central for administrators |
 | **Settings** | Stored in Portico's own database, secrets sealed with a master key the appliance creates at first start. A fresh appliance configures itself from the setup page: Portico creates its service account in Prism Central, the Keycloak realm and clients and the SAML trust from one-time credentials it never stores |
@@ -63,7 +64,7 @@ flowchart LR
         K["Keycloak<br/>OIDC + SAML"]
         DB["SQLite store<br/>sealed secrets"]
     end
-    subgraph Nutanix ["Nutanix cluster"]
+    subgraph Nutanix ["Sites: one Prism Central each"]
         PC["Prism Central pc.7.6<br/>Projects 2.0"]
     end
     A["MSP administrator<br/>(LAN / VPN)"]
@@ -84,8 +85,10 @@ flowchart LR
 2. With a session, the public policy runs: every `Authorization` header
    is refused, the local-login endpoints of pc.7.6 are refused, and
    Portico's own cookies are stripped before forwarding.
-3. The request is proxied to Prism Central on port 9440 under the public
-   host name; VM console WebSockets pass through.
+3. The request is proxied on port 9440, under the public host name, to
+   the Prism Central of the site the tenant chose (a tenant with several
+   sites picks one on a branded page; with one it goes straight on); VM
+   console WebSockets pass through.
 4. Prism Central wants its own session: Portico's landing page starts the
    SAML login itself. Keycloak already holds a session, so the assertion
    comes back without a second login and Prism Central scopes the user
@@ -95,11 +98,12 @@ Two protocols (OIDC for Portico, SAML for Prism Central), one login.
 
 ## The tenant model
 
-A tenant is one row in Portico's store that ties together a Projects 2.0
-project in Prism Central (with its resource group and the clusters and
-containers it may use), a group in Keycloak (`tenant-<slug>`), a SAML
-group in Prism Central and a role membership that binds the group to a
-role inside the project, never a global one. Creating a tenant runs those
+A tenant is one row in Portico's store that ties together a group in
+Keycloak (`tenant-<slug>`) and, on each site where it has resources, a
+Projects 2.0 project in that site's Prism Central (with its resource
+group and the cluster and container it may use), a SAML group and a role
+membership that binds the group to a role inside the project, never a
+global one. Creating a tenant runs those
 steps in order, records each one, and ends with a visibility check that
 reads back the project and asserts the group holds nothing outside it. A
 tenant can be disabled (group disabled, login impossible) and deleted; the
@@ -159,9 +163,10 @@ how to measure again after an upgrade.
 | 1 Core binary, 2026-10-17 | A browser reaches the console only after the Keycloak login; `curl -u admin:…` and every other `Authorization` scheme get 403 from Portico; VM console WebSockets through the proxy; fail closed with Keycloak down; 8 MiB binary (write-ups 09, 10, 12) |
 | 2 Tenant arrival, 2026-10-18 | Tenant created in 77 s with seven recorded steps, its user signs in once with a forced password change and sees only her project; disable locks her out; deletion leaves `_internal` unchanged. Admin UI and JSON API; MSP branding on the Keycloak login page; settings sealed in the store; a fresh appliance bootstrapped from the setup page in 41 s (write-ups 11 to 18) |
 | 3 Appliance image, 2026-10-19 | Rocky Linux 9 qcow2 (1.36 GB) built by the CI in 20 to 25 min: CIS Level 1 Server with OpenSCAP (271 rules pass, three documented exceptions), console wizard on tty1, factory password changed at the first login, `cloudflared` option, secrets and TLS pairs made at the first boot; boot-tested on the runner with AHV's config drive and a NoCloud seed; imported into Prism Central and booted on NTNX-01 with an OpenTofu module, set up through the API, a tenant active and its user signing in (write-up 19) |
-| 4 First release | Install guide, release artefacts, known limits: later |
+| 4 Sites, 2026-10-20 | Several Prism Centrals behind one Portico on one public name: site page, routing checked against the tenant's placements on every request, per-site cookies, maintenance with the users still connected, tenants added to and removed from sites. Built and tested against two fake Prism Centrals; the acceptance on the appliance with one site and the live test with a second pc.7.6 cluster come with write-ups 20 and 21 |
+| 5 Backlog sweep, 6 First release `v0.1.0` | Later |
 
-Not verified yet: more than one Prism Central behind one Portico, tenant
+Not verified yet: two real Prism Centrals behind one Portico, tenant
 API keys, brokering to a customer's own directory, brownfield projects,
 any production load. Deferred findings of the reviews are listed in
 [`docs/backlog.md`](docs/backlog.md).

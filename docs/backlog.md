@@ -176,3 +176,22 @@ without the defaulted name; failed bootstrap fragment resetting typed
 fields; no password policy on the realm the bootstrap creates; bare
 "login state missing" page after the 10-minute login cookie; realm name
 drawn across the logo on the Keycloak login page.
+
+## Sites (Milestone 4)
+
+- Disaster recovery between sites (replication, protection policies,
+  recovery plans): the MSP configures it in Prism Central; Portico only
+  places the tenant on the DR site. Kept open by Marco on 2026-10-20.
+- Site page variant C: sites grouped by region, for an MSP with many
+  sites (mockup of 2026-10-20).
+- API versions chosen per site, for sites on different Prism Central
+  releases; today every site uses the pc.7.6 beta paths.
+- The live test with two Prism Centrals (design sites §6 items 4–6) on a
+  second pc.7.6 lab cluster: SAML on two IdPs with the same redirect URL,
+  switching back without a password, a one-site tenant never reaching the
+  other site, the tab left on the previous site.
+- The connected-users list is per node; the pair (design 4.11) shares
+  sessions and then the list.
+- The new-tenant form takes cluster and container as text prefilled with
+  the site's defaults; live pickers per site would save typing an extId.
+
