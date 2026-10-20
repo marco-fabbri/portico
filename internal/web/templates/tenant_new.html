@@ -7,6 +7,17 @@
       <span class="muted">lower-case letters, digits and dashes; becomes the project name with the configured prefix</span></label>
     <label>Display name <input type="text" name="display_name" value="{{.Data.DisplayName}}" required></label>
     <label>Contacts <input type="text" name="contacts" value="{{.Data.Contacts}}" placeholder="ops@customer.example"></label>
+    <fieldset>
+      <legend>Sites</legend>
+      <p class="muted">Choose the sites where the tenant gets resources. Cluster and storage container start from each site's defaults.</p>
+      {{range .Data.Sites}}
+      <div class="site-row">
+        <label class="inline"><input type="checkbox" name="site" value="{{.ID}}"{{if .Checked}} checked{{end}}> <strong>{{.Code}}</strong></label>
+        <label>Cluster <input type="text" name="cluster_{{.ID}}" value="{{.Cluster}}"></label>
+        <label>Storage container <input type="text" name="container_{{.ID}}" value="{{.Container}}"></label>
+      </div>
+      {{else}}<p class="banner warning">No site is configured: add one on the setup page first.</p>{{end}}
+    </fieldset>
     <div class="actions">
       <button type="submit" class="primary">Create</button>
       <a class="button" href="/">Cancel</a>

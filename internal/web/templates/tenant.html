@@ -10,7 +10,7 @@
     {{if eq $t.Status "disabled"}}
     <form method="post" action="/tenants/{{$t.ID}}/enable" class="inline"><input type="hidden" name="_csrf" value="{{.CSRF}}"><button type="submit">Enable</button></form>
     {{end}}
-    {{if eq $t.Status "failed"}}
+    {{if .Data.Retry}}
     <form method="post" action="/tenants/{{$t.ID}}/provision" class="inline"><input type="hidden" name="_csrf" value="{{.CSRF}}"><button type="submit" class="primary">Retry provisioning</button></form>
     {{end}}
     {{if not .Data.Polling}}
@@ -29,28 +29,56 @@
   <dl>
     <dt>Slug</dt><dd>{{$t.ID}}</dd>
     <dt>Contacts</dt><dd>{{$t.Contacts}}</dd>
-    <dt>Project</dt><dd><code>{{$t.ProjectID}}</code> {{if $t.ProjectExtID}}<span class="muted">{{$t.ProjectExtID}}</span>{{end}}</dd>
-    <dt>Resource group</dt><dd class="muted">{{$t.ResourceGroupExtID}}</dd>
-    <dt>SAML group</dt><dd class="muted">{{$t.SAMLGroupExtID}}</dd>
     <dt>Keycloak group</dt><dd class="muted">{{$t.KeycloakGroupID}}</dd>
-    <dt>Role membership</dt><dd class="muted">{{$t.RoleMembershipExtID}}</dd>
-    <dt>IdP shared</dt><dd>{{if $t.IdPShared}}yes{{else}}no{{end}}</dd>
     <dt>Updated</dt><dd>{{$t.UpdatedAt.Format "2006-01-02 15:04:05"}}</dd>
   </dl>
 </section>
 
+{{range .Data.Placements}}
+<section class="card" id="site-{{.SiteID}}">
+  <h2>{{.Code}} <span class="status status-{{.Status}}">{{.Status}}</span></h2>
+  {{if .LastError}}<div class="banner error">{{.LastError}}</div>{{end}}
+  <dl>
+    <dt>Project</dt><dd><code>{{.ProjectID}}</code> {{if .ProjectExtID}}<span class="muted">{{.ProjectExtID}}</span>{{end}}</dd>
+    <dt>Cluster</dt><dd class="muted">{{.ClusterExtID}}</dd>
+    <dt>Storage container</dt><dd class="muted">{{.StorageContainerExtID}}</dd>
+    <dt>Resource group</dt><dd class="muted">{{.ResourceGroupExtID}}</dd>
+    <dt>SAML group</dt><dd class="muted">{{.SAMLGroupExtID}}</dd>
+    <dt>Role membership</dt><dd class="muted">{{.RoleMembershipExtID}}</dd>
+    <dt>IdP shared</dt><dd>{{if .IdPShared}}yes{{else}}no{{end}}</dd>
+  </dl>
+  <h3>Visibility</h3>
+  {{if .Visibility}}
+    {{if .Visibility.OK}}<p class="ok">OK: the group holds one project-scoped role in this project and nothing else.</p>
+    {{else}}<ul>{{range .Visibility.Findings}}<li class="bad">{{.}}</li>{{end}}</ul>{{end}}
+  {{else if $.Data.VisError}}<p class="bad">{{$.Data.VisError}}</p>
+  {{else}}<p class="muted">Available once the tenant is active on this site.</p>{{end}}
+  {{if .Removable}}
+  <form method="post" action="/tenants/{{$t.ID}}/sites/{{.SiteID}}/remove" class="inline">
+    <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+    <label class="inline"><input type="checkbox" name="delete_project" value="on"> delete the project too</label>
+    <button type="submit" class="danger">Remove from this site</button>
+  </form>
+  {{end}}
+</section>
+{{end}}
+
+{{if and (eq $t.Status "active") .Data.Addable}}
+<section class="card">
+  <h2>Add a site</h2>
+  <form method="post" action="/tenants/{{$t.ID}}/sites">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <label>Site <select name="site">{{range .Data.Addable}}<option value="{{.ID}}">{{.Code}}</option>{{end}}</select></label>
+    <label>Cluster (optional) <input type="text" name="cluster_ext_id" placeholder="the site's default"></label>
+    <label>Storage container (optional) <input type="text" name="storage_container_ext_id" placeholder="the site's default"></label>
+    <div class="actions"><button type="submit" class="primary">Add the site</button></div>
+  </form>
+</section>
+{{end}}
+
 <section class="card">
   <h2>Steps</h2>
   {{template "steps" .}}
-</section>
-
-<section class="card">
-  <h2>Visibility</h2>
-  {{if .Data.Visibility}}
-    {{if .Data.Visibility.OK}}<p class="ok">OK: the group holds one project-scoped role in this project and nothing else.</p>
-    {{else}}<ul>{{range .Data.Visibility.Findings}}<li class="bad">{{.}}</li>{{end}}</ul>{{end}}
-  {{else if .Data.VisError}}<p class="bad">{{.Data.VisError}}</p>
-  {{else}}<p class="muted">Available once the tenant is active.</p>{{end}}
 </section>
 
 {{if eq $t.Status "active"}}
@@ -70,8 +98,8 @@
 {{end}}
 {{end}}
 {{define "steps"}}<div id="steps"{{if .Data.Polling}} hx-get="/tenants/{{.Data.Tenant.ID}}/steps" hx-trigger="every 5s" hx-swap="outerHTML"{{end}}>
-{{if .Data.Steps}}<table><thead><tr><th>Step</th><th>Result</th><th>Detail</th><th>At</th></tr></thead><tbody>
-{{range .Data.Steps}}<tr><td>{{.Name}}</td>{{if .OK}}<td class="step-ok">ok</td>{{else}}<td class="step-failed">failed</td>{{end}}<td class="muted">{{.Detail}}</td><td>{{.At.Format "15:04:05"}}</td></tr>{{end}}
+{{if .Data.Steps}}<table><thead><tr><th>Site</th><th>Step</th><th>Result</th><th>Detail</th><th>At</th></tr></thead><tbody>
+{{range .Data.Steps}}<tr><td>{{.Site}}</td><td>{{.Name}}</td>{{if .OK}}<td class="step-ok">ok</td>{{else}}<td class="step-failed">failed</td>{{end}}<td class="muted">{{.Detail}}</td><td>{{.At.Format "15:04:05"}}</td></tr>{{end}}
 </tbody></table>{{else}}<p class="muted">No steps recorded yet.</p>{{end}}
 {{if .Data.Polling}}<p class="muted">Running… this page refreshes by itself.</p>{{end}}
 </div>{{end}}

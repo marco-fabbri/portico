@@ -49,7 +49,8 @@ func newEnv(t *testing.T) *env {
 	kc := tenanttest.NewKC()
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	svc := tenant.NewService(st, pc, kc, tenant.Config{SAMLIdPName: "portico-idp", ClusterExtID: "cl", StorageContainerExtID: "sc", OperationTimeout: 5 * time.Second}, log)
+	sites := []tenant.Site{{ID: "site-a", Code: "SITE-A", PC: pc, SAMLIdPName: "portico-idp", ClusterExtID: "cl", StorageContainerExtID: "sc"}}
+	svc := tenant.NewService(st, sites, kc, tenant.Config{OperationTimeout: 5 * time.Second}, log)
 	brand := branding.NewService(st, log)
 	h := BasicAuth(st, "portico", log)(New(svc, st, brand, nil, log))
 	return &env{h: h, svc: svc, st: st, pc: pc, kc: kc, brand: brand, log: &buf}
@@ -99,12 +100,12 @@ func TestUnauthenticatedIs401WithChallenge(t *testing.T) {
 func TestCreateTenantReturns202AndRow(t *testing.T) {
 	e := newEnv(t)
 	rec, out := e.do("POST", "/api/v1/tenants", `{"slug":"acme","display_name":"ACME","contacts":"ops@acme.test"}`, true)
-	if rec.Code != 202 || out["status"] != "creating" || out["id"] != "acme" || out["project_id"] != "portico-acme" {
+	if rec.Code != 202 || out["status"] != "creating" || out["id"] != "acme" || out["placements"].([]any)[0].(map[string]any)["project_id"] != "portico-acme" {
 		t.Fatalf("POST: %d %v", rec.Code, out)
 	}
 	e.svc.Wait()
 	rec, out = e.do("GET", "/api/v1/tenants/acme", "", true)
-	if rec.Code != 200 || out["status"] != "active" || out["display_name"] != "ACME" || out["idp_shared"] != true {
+	if rec.Code != 200 || out["status"] != "active" || out["display_name"] != "ACME" || out["placements"].([]any)[0].(map[string]any)["idp_shared"] != true {
 		t.Fatalf("GET: %d %v", rec.Code, out)
 	}
 	rec, _ = e.do("GET", "/api/v1/tenants/acme/steps", "", true)
@@ -125,7 +126,7 @@ func TestCreateTenantReturns202AndRow(t *testing.T) {
 		t.Fatalf("list: %d %v", rec.Code, list)
 	}
 	rec, out = e.do("GET", "/api/v1/tenants/acme/visibility", "", true)
-	if rec.Code != 200 || out["ok"] != true {
+	if rec.Code != 200 || out["sites"].(map[string]any)["site-a"].(map[string]any)["ok"] != true {
 		t.Fatalf("visibility: %d %v", rec.Code, out)
 	}
 	if rec.Header().Get("Cache-Control") != "no-store" {

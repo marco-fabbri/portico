@@ -49,16 +49,15 @@ const (
 	OpDelete    = "delete"
 )
 
-// Tenant ties a Keycloak group to a Projects 2.0 project (design §4.4).
+// Tenant ties a Keycloak group to a Projects 2.0 project on each site
+// where it has a placement (design §4.4, sites §4.2).
 type Tenant struct {
-	ID, DisplayName, Contacts                            string
-	Status                                               Status
-	ProjectID, ProjectExtID, ResourceGroupExtID          string
-	SAMLGroupExtID, KeycloakGroupID, RoleMembershipExtID string
-	IdPShared                                            bool
-	LastError                                            string
-	LastOp                                               string // OpProvision or OpDelete
-	CreatedAt, UpdatedAt                                 time.Time
+	ID, DisplayName, Contacts string
+	Status                    Status
+	KeycloakGroupID           string
+	LastError                 string
+	LastOp                    string // OpProvision or OpDelete
+	CreatedAt, UpdatedAt      time.Time
 }
 
 // DisplayNameOr returns the display name, or the id when it is empty.
