@@ -217,7 +217,10 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	var tenantSites []tenant.Site
 	probes := map[string]sites.Prober{}
 	backends := map[string]*proxy.SiteBackend{}
-	for _, site := range runDoc.OrderedSites() {
+	for _, inc := range runDoc.IncompleteSites() {
+		log.Warn("site not served until it is complete", "site", inc)
+	}
+	for _, site := range runDoc.ServedSites() {
 		siteURL, siteTLS, err := siteTarget(site, log)
 		if err != nil {
 			return fmt.Errorf("site %s: %w", site.ID, err)

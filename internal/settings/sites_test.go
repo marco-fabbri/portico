@@ -59,10 +59,11 @@ func TestMissingListsSiteFields(t *testing.T) {
 		t.Fatalf("no site: missing = %v", m)
 	}
 	s.Sites = []Site{{ID: "mi1", Code: "AZ-IT-MI1"}}
-	m := s.Missing()
-	want := []string{"sites.mi1.url", "sites.mi1.api_key", "sites.mi1.saml_idp_name"}
-	if strings.Join(m, ",") != strings.Join(want, ",") {
-		t.Fatalf("missing = %v, want %v", m, want)
+	if m := s.Missing(); len(m) != 1 || m[0] != "sites" {
+		t.Fatalf("no complete site: missing = %v", m)
+	}
+	if inc := s.IncompleteSites(); len(inc) != 1 || inc[0] != "mi1 (url, api_key, saml_idp_name)" {
+		t.Fatalf("incomplete = %v", inc)
 	}
 }
 
@@ -121,7 +122,10 @@ func TestUpdateKeepsSiteKeyByID(t *testing.T) {
 
 func TestSiteLookupAndOrder(t *testing.T) {
 	s := sample()
-	s.Sites = []Site{{ID: "b", Code: "B", Order: 2}, {ID: "a", Code: "A", Order: 1}, {ID: "c", Code: "C", Order: 1}}
+	done := func(id, code string, order int) Site {
+		return Site{ID: id, Code: code, Order: order, URL: "https://" + id + ":9440", APIKey: "k", SAMLIdPName: "idp"}
+	}
+	s.Sites = []Site{done("b", "B", 2), done("a", "A", 1), done("c", "C", 1)}
 	got := s.OrderedSites()
 	if got[0].ID != "a" || got[1].ID != "c" || got[2].ID != "b" {
 		t.Fatalf("ordered = %+v", got)
@@ -257,4 +261,28 @@ func TestBootstrapSAMLPerSite(t *testing.T) {
 func withSite(s Settings) Settings {
 	s.Sites = append(s.Sites, Site{ID: "site-a", Code: "SITE-A"})
 	return s
+}
+
+// Review I1: an incomplete site does not make the document incomplete
+// while another site is complete; it is listed apart and not served.
+func TestIncompleteSiteDoesNotBlockTheOthers(t *testing.T) {
+	s := sample()
+	s.Sites = append(s.Sites, Site{ID: "nyc1", Code: "AZ-US-NYC1", URL: "https://pc2:9440"})
+	if m := s.Missing(); len(m) != 0 {
+		t.Fatalf("missing with one complete site = %v", m)
+	}
+	if served := s.ServedSites(); len(served) != 1 || served[0].ID != "site-a" {
+		t.Fatalf("served = %+v", served)
+	}
+	if inc := s.IncompleteSites(); len(inc) != 1 || inc[0] != "nyc1 (api_key, saml_idp_name)" {
+		t.Fatalf("incomplete = %v", inc)
+	}
+	s.Sites = s.Sites[1:]
+	if m := s.Missing(); len(m) != 1 || m[0] != "sites" {
+		t.Fatalf("missing with no complete site = %v", m)
+	}
+	s.PassthroughSite = "nyc1"
+	if p, ok := s.PassthroughSiteOrFirst(); ok {
+		t.Fatalf("an incomplete site served the pass-through: %+v", p)
+	}
 }

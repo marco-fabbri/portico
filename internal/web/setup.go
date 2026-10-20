@@ -19,11 +19,12 @@ type setupData struct {
 	AdminSecretSet, ClientSecretSet bool
 	OperationTimeout                string
 	// Sites are the document's sites in order, keys blanked, with the
-	// tenants placed on each.
-	Sites    []siteRow
-	Mode     string
-	Missing  []string
-	Complete bool
+	// tenants placed on each; Incomplete names the ones not served yet.
+	Sites      []siteRow
+	Incomplete []string
+	Mode       string
+	Missing    []string
+	Complete   bool
 	// OOB marks the inputs rendered by a bootstrap fragment, which
 	// HTMX swaps into the cards by id.
 	OOB bool
@@ -66,6 +67,7 @@ func toSetupData(s settings.Settings, source, mode string) setupData {
 	d := setupData{Source: source, Stored: source == "store", Mode: mode, Missing: s.Missing(),
 		AdminSecretSet: s.Keycloak.AdminClientSecret != "", ClientSecretSet: s.OIDC.ClientSecret != ""}
 	d.Complete = len(d.Missing) == 0
+	d.Incomplete = s.IncompleteSites()
 	sitesDone := len(s.Sites) > 0
 	for _, site := range s.OrderedSites() {
 		row := toSiteRow(site, nil)

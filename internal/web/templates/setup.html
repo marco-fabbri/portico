@@ -27,6 +27,7 @@
   <h2>Sites</h2>
   {{if index .Data.Done "sites"}}<p class="state done">Configured: every site has its Prism Central connection, its service account and its SAML trust.</p>{{else}}<p class="state todo">Not configured yet: add at least one site and complete each one (connection, service account, SAML trust).</p>{{end}}
   <p class="muted">A site is one Prism Central, shown to tenants by its code. Tenants sign in once on the public name and choose among the sites where they have resources.</p>
+  {{if .Data.Incomplete}}<p class="state todo">Not served until complete (the other sites keep running): {{range $i, $s := .Data.Incomplete}}{{if $i}}; {{end}}{{$s}}{{end}}.</p>{{end}}
   {{if .Data.Sites}}
   <table>
     <thead><tr><th>Code</th><th>Name</th><th>Prism Central</th><th>Service account</th><th>SAML trust</th><th>Tenants</th></tr></thead>

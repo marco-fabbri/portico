@@ -143,3 +143,16 @@ func TestSitePageShowsCountAndDisconnect(t *testing.T) {
 		}
 	}
 }
+
+func TestSetupPageNamesIncompleteSites(t *testing.T) {
+	e := newEnv(t, true)
+	svc, _, _ := withSetup(t, e, true)
+	doc, _ := svc.Get(context.Background())
+	doc.Sites = append(doc.Sites, settings.Site{ID: "nyc1", Code: "AZ-US-NYC1", URL: "https://pc2.example.test:9440"})
+	svc.Set(context.Background(), doc)
+	e.login(t)
+	body := e.do("GET", "/setup", nil, true).Body.String()
+	if !strings.Contains(body, "Not served until complete") || !strings.Contains(body, "nyc1 (api_key, saml_idp_name)") || !strings.Contains(body, "Every card is complete") {
+		t.Fatalf("setup page with an incomplete site:\n%s", body)
+	}
+}

@@ -85,14 +85,54 @@ func (s Settings) OrderedSites() []Site {
 	return out
 }
 
-// PassthroughSiteOrFirst is the site the internal pass-through serves:
-// the one named in the settings, else the first by order (design sites
-// §4.6).
-func (s Settings) PassthroughSiteOrFirst() (Site, bool) {
-	if s.PassthroughSite != "" {
-		return s.Site(s.PassthroughSite)
+// missingFields names what a site still lacks to be served.
+func (s Site) missingFields() []string {
+	var out []string
+	for _, f := range []struct{ name, value string }{{"url", s.URL}, {"api_key", string(s.APIKey)}, {"saml_idp_name", s.SAMLIdPName}} {
+		if strings.TrimSpace(f.value) == "" {
+			out = append(out, f.name)
+		}
 	}
-	if o := s.OrderedSites(); len(o) > 0 {
+	return out
+}
+
+// Complete reports whether the site has its connection, its service
+// account's key and its SAML trust: only a complete site is served.
+func (s Site) Complete() bool { return len(s.missingFields()) == 0 }
+
+// ServedSites returns the complete sites in order. A site still being
+// added (no key or no SAML trust yet) is not served, and does not stop
+// the others from running (review I1).
+func (s Settings) ServedSites() []Site {
+	var out []Site
+	for _, site := range s.OrderedSites() {
+		if site.Complete() {
+			out = append(out, site)
+		}
+	}
+	return out
+}
+
+// IncompleteSites lists the sites not served yet, each with what it
+// lacks: "nyc1 (api_key, saml_idp_name)".
+func (s Settings) IncompleteSites() []string {
+	var out []string
+	for _, site := range s.OrderedSites() {
+		if m := site.missingFields(); len(m) > 0 {
+			out = append(out, site.ID+" ("+strings.Join(m, ", ")+")")
+		}
+	}
+	return out
+}
+
+// PassthroughSiteOrFirst is the site the internal pass-through serves:
+// the one named in the settings when it is complete, else the first
+// served site by order (design sites §4.6).
+func (s Settings) PassthroughSiteOrFirst() (Site, bool) {
+	if site, ok := s.Site(s.PassthroughSite); ok && site.Complete() {
+		return site, true
+	}
+	if o := s.ServedSites(); len(o) > 0 {
 		return o[0], true
 	}
 	return Site{}, false

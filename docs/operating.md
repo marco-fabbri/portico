@@ -59,7 +59,10 @@ each has its own page.
 
 - **Add**: code, name, Prism Central URL; then the site's service account
   and SAML trust from its page, and the default cluster and storage
-  container for new tenants. Apply to start serving it.
+  container for new tenants. Apply to start serving it. A site not yet
+  complete (no key or no SAML trust) is not served and is listed as such
+  on the setup page; it never stops the other sites, also across a
+  restart.
 - **Tenants on sites**: a tenant is placed on the sites where it gets
   resources, each with its project; a site can be added to or removed
   from a tenant later (never its last one). The tenant's user signs in

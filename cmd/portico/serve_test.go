@@ -435,3 +435,38 @@ func TestServeSetupModeWithEmptyStore(t *testing.T) {
 		t.Fatal("runServe did not restart")
 	}
 }
+
+// Review I1: a site added but not finished (no key, no SAML trust yet)
+// is not served, and it does not send the appliance back to setup mode.
+func TestServeSkipsAnIncompleteSite(t *testing.T) {
+	prism := httptest.NewServer(http.NotFoundHandler())
+	defer prism.Close()
+	cfg, logBuf := storeServeConfig(t, prism.URL, 1)
+	key, _ := os.ReadFile(cfg.Store.MasterKeyFile)
+	sealer, _ := secrets.NewSealer(key)
+	st, err := store.OpenSQLite(cfg.Store.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := settings.NewService(st, sealer)
+	if err := svc.Patch(context.Background(), func(d *settings.Settings) {
+		d.Sites = append(d.Sites, settings.Site{ID: "nyc1", Code: "AZ-US-NYC1", URL: "https://pc2.example.test:9440"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runServe(ctx, cfg, slog.New(slog.NewJSONHandler(logBuf, nil))) }()
+	waitHealthy(t, cfg.Internal.AdminListen)
+	conn, err := net.DialTimeout("tcp", cfg.Public.Listen, time.Second)
+	if err != nil {
+		t.Fatalf("the public listener is off with an incomplete site: %v\n%s", err, logBuf.String())
+	}
+	conn.Close()
+	if strings.Contains(logBuf.String(), "setup mode") || !strings.Contains(logBuf.String(), "site not served until it is complete") {
+		t.Fatalf("log: %s", logBuf.String())
+	}
+	cancel()
+	<-done
+}

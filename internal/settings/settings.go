@@ -139,8 +139,9 @@ func Defaults() Settings {
 
 // Missing lists the required fields that are empty, in document order.
 // A document with nothing missing is complete and can be applied. At
-// least one site is required, and every site needs its URL, key and
-// identity provider.
+// least one complete site (URL, key and identity provider) is required;
+// a site still being added is listed by IncompleteSites and not served,
+// without making the document incomplete.
 func (s Settings) Missing() []string {
 	var out []string
 	add := func(key, value string) {
@@ -150,13 +151,8 @@ func (s Settings) Missing() []string {
 	}
 	add("prism_host", s.PrismHost)
 	add("id_host", s.IDHost)
-	if len(s.Sites) == 0 {
+	if len(s.ServedSites()) == 0 {
 		out = append(out, "sites")
-	}
-	for _, site := range s.OrderedSites() {
-		add("sites."+site.ID+".url", site.URL)
-		add("sites."+site.ID+".api_key", string(site.APIKey))
-		add("sites."+site.ID+".saml_idp_name", site.SAMLIdPName)
 	}
 	for _, r := range []struct{ key, value string }{
 		{"keycloak.realm", s.Keycloak.Realm},
