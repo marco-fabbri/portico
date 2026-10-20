@@ -30,10 +30,12 @@ of a cloud provider", chosen per tenant, in mind.
    arriving site's come back; no upstream ever receives a stash cookie
    or a Portico cookie.
 4. SAML: Prism Central derives its service-provider entity id from the
-   IdP's redirect URL, the same for every site. Until write-up 20
-   measures whether a per-site `entityIssuer` is accepted, the sites
-   share one Keycloak SAML client (variant B); per-site clients
-   (variant A) are implemented behind a switch.
+   IdP's redirect URL, the same for every site, unless the IdP carries an
+   `entityIssuer`. Write-up 20 measured that pc.7.6.0.6 accepts one per
+   site and logs in with a Keycloak client of that name: each site gets
+   `https://<prism_host>/api/iam/authn/<site-id>` and its own client
+   (variant A). An upgraded appliance's first site keeps the shared
+   default name until its trust is recreated.
 5. The MSP sees who is still on a site and can put it in maintenance
    (no new entries) and disconnect the remaining users, without a
    restart.
@@ -46,10 +48,10 @@ of a cloud provider", chosen per tenant, in mind.
   previous site fails until reloaded. A usability limit, not an
   isolation one: each Prism Central authorises the same user for that
   user's project only.
-- With the shared SAML client an assertion issued for one site would be
-  accepted by another; isolation rests on the routing (placements
-  checked on every request) and on each Prism Central's project
-  authorisation. The per-site client restores a third barrier when the
-  measurement allows it.
+- With one SAML client per site, an assertion names the site it was
+  made for; whether Prism Central refuses one made for another site is
+  measured in the two-site test. Isolation does not depend on it: the
+  routing checks the placements on every request and each Prism Central
+  authorises the user only inside the tenant's project.
 - The site is a Portico concept, independent of Prism Central's console,
   which is what the per-tenant Portico interface of the future needs.

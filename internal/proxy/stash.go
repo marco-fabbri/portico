@@ -31,16 +31,19 @@ func parseStash(name string) (site, cookie string, ok bool) {
 // CookieAttrs is how a Prism Central cookie is restored.
 type CookieAttrs struct{ HttpOnly bool }
 
-// prismCookieAttrs lists the Prism Central cookies the console's
-// JavaScript reads, which must come back without HttpOnly; any other
-// cookie is restored HttpOnly. Decision D1 of write-up 20; empty until
-// it is measured.
-var prismCookieAttrs = map[string]CookieAttrs{}
+// prismCookieAttrs lists the Prism Central cookies that are set without
+// HttpOnly and come back the same way; any other cookie is restored
+// HttpOnly. Decision D1 of write-up 20 (pc.7.6.0.6): Prism Central sets
+// NTNX_SESSION_ID and NTNX_SESSION_META HttpOnly and iam-sessionid
+// without it; the console's bundles name none of them.
+var prismCookieAttrs = map[string]CookieAttrs{"iam-sessionid": {HttpOnly: false}}
 
-// clearStorageOnSwitch sends Clear-Site-Data "storage" with a switch,
-// when the console keeps site-specific data in browser storage.
-// Decision D2 of write-up 20; off until it is measured.
-const clearStorageOnSwitch = false
+// clearStorageOnSwitch sends Clear-Site-Data "storage" with a switch:
+// the console keeps per-Prism Central state in localStorage (feature
+// flags such as flowPcDrEnabled and migrationToIAMV4Enabled, the
+// negotiated API versions, UserConfig). Decision D2 of write-up 20; the
+// cost is that the console's dismissed banners come back after a switch.
+const clearStorageOnSwitch = true
 
 func attrsOf(name string) CookieAttrs {
 	if a, ok := prismCookieAttrs[name]; ok {

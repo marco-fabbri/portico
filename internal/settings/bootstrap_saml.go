@@ -45,8 +45,11 @@ const defaultIdPName = "portico-keycloak"
 // from the IdP's redirect URL, the same for every site: false keeps that
 // shared id and one Keycloak client for all sites (variant B); true sets
 // a per-site entityIssuer and one client per site (variant A). Decision
-// D3 of write-up 20; variant B is the behaviour measured until then.
-var perSiteEntityID = false
+// D3 of write-up 20: pc.7.6.0.6 accepts the entityIssuer, publishes it
+// in the SP metadata and logs in with a client of that name, so each
+// site gets its own client. A site created before (site-1 of an upgraded
+// appliance) keeps the shared default until its trust is recreated.
+var perSiteEntityID = true
 
 // SAML establishes the trust between Keycloak and Prism Central (design
 // §4.4): the realm's SAML descriptor becomes the identity provider in
