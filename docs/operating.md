@@ -76,6 +76,13 @@ each has its own page.
   "Disconnect the remaining users" ends their routing to the site: their
   next request lands on the maintenance page. Administrators working on
   Prism Central directly are not counted.
+- **Unreachable**: Portico probes every site every 30 s through its
+  service account (10 s timeout). After three failed probes in a row,
+  about a minute and a half, the site is unreachable: its tile is greyed
+  out and a tenant whose only site it is gets the "site unreachable"
+  page; sessions already on it keep being proxied. The first answer
+  makes it available again. One slow answer does not count: on NTNX-01
+  the call took up to 30 s for a few minutes while the console worked.
 - **Remove**: a site without tenants is removed from its page. A site
   whose Prism Central is gone for good is **forgotten**: type its code,
   Portico deletes its records of the site and of the tenants placed on

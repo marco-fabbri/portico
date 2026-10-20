@@ -24,6 +24,12 @@ const (
 	Unreachable Status = "unreachable"
 )
 
+// FailuresToUnreachable is how many failed probes in a row make a site
+// unreachable; one answer makes it available again (write-up 21: one
+// slow answer from a Prism Central that serves its console must not lock
+// its tenants out).
+const FailuresToUnreachable = 3
+
 // StateKey is the store setting holding the maintenance flags:
 // {"maintenance":{"<site-id>":true}}.
 const StateKey = "site_state"
@@ -42,7 +48,7 @@ type Monitor struct {
 	log    *slog.Logger
 
 	mu          sync.RWMutex
-	reachable   map[string]bool // last probe result; absent before the first probe
+	failures    map[string]int // failed probes in a row; absent before the first probe
 	maintenance map[string]bool
 }
 
@@ -51,7 +57,7 @@ func NewMonitor(st store.Store, probes map[string]Prober, log *slog.Logger) *Mon
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Monitor{st: st, probes: probes, log: log, reachable: map[string]bool{}, maintenance: map[string]bool{}}
+	return &Monitor{st: st, probes: probes, log: log, failures: map[string]int{}, maintenance: map[string]bool{}}
 }
 
 // Load reads the maintenance flags from the store.
@@ -79,7 +85,8 @@ func (m *Monitor) Load(ctx context.Context) error {
 }
 
 // Status says what a site is now: maintenance wins over the probe; a
-// site not probed yet counts as available; a site without a prober (not
+// site is unreachable after FailuresToUnreachable failed probes in a row
+// and counts as available before that; a site without a prober (not
 // configured in this process) is unreachable.
 func (m *Monitor) Status(siteID string) Status {
 	m.mu.RLock()
@@ -90,7 +97,7 @@ func (m *Monitor) Status(siteID string) Status {
 	if _, known := m.probes[siteID]; !known {
 		return Unreachable
 	}
-	if ok, probed := m.reachable[siteID]; probed && !ok {
+	if m.failures[siteID] >= FailuresToUnreachable {
 		return Unreachable
 	}
 	return Available
@@ -132,7 +139,8 @@ func (m *Monitor) SetMaintenance(ctx context.Context, siteID string, on bool) er
 }
 
 // ProbeOnce probes every site in parallel, each bounded by timeout, and
-// logs the sites whose reachability changed.
+// logs the first result of each site and every change of its
+// reachability.
 func (m *Monitor) ProbeOnce(ctx context.Context, timeout time.Duration) {
 	var wg sync.WaitGroup
 	for id, probe := range m.probes {
@@ -143,13 +151,20 @@ func (m *Monitor) ProbeOnce(ctx context.Context, timeout time.Duration) {
 			err := probe(pctx)
 			cancel()
 			m.mu.Lock()
-			was, probed := m.reachable[id]
-			m.reachable[id] = err == nil
+			n, probed := m.failures[id]
+			was := n < FailuresToUnreachable
+			if err == nil {
+				n = 0
+			} else {
+				n++
+			}
+			m.failures[id] = n
+			now := n < FailuresToUnreachable
 			m.mu.Unlock()
-			if !probed || was != (err == nil) {
-				attrs := []any{"site", id, "reachable", err == nil}
+			if !probed || was != now {
+				attrs := []any{"site", id, "reachable", now}
 				if err != nil {
-					attrs = append(attrs, "err", err.Error())
+					attrs = append(attrs, "failures", n, "err", err.Error())
 				}
 				m.log.Info("site probe", attrs...)
 			}
