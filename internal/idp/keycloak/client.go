@@ -215,6 +215,16 @@ func (c *Client) FindGroup(ctx context.Context, name string) (*Group, error) {
 	return nil, ErrNotFound
 }
 
+// UserGroups returns the groups a user (by id, the OIDC subject) is a
+// direct member of; ErrNotFound for an unknown user.
+func (c *Client) UserGroups(ctx context.Context, userID string) ([]Group, error) {
+	var groups []Group
+	if _, _, err := c.do(ctx, http.MethodGet, "/users/"+url.PathEscape(userID)+"/groups", nil, nil, &groups); err != nil {
+		return nil, err
+	}
+	return groups, nil
+}
+
 // CreateGroup creates a top-level group and returns it.
 func (c *Client) CreateGroup(ctx context.Context, name string) (*Group, error) {
 	if _, _, err := c.do(ctx, http.MethodPost, "/groups", nil, map[string]string{"name": name}, nil); err != nil {

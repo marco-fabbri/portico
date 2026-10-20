@@ -30,6 +30,7 @@ type fakeKC struct {
 	members   int             // number of members GroupMembers pages through
 	realm     map[string]any  // realm representation served on GET /admin/realms/msp
 	adm       *adminState     // realm administration (admin_test.go)
+	userGrps  map[string][]map[string]any // user id → its groups
 }
 
 type recorded struct {
@@ -103,6 +104,15 @@ func (f *fakeKC) handle(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(f.realm)
 	case p == "" && r.Method == "PUT":
 		w.WriteHeader(204)
+	case strings.HasPrefix(p, "/users/") && strings.HasSuffix(p, "/groups") && r.Method == "GET":
+		id := strings.TrimSuffix(strings.TrimPrefix(p, "/users/"), "/groups")
+		gs, ok := f.userGrps[id]
+		if !ok {
+			w.WriteHeader(404)
+			w.Write([]byte(`{"error":"User not found"}`))
+			return
+		}
+		json.NewEncoder(w).Encode(gs)
 	case p == "/groups" && r.Method == "GET":
 		name := r.URL.Query().Get("search")
 		var out []map[string]any
@@ -345,5 +355,21 @@ func TestTokenRefusalIsAStatusError(t *testing.T) {
 	}
 	if err.Error() != "keycloak: token: status 401" {
 		t.Fatalf("text %q", err.Error())
+	}
+}
+
+func TestUserGroups(t *testing.T) {
+	f := newFakeKC(t)
+	f.userGrps = map[string][]map[string]any{"u-1": {{"id": "g-1", "name": "tenant-acme"}, {"id": "g-2", "name": "staff"}}}
+	c := New(f.srv.URL, "msp", "portico-admin", testSecret, nil, nil)
+	gs, err := c.UserGroups(context.Background(), "u-1")
+	if err != nil || len(gs) != 2 || gs[0].Name != "tenant-acme" || gs[1].ID != "g-2" {
+		t.Fatalf("UserGroups = %+v %v", gs, err)
+	}
+	if _, err := c.UserGroups(context.Background(), "nope"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown user = %v, want ErrNotFound", err)
+	}
+	if f.reqs[len(f.reqs)-1].Path != "/admin/realms/msp/users/nope/groups" {
+		t.Fatalf("path = %s", f.reqs[len(f.reqs)-1].Path)
 	}
 }

@@ -38,7 +38,20 @@ type Session struct {
 	IDToken   string // raw ID token of the login, sent as id_token_hint at logout; never logged
 	CreatedAt time.Time
 	LastSeen  time.Time
+	// Tenant is the tenant the login resolved from the user's Keycloak
+	// group; "" when the user belongs to none (design sites §4.3).
+	Tenant string
+	// Site is the site the tenant chose and SiteSince when; "" until one
+	// is chosen. The routing checks it against the tenant's placements on
+	// every request (design sites §4.4).
+	Site      string
+	SiteSince time.Time
 }
+
+// ActiveWindow is how recent a session's last request must be for the
+// session to count as active on its site (design sites §4.1): an open
+// console tab polls more often than this (decision D4 of write-up 20).
+const ActiveWindow = 2 * time.Minute
 
 // Store keeps sessions. The memory implementation is used now; Milestone 2
 // adds SQLite behind the same interface.
@@ -96,6 +109,54 @@ func (m *MemoryStore) Delete(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.sessions, id)
+}
+
+// SetSite records the session's chosen site; choosing the same site again
+// keeps the time it was first chosen. False when the session is gone.
+func (m *MemoryStore) SetSite(id, site string, now time.Time) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[id]
+	if !ok || m.expired(s, now) {
+		return false
+	}
+	if s.Site != site {
+		s.Site, s.SiteSince = site, now
+	}
+	m.sessions[id] = s
+	return true
+}
+
+// ClearSite takes every session off the site ("Disconnect remaining
+// users", design sites §4.1) and returns how many there were; their next
+// request goes back to the site page.
+func (m *MemoryStore) ClearSite(site string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for id, s := range m.sessions {
+		if s.Site == site {
+			s.Site, s.SiteSince = "", time.Time{}
+			m.sessions[id] = s
+			n++
+		}
+	}
+	return n
+}
+
+// List returns the live sessions and drops the expired ones.
+func (m *MemoryStore) List(now time.Time) []Session {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Session, 0, len(m.sessions))
+	for id, s := range m.sessions {
+		if m.expired(s, now) {
+			delete(m.sessions, id)
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // Sweep drops expired sessions and returns how many it removed.
