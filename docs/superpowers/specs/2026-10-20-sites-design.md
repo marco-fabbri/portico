@@ -159,7 +159,10 @@ Limits, written on the page: only access through Portico is counted
 (administrators working on Prism Central directly on the management
 network are not); in the pair (design 4.11) each node counts its own
 sessions until the pair shares them.
-- **Unreachable**: the last probe failed.
+- **Unreachable**: the last three probes failed in a row (amended after
+  write-up 21: one slow answer from a Prism Central that serves its
+  console must not lock its tenants out; the first answer makes the site
+  available again).
 
 The probe uses the site's service account, at an interval and with a
 timeout the builder chooses, and never blocks a tenant's request.
