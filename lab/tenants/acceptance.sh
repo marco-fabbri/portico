@@ -37,7 +37,10 @@ snap_internal() { lab/pc.sh GET "$MD/config/projects" 2>/dev/null | jq -S 'del(.
 
 if [ "${1:-}" != "--delete" ]; then
   # 1. create
-  jq -n --arg s "$slug" --arg d "${LAB_TENANT_NAME:-Tenant B (lab)}" --arg c "${LAB_TENANT_CONTACT:-ops@lab.portico.test}" '{slug:$s, display_name:$d, contacts:$c}' > "$tmp/create.json"
+  # LAB_TENANT_SITES (comma-separated site ids) places the tenant on those
+  # sites; empty leaves the choice to Portico (the only site).
+  jq -n --arg s "$slug" --arg d "${LAB_TENANT_NAME:-Tenant B (lab)}" --arg c "${LAB_TENANT_CONTACT:-ops@lab.portico.test}" --arg sites "${LAB_TENANT_SITES:-}" \
+    '{slug:$s, display_name:$d, contacts:$c} + (if $sites == "" then {} else {sites: ($sites | split(",") | map({site: .}))} end)' > "$tmp/create.json"
   code=$(api POST /api/v1/tenants "$tmp/create.json")
   [ "$code" = 409 ] && { echo "     tenant exists already, continuing"; code=202; }
   line "POST /api/v1/tenants ($slug)" "$code" 202
@@ -45,15 +48,15 @@ if [ "${1:-}" != "--delete" ]; then
   start=$(date +%s)
   line "status after provisioning" "$(wait_status active 900)" active
   echo "     provisioning took $(( $(date +%s) - start )) s"
-  api GET "/api/v1/tenants/$slug/steps" >/dev/null; jq -r '.[] | "     step \(.name): \(if .ok then "ok" else "FAILED" end) \(.detail)"' "$tmp/out"
+  api GET "/api/v1/tenants/$slug/steps" >/dev/null; jq -r '.[] | "     step \(.site)/\(.name): \(if .ok then "ok" else "FAILED" end) \(.detail)"' "$tmp/out"
   api GET "/api/v1/tenants/$slug" >/dev/null; cp "$tmp/out" "$tmp/tenant.json"
   # 3. visibility
   code=$(api GET "/api/v1/tenants/$slug/visibility")
-  line "GET /visibility" "$code $(jq -r .ok "$tmp/out")" "200 true"
+  line "GET /visibility (every site)" "$code $(jq -r '[.sites[].ok] | all' "$tmp/out")" "200 true"
   # 4. Prism Central read-back as the service account
   pj=$(project_extid "$project")
   line "project $project exists in Prism Central" "$([ -n "$pj" ] && echo yes || echo no)" yes
-  line "project extId matches the tenant record" "$([ "$pj" = "$(jq -r .project_ext_id "$tmp/tenant.json")" ] && echo yes || echo no)" yes
+  line "project extId matches the tenant's placement" "$([ "$pj" = "$(jq -r '.placements[0].project_ext_id' "$tmp/tenant.json")" ] && echo yes || echo no)" yes
   grp=$(user_group_extid "$group")
   n=$(lab/pc.sh GET "$IAM1/authz/role-memberships" 2>/dev/null | jq -r --arg g "$grp" --arg p "$pj" '[.data[]? | select(.identityExtId==$g and .projectExtId==$p)] | length')
   line "role memberships of $group in the project" "$n" 1
