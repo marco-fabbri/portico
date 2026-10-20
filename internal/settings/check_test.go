@@ -41,8 +41,8 @@ func fakePC(t *testing.T, key string) *httptest.Server {
 func TestCheckPrismCentralListsClustersAndContainers(t *testing.T) {
 	srv := fakePC(t, "good-key")
 	s := sample()
-	s.PrismCentral.URL, s.PrismCentral.TLSVerify = srv.URL, false
-	res := NewChecker(nil).PrismCentral(context.Background(), s, "good-key")
+	s.Sites[0].URL, s.Sites[0].TLSVerify = srv.URL, false
+	res := NewChecker(nil).PrismCentral(context.Background(), s.Sites[0], "good-key")
 	if !res.OK || len(res.Clusters) != 1 || res.Clusters[0].ExtID != "cl-1" || res.Clusters[0].Name != "NTNX-01" {
 		t.Fatalf("result = %+v", res)
 	}
@@ -57,8 +57,8 @@ func TestCheckPrismCentralListsClustersAndContainers(t *testing.T) {
 func TestCheckPrismCentralWrongKey(t *testing.T) {
 	srv := fakePC(t, "good-key")
 	s := sample()
-	s.PrismCentral.URL, s.PrismCentral.TLSVerify = srv.URL, false
-	res := NewChecker(nil).PrismCentral(context.Background(), s, "wrong-key")
+	s.Sites[0].URL, s.Sites[0].TLSVerify = srv.URL, false
+	res := NewChecker(nil).PrismCentral(context.Background(), s.Sites[0], "wrong-key")
 	if res.OK || !strings.Contains(res.Message, "API key") || strings.Contains(res.Message, "wrong-key") {
 		t.Fatalf("result = %+v", res)
 	}
@@ -69,8 +69,8 @@ func TestCheckPrismCentralUnreachable(t *testing.T) {
 	url := srv.URL
 	srv.Close()
 	s := sample()
-	s.PrismCentral.URL, s.PrismCentral.TLSVerify = url, false
-	res := NewChecker(nil).PrismCentral(context.Background(), s, "k")
+	s.Sites[0].URL, s.Sites[0].TLSVerify = url, false
+	res := NewChecker(nil).PrismCentral(context.Background(), s.Sites[0], "k")
 	if res.OK || !strings.Contains(res.Message, url) {
 		t.Fatalf("result = %+v", res)
 	}
@@ -151,8 +151,8 @@ func TestCheckKeycloakRealmTypoNamesTheRealm(t *testing.T) {
 // The check never echoes a password typed inside the URL.
 func TestCheckPrismCentralRefusesUserinfoURL(t *testing.T) {
 	s := sample()
-	s.PrismCentral.URL = "https://admin:pw-in-url@10.0.0.10:9440"
-	res := NewChecker(nil).PrismCentral(context.Background(), s, "key")
+	s.Sites[0].URL = "https://admin:pw-in-url@10.0.0.10:9440"
+	res := NewChecker(nil).PrismCentral(context.Background(), s.Sites[0], "key")
 	if res.OK || !strings.Contains(res.Message, "must not carry credentials") || strings.Contains(res.Message, "pw-in-url") {
 		t.Fatalf("userinfo URL: %+v", res)
 	}

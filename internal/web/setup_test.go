@@ -20,12 +20,10 @@ import (
 func setupSample(pcURL string) settings.Settings {
 	var s settings.Settings
 	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
-	s.PrismCentral.URL, s.PrismCentral.TLSVerify = pcURL, false
-	s.PrismCentral.APIKey, s.PrismCentral.SAMLIdPName = "key-secret-1", "portico-idp"
+	s.Sites = []settings.Site{{ID: "site-a", Code: "SITE-A", Name: "pc", URL: pcURL, APIKey: "key-secret-1", SAMLIdPName: "portico-idp", ClusterExtID: "cl-1", StorageContainerExtID: "sc-1"}}
 	s.Keycloak.Realm, s.Keycloak.AdminClientID, s.Keycloak.AdminClientSecret = "portico", "portico-admin", "admin-secret-1"
 	s.OIDC.Issuer, s.OIDC.ClientID, s.OIDC.ClientSecret = "https://id.example.test/realms/portico", "portico", "client-secret-1"
 	s.Tenants.ProjectPrefix, s.Tenants.GroupPrefix, s.Tenants.Role = "portico", "tenant-", "Project Admin"
-	s.Tenants.ClusterExtID, s.Tenants.StorageContainerExtID = "cl-1", "sc-1"
 	s.Tenants.OperationTimeout = 10 * time.Minute
 	return s
 }
@@ -76,7 +74,7 @@ func TestSetupPagePrefillsFromFileWhenNotStored(t *testing.T) {
 	e.login(t)
 	rec := e.do("GET", "/setup", nil, true)
 	body := rec.Body.String()
-	if rec.Code != 200 || !strings.Contains(body, "running from the file") || !strings.Contains(body, `value="`+pc.URL+`"`) || !strings.Contains(body, `href="/setup"`) {
+	if rec.Code != 200 || !strings.Contains(body, "running from the file") || !strings.Contains(body, pc.URL) || !strings.Contains(body, `href="/setup/sites/site-a"`) || !strings.Contains(body, `href="/setup"`) {
 		t.Fatalf("setup page: %d %s", rec.Code, body)
 	}
 	if strings.Contains(body, "key-secret-1") {
@@ -88,13 +86,16 @@ func TestSetupSaveSectionAndSecretsStayHidden(t *testing.T) {
 	e := newEnv(t, true)
 	svc, pc, _ := withSetup(t, e, false)
 	e.login(t)
-	// Save the four sections one by one, as the page does.
+	// Save the sections one by one, as the page does; the site's
+	// connection is saved on its own page.
+	rec := e.do("POST", "/setup/sites/site-a/save", e.form("code", "SITE-A", "url", pc.URL, "tls_verify", "", "api_key", "key-secret-2"), true)
+	if rec.Code != 303 || !strings.HasPrefix(rec.Header().Get("Location"), "/setup/sites/site-a") {
+		t.Fatalf("save site: %d %q %s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
+	}
 	for _, f := range []url.Values{
 		e.form("section", "hosts", "prism_host", "prism.example.test", "id_host", "id.example.test"),
-		e.form("section", "prism_central", "url", pc.URL, "tls_verify", "", "api_key", "key-secret-2"),
-		e.form("section", "saml", "saml_idp_name", "portico-idp"),
 		e.form("section", "keycloak", "realm", "portico", "admin_client_id", "portico-admin", "admin_client_secret", "admin-secret-1", "issuer", "https://id.example.test/realms/portico", "client_id", "portico", "client_secret", "client-secret-1"),
-		e.form("section", "tenants", "project_prefix", "portico", "group_prefix", "tenant-", "role", "Project Admin", "cluster_ext_id", "cl-1", "storage_container_ext_id", "sc-1", "operation_timeout", "10m"),
+		e.form("section", "tenants", "project_prefix", "portico", "group_prefix", "tenant-", "role", "Project Admin", "operation_timeout", "10m"),
 	} {
 		rec := e.do("POST", "/setup/save", f, true)
 		if rec.Code != 303 || rec.Header().Get("Location") != "/setup" {
@@ -102,26 +103,23 @@ func TestSetupSaveSectionAndSecretsStayHidden(t *testing.T) {
 		}
 	}
 	got, err := svc.Get(context.Background())
-	if err != nil || got.PrismCentral.APIKey != "key-secret-2" || got.OIDC.ClientSecret != "client-secret-1" || got.Tenants.OperationTimeout != 10*time.Minute {
+	if err != nil || got.Sites[0].APIKey != "key-secret-2" || got.OIDC.ClientSecret != "client-secret-1" || got.Tenants.OperationTimeout != 10*time.Minute {
 		t.Fatalf("stored = %+v, %v", got, err)
 	}
-	rec := e.do("GET", "/setup", nil, true)
-	body := rec.Body.String()
-	if strings.Contains(body, "key-secret-") || !strings.Contains(body, `placeholder="unchanged"`) || strings.Contains(body, "running from the file") {
-		t.Fatalf("page after save: %s", body)
+	for _, page := range []string{"/setup", "/setup/sites/site-a"} {
+		body := e.do("GET", page, nil, true).Body.String()
+		if strings.Contains(body, "key-secret-") || !strings.Contains(body, `placeholder="unchanged"`) || strings.Contains(body, "running from the file") {
+			t.Fatalf("%s after save: %s", page, body)
+		}
 	}
-	// Saving a section without the secret keeps it.
-	rec = e.do("POST", "/setup/save", e.form("section", "prism_central", "url", pc.URL, "tls_verify", ""), true)
+	// Saving the site without the key keeps it, and keeps the SAML trust.
+	rec = e.do("POST", "/setup/sites/site-a/save", e.form("code", "SITE-A", "name", "Milan", "url", pc.URL, "tls_verify", ""), true)
 	if rec.Code != 303 {
 		t.Fatalf("second save: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = e.do("POST", "/setup/save", e.form("section", "saml", "saml_idp_name", "portico-idp-2"), true)
-	if rec.Code != 303 {
-		t.Fatalf("saml save: %d %s", rec.Code, rec.Body.String())
-	}
 	got, _ = svc.Get(context.Background())
-	if got.PrismCentral.APIKey != "key-secret-2" || got.PrismCentral.SAMLIdPName != "portico-idp-2" {
-		t.Fatalf("stored after second save = %+v", got)
+	if got.Sites[0].APIKey != "key-secret-2" || got.Sites[0].SAMLIdPName != "portico-idp" || got.Sites[0].Name != "Milan" {
+		t.Fatalf("stored after second save = %+v", got.Sites[0])
 	}
 }
 
@@ -129,12 +127,12 @@ func TestSetupCheckRendersResultAndPickers(t *testing.T) {
 	e := newEnv(t, true)
 	_, pc, _ := withSetup(t, e, true)
 	e.login(t)
-	rec := e.do("POST", "/setup/check", e.form("target", "prism_central", "url", pc.URL, "tls_verify", ""), true)
+	rec := e.do("POST", "/setup/sites/site-a/check", e.form("url", pc.URL, "tls_verify", ""), true)
 	body := rec.Body.String()
 	if rec.Code != 200 || !strings.Contains(body, "NTNX-01") || !strings.Contains(body, `value="cl-1"`) || !strings.Contains(body, "default-container") || strings.Contains(body, "<html") {
 		t.Fatalf("check fragment: %d %s", rec.Code, body)
 	}
-	rec = e.do("POST", "/setup/check", e.form("target", "prism_central", "url", pc.URL, "tls_verify", "", "api_key", "wrong"), true)
+	rec = e.do("POST", "/setup/sites/site-a/check", e.form("url", pc.URL, "tls_verify", "", "api_key", "wrong"), true)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "API key") {
 		t.Fatalf("check with a wrong key: %d %s", rec.Code, rec.Body.String())
 	}
@@ -176,14 +174,14 @@ func TestSetupRequiresCSRF(t *testing.T) {
 	svc, pc, restarted := withSetup(t, e, true)
 	e.login(t)
 	before, _ := svc.Get(context.Background())
-	for _, path := range []string{"/setup/save", "/setup/check", "/setup/apply"} {
-		rec := e.do("POST", path, url.Values{"section": {"hosts"}, "prism_host": {"evil.test"}, "target": {"prism_central"}, "url": {pc.URL}}, true)
+	for _, path := range []string{"/setup/save", "/setup/check", "/setup/apply", "/setup/sites/new", "/setup/sites/site-a/save", "/setup/sites/site-a/check", "/setup/sites/site-a/delete", "/setup/sites/site-a/forget"} {
+		rec := e.do("POST", path, url.Values{"section": {"hosts"}, "prism_host": {"evil.test"}, "target": {"keycloak"}, "code": {"EVIL"}, "confirm": {"SITE-A"}, "url": {pc.URL}}, true)
 		if rec.Code != 403 {
 			t.Errorf("%s without CSRF: %d", path, rec.Code)
 		}
 	}
 	after, _ := svc.Get(context.Background())
-	if after.PrismHost != before.PrismHost || *restarted != 0 {
+	if after.PrismHost != before.PrismHost || len(after.Sites) != 1 || after.Sites[0].Code != "SITE-A" || *restarted != 0 {
 		t.Fatal("a form without CSRF changed state")
 	}
 }
@@ -195,7 +193,7 @@ func TestSetupPageInSetupModeListsMissingAndDisablesApply(t *testing.T) {
 	e.login(t)
 	rec := e.do("GET", "/setup", nil, true)
 	body := rec.Body.String()
-	for _, want := range []string{"Setup mode", "Missing: prism_host, id_host", `value="portico"`, `disabled`} {
+	for _, want := range []string{"Setup mode", "Missing: prism_host, id_host, sites", `value="portico"`, `disabled`, `href="/setup/sites/new"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("setup page lacks %q: %s", want, body)
 		}
@@ -205,7 +203,7 @@ func TestSetupPageInSetupModeListsMissingAndDisablesApply(t *testing.T) {
 		t.Fatalf("save hosts on a fresh store: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = e.do("GET", "/setup", nil, true)
-	if body := rec.Body.String(); strings.Contains(body, "Missing: prism_host") || !strings.Contains(body, "Missing: prism_central.url") {
+	if body := rec.Body.String(); strings.Contains(body, "Missing: prism_host") || !strings.Contains(body, "Missing: sites") {
 		t.Fatalf("missing list after save: %s", body)
 	}
 	rec = e.do("POST", "/setup/apply", e.form(), true)
@@ -222,7 +220,7 @@ func TestSetupCheckRendersEmptyPickers(t *testing.T) {
 	e.login(t)
 	setupPCEmpty.Store(true)
 	defer setupPCEmpty.Store(false)
-	rec := e.do("POST", "/setup/check", e.form("target", "prism_central", "url", pc.URL, "tls_verify", ""), true)
+	rec := e.do("POST", "/setup/sites/site-a/check", e.form("url", pc.URL, "tls_verify", ""), true)
 	body := rec.Body.String()
 	if rec.Code != 200 || !strings.Contains(body, "none found") || !regexp.MustCompile(`<select name="cluster_ext_id"[^>]*required`).MatchString(body) || !regexp.MustCompile(`<select name="storage_container_ext_id"[^>]*required`).MatchString(body) {
 		t.Fatalf("empty pickers: %d %s", rec.Code, body)
@@ -235,12 +233,14 @@ func TestSetupSecretInputsStopPasswordManagers(t *testing.T) {
 	e := newEnv(t, true)
 	withSetup(t, e, true)
 	e.login(t)
-	page := e.do("GET", "/setup", nil, true).Body.String()
-	if regexp.MustCompile(`type="password"[^>]*autocomplete="off"`).MatchString(page) {
-		t.Fatal("a password input still says autocomplete=off")
-	}
-	if n := strings.Count(page, `autocomplete="new-password"`); n < 6 {
-		t.Fatalf("%d new-password inputs, want at least 6:\n%s", n, page)
+	for _, path := range []string{"/setup", "/setup/sites/site-a"} {
+		page := e.do("GET", path, nil, true).Body.String()
+		if regexp.MustCompile(`type="password"[^>]*autocomplete="off"`).MatchString(page) {
+			t.Fatalf("%s: a password input still says autocomplete=off", path)
+		}
+		if n := strings.Count(page, `autocomplete="new-password"`); n < 3 {
+			t.Fatalf("%s: %d new-password inputs, want at least 3:\n%s", path, n, page)
+		}
 	}
 }
 
@@ -253,15 +253,24 @@ func TestSetupPageStatesWhatIsConfigured(t *testing.T) {
 	withSetup(t, e, true)
 	e.login(t)
 	body := e.do("GET", "/setup", nil, true).Body.String()
-	if n := strings.Count(body, `<p class="state done">`); n != 6 {
-		t.Fatalf("%d configured states, want 6 (five cards and Apply):\n%s", n, body)
+	if n := strings.Count(body, `<p class="state done">`); n != 5 {
+		t.Fatalf("%d configured states, want 5 (four cards and Apply):\n%s", n, body)
 	}
 	if strings.Contains(body, `class="state todo"`) || strings.Contains(body, `<details open>`) {
 		t.Fatalf("a to-do state or an open bootstrap form on a complete store:\n%s", body)
 	}
-	for _, want := range []string{`<summary>Let Portico create the service account</summary>`, `<summary>Let Portico create the realm and clients</summary>`, `<summary>Let Portico create the SAML trust</summary>`, `<code>portico-idp</code>`} {
+	for _, want := range []string{`<summary>Let Portico create the realm and clients</summary>`, `<code>portico-idp</code>`, `href="/setup/sites/site-a"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("setup page lacks %q:\n%s", want, body)
+		}
+	}
+	site := e.do("GET", "/setup/sites/site-a", nil, true).Body.String()
+	if n := strings.Count(site, `<p class="state done">`); n != 2 || strings.Contains(site, `<details open>`) {
+		t.Fatalf("site page on a complete site: %d done states:\n%s", n, site)
+	}
+	for _, want := range []string{`<summary>Let Portico create the service account</summary>`, `<summary>Let Portico create the SAML trust</summary>`} {
+		if !strings.Contains(site, want) {
+			t.Fatalf("site page lacks %q:\n%s", want, site)
 		}
 	}
 
@@ -270,7 +279,7 @@ func TestSetupPageStatesWhatIsConfigured(t *testing.T) {
 	e.web.setup.File, e.web.setup.Mode = nil, "setup"
 	e.login(t)
 	body = e.do("GET", "/setup", nil, true).Body.String()
-	if n, o := strings.Count(body, `<p class="state todo">`), strings.Count(body, `<details open>`); n != 6 || o != 3 {
-		t.Fatalf("%d to-do states and %d open bootstrap forms on an empty store, want 6 and 3:\n%s", n, o, body)
+	if n, o := strings.Count(body, `<p class="state todo">`), strings.Count(body, `<details open>`); n != 4 || o != 1 {
+		t.Fatalf("%d to-do states and %d open bootstrap forms on an empty store, want 4 (hosts, sites, identity, apply) and 1:\n%s", n, o, body)
 	}
 }

@@ -80,6 +80,9 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	setupMode := false
 	var secret, apiKey, kcSecret string
 	var caPEM []byte
+	// runDoc is the document the running mode serves: the stored one, or
+	// the file's turned into one (its Prism Central is site-1).
+	var runDoc settings.Settings
 	if stored {
 		doc, err := settingsSvc.Get(ctx)
 		if err != nil {
@@ -92,6 +95,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			return err
 		}
 		if !setupMode {
+			runDoc = doc
 			rt, err := doc.Overlay(cfg)
 			if err != nil {
 				return err
@@ -165,6 +169,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		// first save adopts it.
 		fileDoc := settings.FromConfig(cfg, apiKey, kcSecret, secret, string(caPEM))
 		setup.File = &fileDoc
+		runDoc = fileDoc
 	}
 	pages := branding.NewPages(brand.Get)
 	pcURL, err := url.Parse(cfg.PrismCentral.URL)
@@ -207,8 +212,15 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	prismUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: pcURL, HostHeader: cfg.Public.PrismHost, TLS: pcTLS, StripCookies: stripped, Log: log, ErrorPage: pages.Error})
 	kcUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: kcURL, HostHeader: cfg.Public.IDHost, StripCookies: stripped, Log: log, ErrorPage: pages.Error})
 	// The pass-through keeps the caller's Host so Prism Central builds its
-	// redirects for the address the administrator used.
-	passthrough := proxy.NewPassthrough(proxy.NewUpstream(proxy.UpstreamOptions{Target: pcURL, HostHeader: "", TLS: pcTLS, Log: log}), log)
+	// redirects for the address the administrator used. It serves one
+	// site (design sites §4.6): the one named in the settings, else the
+	// first by order.
+	ptSite, _ := runDoc.PassthroughSiteOrFirst()
+	ptURL, ptTLS, err := siteTarget(ptSite, log)
+	if err != nil {
+		return fmt.Errorf("pass-through site %s: %w", ptSite.ID, err)
+	}
+	passthrough := proxy.NewPassthrough(proxy.NewUpstream(proxy.UpstreamOptions{Target: ptURL, HostHeader: "", TLS: ptTLS, Log: log}), log)
 
 	// Tenant provisioning: Prism Central through the service account,
 	// Keycloak through the admin client on the backchannel.
@@ -294,6 +306,25 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		adminSessions.Sweep(now)
 		limiter.Sweep(now)
 	}, tenants.Wait, log)
+}
+
+// siteTarget returns a site's Prism Central URL and client TLS settings.
+func siteTarget(site settings.Site, log *slog.Logger) (*url.URL, *tls.Config, error) {
+	u, err := url.Parse(site.URL)
+	if err != nil || u.Host == "" {
+		return nil, nil, fmt.Errorf("url %q is not valid", site.URL)
+	}
+	if u.Scheme != "https" {
+		return u, nil, nil
+	}
+	if !site.TLSVerify {
+		log.Warn("tls_verify is false: the certificate of this Prism Central is not checked", "site", site.ID)
+	}
+	t, err := proxy.PrismTLSPEM(u.Hostname(), []byte(site.CAPEM), site.TLSVerify)
+	if err != nil {
+		return nil, nil, fmt.Errorf("ca: %w", err)
+	}
+	return u, t, nil
 }
 
 func newServer(addr string, h http.Handler, log *slog.Logger) *http.Server {

@@ -41,12 +41,10 @@ type settingsEnv struct {
 func sampleSettings(pcURL string) settings.Settings {
 	var s settings.Settings
 	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
-	s.PrismCentral.URL, s.PrismCentral.TLSVerify = pcURL, false
-	s.PrismCentral.APIKey, s.PrismCentral.SAMLIdPName = "key-secret-1", "portico-idp"
+	s.Sites = []settings.Site{{ID: "site-a", Code: "SITE-A", Name: "pc", URL: pcURL, APIKey: "key-secret-1", SAMLIdPName: "portico-idp", ClusterExtID: "cl-1", StorageContainerExtID: "sc-1"}}
 	s.Keycloak.Realm, s.Keycloak.AdminClientID, s.Keycloak.AdminClientSecret = "portico", "portico-admin", "admin-secret-1"
 	s.OIDC.Issuer, s.OIDC.ClientID, s.OIDC.ClientSecret = "https://id.example.test/realms/portico", "portico", "client-secret-1"
 	s.Tenants.ProjectPrefix, s.Tenants.GroupPrefix, s.Tenants.Role = "portico", "tenant-", "Project Admin"
-	s.Tenants.ClusterExtID, s.Tenants.StorageContainerExtID = "cl-1", "sc-1"
 	s.Tenants.OperationTimeout = 10 * time.Minute
 	return s
 }
@@ -137,20 +135,23 @@ func TestSettingsGetHidesSecrets(t *testing.T) {
 	if rec.Code != 200 || out["stored"] != true || out["source"] != "store" {
 		t.Fatalf("GET: %d %v", rec.Code, out)
 	}
-	pc := out["prism_central"].(map[string]any)
-	if pc["api_key_set"] != true || pc["url"] != e.pc.URL {
-		t.Fatalf("prism_central = %v", pc)
-	}
 	body := rec.Body.String()
 	for _, secret := range []string{"key-secret-1", "admin-secret-1", "client-secret-1", "v1:"} {
 		if strings.Contains(body, secret) {
 			t.Fatalf("GET body contains %q", secret)
 		}
 	}
+	rec, out = e.do("GET", "/api/v1/sites", "")
+	if site := out["sites"].([]any)[0].(map[string]any); rec.Code != 200 || site["api_key_set"] != true || site["url"] != e.pc.URL || strings.Contains(rec.Body.String(), "key-secret-1") {
+		t.Fatalf("GET sites: %d %s", rec.Code, rec.Body.String())
+	}
 	e2 := newSettingsEnv(t, false)
 	rec, out = e2.do("GET", "/api/v1/settings", "")
-	if rec.Code != 200 || out["stored"] != false || out["source"] != "file" || out["prism_central"].(map[string]any)["api_key_set"] != true {
+	if rec.Code != 200 || out["stored"] != false || out["source"] != "file" {
 		t.Fatalf("GET from file: %d %v", rec.Code, out)
+	}
+	if _, sites := e2.do("GET", "/api/v1/sites", ""); sites["sites"].([]any)[0].(map[string]any)["api_key_set"] != true {
+		t.Fatalf("GET sites from file: %v", sites)
 	}
 	if body := rec.Body.String(); strings.Contains(body, "key-secret-1") || strings.Contains(body, "client-secret-1") {
 		t.Fatalf("GET from file leaks a secret: %s", body)
@@ -159,19 +160,19 @@ func TestSettingsGetHidesSecrets(t *testing.T) {
 
 func TestSettingsPutKeepsSecretsWhenOmitted(t *testing.T) {
 	e := newSettingsEnv(t, true)
-	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","tls_verify":false,"saml_idp_name":"portico-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"12m"}}`)
-	if rec.Code != 200 || out["prism_central"].(map[string]any)["api_key_set"] != true || out["tenants"].(map[string]any)["operation_timeout"] != "12m0s" {
+	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"12m"}}`)
+	if rec.Code != 200 || out["tenants"].(map[string]any)["operation_timeout"] != "12m0s" {
 		t.Fatalf("PUT: %d %v", rec.Code, out)
 	}
 	got, _ := e.svc.Get(context.Background())
-	if got.PrismCentral.APIKey != "key-secret-1" || got.Tenants.OperationTimeout != 12*time.Minute {
+	if got.Sites[0].APIKey != "key-secret-1" || got.Tenants.OperationTimeout != 12*time.Minute {
 		t.Fatalf("stored = %+v", got)
 	}
 }
 
 func TestSettingsPutValidationNamesField(t *testing.T) {
 	e := newSettingsEnv(t, true)
-	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","saml_idp_name":"portico-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"Bad Prefix","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"Bad Prefix","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
 	if rec.Code != 400 || !strings.Contains(out["error"].(string), "tenants.project_prefix") {
 		t.Fatalf("PUT invalid: %d %v", rec.Code, out)
 	}
@@ -179,7 +180,7 @@ func TestSettingsPutValidationNamesField(t *testing.T) {
 
 func TestSettingsPutNeverLogsSecret(t *testing.T) {
 	e := newSettingsEnv(t, false)
-	rec, _ := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","saml_idp_name":"portico-idp","api_key":"brand-new-key-xyz"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin","admin_client_secret":"adm-xyz"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico","client_secret":"cli-xyz"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
+	rec, _ := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin","admin_client_secret":"adm-xyz"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico","client_secret":"cli-xyz"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
 	if rec.Code != 200 {
 		t.Fatalf("PUT: %d %s", rec.Code, rec.Body.String())
 	}
@@ -195,16 +196,16 @@ func TestSettingsPutNeverLogsSecret(t *testing.T) {
 
 func TestSettingsCheckDoesNotStore(t *testing.T) {
 	e := newSettingsEnv(t, true)
-	rec, out := e.do("POST", "/api/v1/settings/check", `{"target":"prism_central","prism_central":{"url":"`+e.pc.URL+`","tls_verify":false,"api_key":"wrong-key"}}`)
+	rec, out := e.do("POST", "/api/v1/sites/site-a/check", `{"url":"`+e.pc.URL+`","tls_verify":false,"api_key":"wrong-key"}`)
 	if rec.Code != 200 || out["ok"] != false || !strings.Contains(out["message"].(string), "API key") {
 		t.Fatalf("check with a wrong key: %d %v", rec.Code, out)
 	}
-	rec, out = e.do("POST", "/api/v1/settings/check", `{"target":"prism_central","prism_central":{"url":"`+e.pc.URL+`","tls_verify":false}}`)
+	rec, out = e.do("POST", "/api/v1/sites/site-a/check", `{"url":"`+e.pc.URL+`","tls_verify":false}`)
 	if rec.Code != 200 || out["ok"] != true || len(out["clusters"].([]any)) != 1 {
 		t.Fatalf("check with the stored key: %d %v", rec.Code, out)
 	}
 	got, _ := e.svc.Get(context.Background())
-	if got.PrismCentral.APIKey != "key-secret-1" {
+	if got.Sites[0].APIKey != "key-secret-1" {
 		t.Fatal("a check changed the stored settings")
 	}
 	rec, out = e.do("POST", "/api/v1/settings/check", `{"target":"nope"}`)
@@ -229,12 +230,12 @@ func TestSettingsApplyNeedsStoredSettings(t *testing.T) {
 func TestSettingsCheckUsesStoredFieldsWhenOmitted(t *testing.T) {
 	e := newSettingsEnv(t, true)
 	// A body with the target only: every field comes from the stored document.
-	rec, out := e.do("POST", "/api/v1/settings/check", `{"target":"prism_central"}`)
+	rec, out := e.do("POST", "/api/v1/sites/site-a/check", `{}`)
 	if rec.Code != 200 || out["ok"] != true {
 		t.Fatalf("check with the stored fields: %d %v", rec.Code, out)
 	}
 	// Only the URL given: the stored key and TLS settings still apply.
-	rec, out = e.do("POST", "/api/v1/settings/check", `{"target":"prism_central","prism_central":{"url":"`+e.pc.URL+`"}}`)
+	rec, out = e.do("POST", "/api/v1/sites/site-a/check", `{"url":"`+e.pc.URL+`"}`)
 	if rec.Code != 200 || out["ok"] != true {
 		t.Fatalf("check with the URL only: %d %v", rec.Code, out)
 	}
@@ -246,7 +247,7 @@ func TestSettingsCheckRefusesStoredKeyForAnotherHost(t *testing.T) {
 	other := httptest.NewServer(fakePC("never", &seen))
 	defer other.Close()
 	// The stored key must not travel to a host the caller names.
-	rec, out := e.do("POST", "/api/v1/settings/check", `{"target":"prism_central","prism_central":{"url":"`+other.URL+`","tls_verify":false}}`)
+	rec, out := e.do("POST", "/api/v1/sites/site-a/check", `{"url":"`+other.URL+`","tls_verify":false}`)
 	if rec.Code != 200 || out["ok"] != false || !strings.Contains(out["message"].(string), "API key must be given") {
 		t.Fatalf("check against another host without a key: %d %v", rec.Code, out)
 	}
@@ -254,7 +255,7 @@ func TestSettingsCheckRefusesStoredKeyForAnotherHost(t *testing.T) {
 		t.Fatalf("the other host received %d request(s)", len(seen))
 	}
 	// With a key in the body the check runs against the new host with that key only.
-	rec, out = e.do("POST", "/api/v1/settings/check", `{"target":"prism_central","prism_central":{"url":"`+other.URL+`","tls_verify":false,"api_key":"given-key"}}`)
+	rec, out = e.do("POST", "/api/v1/sites/site-a/check", `{"url":"`+other.URL+`","tls_verify":false,"api_key":"given-key"}`)
 	if rec.Code != 200 || out["ok"] != false || len(seen) != 1 || seen[0] != "given-key" {
 		t.Fatalf("check against another host with a key: %d %v seen=%v", rec.Code, out, seen)
 	}
@@ -265,34 +266,34 @@ func TestSettingsCheckKeepsTLSVerifyWhenOmitted(t *testing.T) {
 	tlsPC := httptest.NewTLSServer(fakePC("key-secret-1", nil))
 	defer tlsPC.Close()
 	s := sampleSettings(tlsPC.URL)
-	s.PrismCentral.TLSVerify = true
+	s.Sites[0].TLSVerify = true
 	if err := e.svc.Set(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
 	// The flag is not in the body: the stored true applies and the self-signed certificate fails.
-	rec, out := e.do("POST", "/api/v1/settings/check", `{"target":"prism_central","prism_central":{"url":"`+tlsPC.URL+`"}}`)
+	rec, out := e.do("POST", "/api/v1/sites/site-a/check", `{"url":"`+tlsPC.URL+`"}`)
 	if rec.Code != 200 || out["ok"] != false || !strings.Contains(out["message"].(string), "certificate") {
 		t.Fatalf("check with the flag omitted: %d %v", rec.Code, out)
 	}
-	rec, out = e.do("POST", "/api/v1/settings/check", `{"target":"prism_central","prism_central":{"url":"`+tlsPC.URL+`","tls_verify":false}}`)
+	rec, out = e.do("POST", "/api/v1/sites/site-a/check", `{"url":"`+tlsPC.URL+`","tls_verify":false}`)
 	if rec.Code != 200 || out["ok"] != true {
 		t.Fatalf("check with the flag false: %d %v", rec.Code, out)
 	}
 	// GET still reports the stored flag.
-	rec, out = e.do("GET", "/api/v1/settings", "")
-	if rec.Code != 200 || out["prism_central"].(map[string]any)["tls_verify"] != true {
+	rec, out = e.do("GET", "/api/v1/sites/site-a", "")
+	if rec.Code != 200 || out["tls_verify"] != true {
 		t.Fatalf("GET after the checks: %d %v", rec.Code, out)
 	}
 }
 
 func TestSettingsPutAdoptsFileSecrets(t *testing.T) {
 	e := newSettingsEnv(t, false)
-	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","tls_verify":false,"saml_idp_name":"portico-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
 	if rec.Code != 200 || out["stored"] != true || out["source"] != "store" {
 		t.Fatalf("PUT on a file-based installation: %d %v", rec.Code, out)
 	}
 	got, err := e.svc.Get(context.Background())
-	if err != nil || got.PrismCentral.APIKey != "key-secret-1" || got.OIDC.ClientSecret != "client-secret-1" {
+	if err != nil || got.Sites[0].APIKey != "key-secret-1" || got.OIDC.ClientSecret != "client-secret-1" {
 		t.Fatalf("stored = %+v, %v: the file's secrets must be adopted", got, err)
 	}
 }
@@ -318,7 +319,7 @@ func TestGetSettingsReportsModeAndMissing(t *testing.T) {
 		t.Fatalf("GET: %d %v", rec.Code, out)
 	}
 	missing, _ := out["missing"].([]any)
-	if len(missing) != 11 || missing[0] != "prism_host" {
+	if len(missing) != 7 || missing[0] != "prism_host" || missing[2] != "sites" {
 		t.Fatalf("missing = %v", missing)
 	}
 	if tenants, _ := out["tenants"].(map[string]any); tenants["project_prefix"] != "portico" || tenants["operation_timeout"] != "10m0s" {
@@ -333,7 +334,7 @@ func TestPutDraftThenApplyRefusedUntilComplete(t *testing.T) {
 		t.Fatalf("PUT draft: %d %v", rec.Code, out)
 	}
 	rec, out = e.do("POST", "/api/v1/settings/apply", "")
-	if rec.Code != 409 || !strings.Contains(out["error"].(string), "settings incomplete: missing prism_central.url") || e.restarted != 0 {
+	if rec.Code != 409 || !strings.Contains(out["error"].(string), "settings incomplete: missing sites") || e.restarted != 0 {
 		t.Fatalf("apply on a draft: %d %v restarted=%d", rec.Code, out, e.restarted)
 	}
 }
@@ -360,7 +361,7 @@ func (failingStore) SetSetting(context.Context, string, []byte) error {
 func TestSettingsPutStoreFailureIs500(t *testing.T) {
 	e := newSettingsEnv(t, true)
 	e.so.Service = settings.NewService(failingStore{e.st}, e.sealer)
-	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","prism_central":{"url":"`+e.pc.URL+`","saml_idp_name":"portico-idp"},"keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl-1","storage_container_ext_id":"sc-1","operation_timeout":"10m"}}`)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
 	if rec.Code != 500 || !strings.Contains(out["error"].(string), "disk full") {
 		t.Fatalf("PUT on a broken store: %d %v", rec.Code, out)
 	}

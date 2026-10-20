@@ -36,6 +36,7 @@ func NewChecker(log *slog.Logger) *Checker {
 type CheckResult struct {
 	OK         bool     `json:"ok"`
 	Message    string   `json:"message"`
+	Version    string   `json:"version,omitempty"` // Prism Central's own build version
 	Clusters   []Choice `json:"clusters,omitempty"`
 	Containers []Choice `json:"containers,omitempty"`
 }
@@ -50,25 +51,30 @@ func fail(format string, args ...any) CheckResult {
 	return CheckResult{OK: false, Message: fmt.Sprintf(format, args...)}
 }
 
-// PrismCentral checks the URL, the TLS settings and the API key by
-// listing clusters and storage containers; the lists fill the pickers.
-func (c *Checker) PrismCentral(ctx context.Context, s Settings, apiKey string) CheckResult {
+// minMajor.minMinor is the oldest Prism Central a site may run (design 3).
+const minMajor, minMinor = 7, 6
+
+// PrismCentral checks a site's URL, TLS settings and API key by listing
+// clusters and storage containers; the lists fill the pickers. A Prism
+// Central older than pc.7.6 is refused, naming the version it reports;
+// one that reports no version passes with a note (design sites §3).
+func (c *Checker) PrismCentral(ctx context.Context, s Site, apiKey string) CheckResult {
 	if apiKey == "" {
 		return fail("the API key is not set")
 	}
-	u, err := url.Parse(s.PrismCentral.URL)
+	u, err := url.Parse(s.URL)
 	if err != nil || u.Host == "" {
-		return fail("the Prism Central URL %q is not valid", s.PrismCentral.URL)
+		return fail("the Prism Central URL %q is not valid", s.URL)
 	}
 	if u.User != nil {
 		// Not echoed: the userinfo is a password in clear.
 		return fail("the Prism Central URL must not carry credentials")
 	}
-	tlsCfg, err := proxy.PrismTLSPEM(u.Hostname(), []byte(s.PrismCentral.CAPEM), s.PrismCentral.TLSVerify)
+	tlsCfg, err := proxy.PrismTLSPEM(u.Hostname(), []byte(s.CAPEM), s.TLSVerify)
 	if err != nil {
 		return fail("the CA certificate is not usable: %v", err)
 	}
-	client, err := nutanix.New(s.PrismCentral.URL, apiKey, tlsCfg, c.log)
+	client, err := nutanix.New(s.URL, apiKey, tlsCfg, c.log)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -76,13 +82,17 @@ func (c *Checker) PrismCentral(ctx context.Context, s Settings, apiKey string) C
 	defer cancel()
 	clusters, err := client.ListClusters(ctx)
 	if err != nil {
-		return fail("%s", prismError(s.PrismCentral.URL, err))
+		return fail("%s", prismError(s.URL, err))
 	}
 	containers, err := client.ListStorageContainers(ctx)
 	if err != nil {
-		return fail("%s", prismError(s.PrismCentral.URL, err))
+		return fail("%s", prismError(s.URL, err))
 	}
 	var res CheckResult
+	res.Version = nutanix.PrismCentralVersionOf(clusters)
+	if res.Version != "" && !VersionAtLeast(res.Version, minMajor, minMinor) {
+		return CheckResult{Version: res.Version, Message: fmt.Sprintf("Prism Central %s is older than pc.7.6: Portico needs pc.7.6 or later", res.Version)}
+	}
 	for _, cl := range clusters {
 		if cl.IsAOS {
 			res.Clusters = append(res.Clusters, Choice{ExtID: cl.ExtID, Name: cl.Name})
@@ -96,6 +106,11 @@ func (c *Checker) PrismCentral(ctx context.Context, s Settings, apiKey string) C
 	}
 	res.OK = true
 	res.Message = fmt.Sprintf("Prism Central answered: %d cluster(s), %d storage container(s)", len(res.Clusters), len(res.Containers))
+	if res.Version != "" {
+		res.Message = fmt.Sprintf("Prism Central %s answered: %d cluster(s), %d storage container(s)", res.Version, len(res.Clusters), len(res.Containers))
+	} else {
+		res.Message += "; it reported no version"
+	}
 	return res
 }
 

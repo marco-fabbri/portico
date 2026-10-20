@@ -13,14 +13,17 @@ import (
 // setupData is what the setup page renders: the document with its
 // secrets blanked, where it comes from, and which secrets are held.
 type setupData struct {
-	S                                          settings.Settings
-	Source                                     string
-	Stored                                     bool
-	APIKeySet, AdminSecretSet, ClientSecretSet bool
-	OperationTimeout                           string
-	Mode                                       string
-	Missing                                    []string
-	Complete                                   bool
+	S                               settings.Settings
+	Source                          string
+	Stored                          bool
+	AdminSecretSet, ClientSecretSet bool
+	OperationTimeout                string
+	// Sites are the document's sites in order, keys blanked, with the
+	// tenants placed on each.
+	Sites    []siteRow
+	Mode     string
+	Missing  []string
+	Complete bool
 	// OOB marks the inputs rendered by a bootstrap fragment, which
 	// HTMX swaps into the cards by id.
 	OOB bool
@@ -40,6 +43,7 @@ func (h *Handler) setupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /setup/apply", h.setupApply)
 	mux.HandleFunc("POST /setup/bootstrap/{target}", h.setupBootstrap)
 	mux.HandleFunc("GET /setup/ready", h.setupReady)
+	h.siteRoutes(mux)
 }
 
 // current returns the document the process would run from, or an error
@@ -60,16 +64,22 @@ func (h *Handler) current(w http.ResponseWriter, r *http.Request) (settings.Sett
 
 func toSetupData(s settings.Settings, source, mode string) setupData {
 	d := setupData{Source: source, Stored: source == "store", Mode: mode, Missing: s.Missing(),
-		APIKeySet: s.PrismCentral.APIKey != "", AdminSecretSet: s.Keycloak.AdminClientSecret != "", ClientSecretSet: s.OIDC.ClientSecret != ""}
+		AdminSecretSet: s.Keycloak.AdminClientSecret != "", ClientSecretSet: s.OIDC.ClientSecret != ""}
 	d.Complete = len(d.Missing) == 0
-	d.Done = map[string]bool{
-		"hosts":         s.PrismHost != "" && s.IDHost != "",
-		"prism_central": s.PrismCentral.URL != "" && d.APIKeySet,
-		"keycloak":      s.Keycloak.Realm != "" && s.Keycloak.AdminClientID != "" && d.AdminSecretSet && s.OIDC.Issuer != "" && s.OIDC.ClientID != "" && d.ClientSecretSet,
-		"saml":          s.PrismCentral.SAMLIdPName != "",
-		"tenants":       s.Tenants.ProjectPrefix != "" && s.Tenants.GroupPrefix != "" && s.Tenants.Role != "" && s.Tenants.ClusterExtID != "" && s.Tenants.StorageContainerExtID != "",
+	sitesDone := len(s.Sites) > 0
+	for _, site := range s.OrderedSites() {
+		row := toSiteRow(site, nil)
+		sitesDone = sitesDone && row.Done
+		d.Sites = append(d.Sites, row)
 	}
-	s.PrismCentral.APIKey, s.Keycloak.AdminClientSecret, s.OIDC.ClientSecret = "", "", ""
+	d.Done = map[string]bool{
+		"hosts":    s.PrismHost != "" && s.IDHost != "",
+		"sites":    sitesDone,
+		"keycloak": s.Keycloak.Realm != "" && s.Keycloak.AdminClientID != "" && d.AdminSecretSet && s.OIDC.Issuer != "" && s.OIDC.ClientID != "" && d.ClientSecretSet,
+		"tenants":  s.Tenants.ProjectPrefix != "" && s.Tenants.GroupPrefix != "" && s.Tenants.Role != "",
+	}
+	s.Keycloak.AdminClientSecret, s.OIDC.ClientSecret = "", ""
+	s.Sites = nil
 	d.S = s
 	if s.Tenants.OperationTimeout > 0 {
 		d.OperationTimeout = s.Tenants.OperationTimeout.String()
@@ -78,7 +88,11 @@ func toSetupData(s settings.Settings, source, mode string) setupData {
 }
 
 func (h *Handler) renderSetup(w http.ResponseWriter, r *http.Request, status int, s settings.Settings, source, errMsg string) {
-	h.render(w, r, status, "setup", "Setup", toSetupData(s, source, h.setup.Mode), errMsg)
+	d := toSetupData(s, source, h.setup.Mode)
+	for i := range d.Sites {
+		d.Sites[i].Tenants = h.siteTenants(r, d.Sites[i].S.ID)
+	}
+	h.render(w, r, status, "setup", "Setup", d, errMsg)
 }
 
 func (h *Handler) setupPage(w http.ResponseWriter, r *http.Request) {
@@ -97,14 +111,6 @@ func formSettings(r *http.Request, section string, cur settings.Settings) (setti
 	switch section {
 	case "hosts":
 		out.PrismHost, out.IDHost = v("prism_host"), v("id_host")
-	case "prism_central":
-		out.PrismCentral.URL, out.PrismCentral.TLSVerify = v("url"), r.FormValue("tls_verify") != ""
-		out.PrismCentral.CAPEM = strings.TrimSpace(r.FormValue("ca_pem"))
-		if k := r.FormValue("api_key"); k != "" {
-			out.PrismCentral.APIKey = settings.Secret(strings.TrimSpace(k))
-		}
-	case "saml":
-		out.PrismCentral.SAMLIdPName = v("saml_idp_name")
 	case "keycloak":
 		out.Keycloak.Realm, out.Keycloak.AdminClientID = v("realm"), v("admin_client_id")
 		if k := r.FormValue("admin_client_secret"); k != "" {
@@ -116,7 +122,6 @@ func formSettings(r *http.Request, section string, cur settings.Settings) (setti
 		}
 	case "tenants":
 		out.Tenants.ProjectPrefix, out.Tenants.GroupPrefix, out.Tenants.Role = v("project_prefix"), v("group_prefix"), v("role")
-		out.Tenants.ClusterExtID, out.Tenants.StorageContainerExtID = v("cluster_ext_id"), v("storage_container_ext_id")
 		if t := v("operation_timeout"); t != "" {
 			d, err := time.ParseDuration(t)
 			if err != nil {
@@ -199,14 +204,14 @@ func (h *Handler) setupCheck(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown target", http.StatusBadRequest)
 		return
 	}
-	res, ok := h.setup.Check(r.Context(), target, cur, cand, r.FormValue("api_key") != "")
+	res, ok := h.setup.Check(r.Context(), target, cur, cand, false)
 	if !ok {
 		http.Error(w, "unknown target", http.StatusBadRequest)
 		return
 	}
 	h.log.Info("settings check", "via", "ui", "target", target, "ok", res.OK)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	d := checkData{Target: target, Res: res, ClusterExtID: cur.Tenants.ClusterExtID, StorageContainer: cur.Tenants.StorageContainerExtID}
+	d := checkData{Target: target, Res: res}
 	if err := h.pages["setup"].ExecuteTemplate(w, "check", d); err != nil {
 		h.log.Error("template", "page", "setup/check", "err", err.Error())
 	}
@@ -268,7 +273,7 @@ func (h *Handler) setupBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target := r.PathValue("target")
-	if target != "keycloak" && target != "prism-central" && target != "saml" {
+	if target != "keycloak" {
 		http.NotFound(w, r)
 		return
 	}
@@ -293,14 +298,6 @@ func (h *Handler) setupBootstrap(w http.ResponseWriter, r *http.Request) {
 	case "keycloak":
 		var res settings.KeycloakResult
 		res, out, err = b.Keycloak(r.Context(), h.setup.KeycloakURL, cur, settings.KeycloakInput{AdminUsername: v("admin_username"), AdminPassword: r.FormValue("admin_password"), Realm: v("realm"), DisplayName: v("display_name")})
-		okRes, message = res.OK, res.Message
-	case "prism-central":
-		var res settings.PrismResult
-		res, out, err = b.PrismCentral(r.Context(), cur, settings.PrismInput{Username: v("username"), Password: r.FormValue("password"), URL: v("url"), TLSVerify: r.FormValue("tls_verify") != "", CAPEM: strings.TrimSpace(r.FormValue("ca_pem")), ServiceAccount: v("service_account")})
-		okRes, message, d.Clusters, d.Containers = res.OK, res.Message, res.Clusters, res.Containers
-	case "saml":
-		var res settings.SAMLResult
-		res, out, err = b.SAML(r.Context(), h.setup.KeycloakURL, cur, settings.SAMLInput{Name: v("saml_idp_name"), Username: v("username"), Password: r.FormValue("password")})
 		okRes, message = res.OK, res.Message
 	}
 	status := http.StatusOK

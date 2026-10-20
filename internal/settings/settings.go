@@ -1,7 +1,7 @@
 // Package settings is the runtime settings document Portico keeps in its
-// store (design §4.7): public names, Prism Central connection and
-// service-account key, Keycloak realm and admin client, OIDC client,
-// tenant naming and placement. Secrets are sealed with the master key
+// store (design §4.7): public names, the sites (one Prism Central each,
+// with its connection and service-account key, design sites §4.1),
+// Keycloak realm and admin client, OIDC client, tenant naming. Secrets are sealed with the master key
 // (design §4.6). The document overlays a loaded config.Config, which
 // keeps the process settings (listeners, TLS, paths, log).
 package settings
@@ -28,13 +28,12 @@ type Settings struct {
 	PrismHost string `json:"prism_host"`
 	IDHost    string `json:"id_host"`
 
-	PrismCentral struct {
-		URL         string `json:"url"`
-		TLSVerify   bool   `json:"tls_verify"`
-		CAPEM       string `json:"ca_pem"`
-		APIKey      Secret `json:"api_key"`
-		SAMLIdPName string `json:"saml_idp_name"`
-	} `json:"prism_central"`
+	// Sites replaced the single prism_central block in Milestone 4; a
+	// stored legacy document becomes site-1 when it is read.
+	Sites []Site `json:"sites"`
+	// PassthroughSite is the site the internal pass-through serves; empty
+	// means the first by order.
+	PassthroughSite string `json:"passthrough_site"`
 
 	Keycloak struct {
 		Realm             string `json:"realm"`
@@ -49,12 +48,10 @@ type Settings struct {
 	} `json:"oidc"`
 
 	Tenants struct {
-		ProjectPrefix         string        `json:"project_prefix"`
-		GroupPrefix           string        `json:"group_prefix"`
-		Role                  string        `json:"role"`
-		ClusterExtID          string        `json:"cluster_ext_id"`
-		StorageContainerExtID string        `json:"storage_container_ext_id"`
-		OperationTimeout      time.Duration `json:"operation_timeout"`
+		ProjectPrefix    string        `json:"project_prefix"`
+		GroupPrefix      string        `json:"group_prefix"`
+		Role             string        `json:"role"`
+		OperationTimeout time.Duration `json:"operation_timeout"`
 	} `json:"tenants"`
 }
 
@@ -69,15 +66,22 @@ type Runtime struct {
 const FromStore = "<store>"
 
 // FromConfig builds the document from a loaded YAML config and the
-// contents of its secret files.
+// contents of its secret files. The file's one Prism Central is site-1.
 func FromConfig(cfg *config.Config, apiKey, adminSecret, clientSecret, caPEM string) Settings {
 	var s Settings
 	s.PrismHost, s.IDHost = cfg.Public.PrismHost, cfg.Public.IDHost
-	s.PrismCentral.URL = cfg.PrismCentral.URL
-	s.PrismCentral.TLSVerify = cfg.PrismCentral.TLSVerify
-	s.PrismCentral.CAPEM = caPEM
-	s.PrismCentral.APIKey = Secret(apiKey)
-	s.PrismCentral.SAMLIdPName = cfg.PrismCentral.SAMLIdPName
+	if cfg.PrismCentral.URL != "" {
+		name := cfg.PrismCentral.URL
+		if u, err := url.Parse(cfg.PrismCentral.URL); err == nil && u.Hostname() != "" {
+			name = u.Hostname()
+		}
+		s.Sites = []Site{{
+			ID: LegacySiteID, Code: LegacySiteCode, Name: name,
+			URL: cfg.PrismCentral.URL, TLSVerify: cfg.PrismCentral.TLSVerify, CAPEM: caPEM,
+			APIKey: Secret(apiKey), SAMLIdPName: cfg.PrismCentral.SAMLIdPName,
+			ClusterExtID: cfg.Tenants.ClusterExtID, StorageContainerExtID: cfg.Tenants.StorageContainerExtID,
+		}}
+	}
 	s.Keycloak.Realm = cfg.Keycloak.Realm
 	s.Keycloak.AdminClientID = cfg.Keycloak.AdminClientID
 	s.Keycloak.AdminClientSecret = Secret(adminSecret)
@@ -86,22 +90,27 @@ func FromConfig(cfg *config.Config, apiKey, adminSecret, clientSecret, caPEM str
 	s.Tenants.ProjectPrefix = cfg.Tenants.ProjectPrefix
 	s.Tenants.GroupPrefix = cfg.Tenants.GroupPrefix
 	s.Tenants.Role = cfg.Tenants.Role
-	s.Tenants.ClusterExtID = cfg.Tenants.ClusterExtID
-	s.Tenants.StorageContainerExtID = cfg.Tenants.StorageContainerExtID
 	s.Tenants.OperationTimeout = cfg.Tenants.OperationTimeout
 	return s
 }
 
 // Overlay writes the document onto cfg's runtime sections and returns
 // the secrets. The secret file fields are set to FromStore and the CA
-// file is cleared: the caller uses Runtime instead of files.
+// file is cleared: the caller uses Runtime instead of files. The config
+// has one Prism Central: it gets the first site by order, and Runtime
+// carries that site's key and CA; the sites themselves are read from
+// the document.
 func (s Settings) Overlay(cfg *config.Config) (Runtime, error) {
+	var first Site
+	if o := s.OrderedSites(); len(o) > 0 {
+		first = o[0]
+	}
 	cfg.Public.PrismHost, cfg.Public.IDHost = s.PrismHost, s.IDHost
-	cfg.PrismCentral.URL = s.PrismCentral.URL
-	cfg.PrismCentral.TLSVerify = s.PrismCentral.TLSVerify
+	cfg.PrismCentral.URL = first.URL
+	cfg.PrismCentral.TLSVerify = first.TLSVerify
 	cfg.PrismCentral.CAFile = ""
 	cfg.PrismCentral.APIKeyFile = FromStore
-	cfg.PrismCentral.SAMLIdPName = s.PrismCentral.SAMLIdPName
+	cfg.PrismCentral.SAMLIdPName = first.SAMLIdPName
 	cfg.Keycloak.Realm = s.Keycloak.Realm
 	cfg.Keycloak.AdminClientID = s.Keycloak.AdminClientID
 	cfg.Keycloak.AdminClientSecretFile = FromStore
@@ -110,10 +119,10 @@ func (s Settings) Overlay(cfg *config.Config) (Runtime, error) {
 	cfg.Tenants.ProjectPrefix = s.Tenants.ProjectPrefix
 	cfg.Tenants.GroupPrefix = s.Tenants.GroupPrefix
 	cfg.Tenants.Role = s.Tenants.Role
-	cfg.Tenants.ClusterExtID = s.Tenants.ClusterExtID
-	cfg.Tenants.StorageContainerExtID = s.Tenants.StorageContainerExtID
+	cfg.Tenants.ClusterExtID = first.ClusterExtID
+	cfg.Tenants.StorageContainerExtID = first.StorageContainerExtID
 	cfg.Tenants.OperationTimeout = s.Tenants.OperationTimeout
-	return Runtime{APIKey: string(s.PrismCentral.APIKey), AdminSecret: string(s.Keycloak.AdminClientSecret), ClientSecret: string(s.OIDC.ClientSecret), CAPEM: s.PrismCentral.CAPEM}, nil
+	return Runtime{APIKey: string(first.APIKey), AdminSecret: string(s.Keycloak.AdminClientSecret), ClientSecret: string(s.OIDC.ClientSecret), CAPEM: first.CAPEM}, nil
 }
 
 // Defaults is the document a fresh appliance starts from: the naming
@@ -121,7 +130,6 @@ func (s Settings) Overlay(cfg *config.Config) (Runtime, error) {
 // systems left empty (design §4.7, setup mode).
 func Defaults() Settings {
 	var s Settings
-	s.PrismCentral.TLSVerify = true
 	s.Keycloak.AdminClientID = "portico-admin"
 	s.OIDC.ClientID = "portico"
 	s.Tenants.ProjectPrefix, s.Tenants.GroupPrefix, s.Tenants.Role = "portico", "tenant-", "Project Admin"
@@ -130,15 +138,27 @@ func Defaults() Settings {
 }
 
 // Missing lists the required fields that are empty, in document order.
-// A document with nothing missing is complete and can be applied.
+// A document with nothing missing is complete and can be applied. At
+// least one site is required, and every site needs its URL, key and
+// identity provider.
 func (s Settings) Missing() []string {
 	var out []string
+	add := func(key, value string) {
+		if strings.TrimSpace(value) == "" {
+			out = append(out, key)
+		}
+	}
+	add("prism_host", s.PrismHost)
+	add("id_host", s.IDHost)
+	if len(s.Sites) == 0 {
+		out = append(out, "sites")
+	}
+	for _, site := range s.OrderedSites() {
+		add("sites."+site.ID+".url", site.URL)
+		add("sites."+site.ID+".api_key", string(site.APIKey))
+		add("sites."+site.ID+".saml_idp_name", site.SAMLIdPName)
+	}
 	for _, r := range []struct{ key, value string }{
-		{"prism_host", s.PrismHost},
-		{"id_host", s.IDHost},
-		{"prism_central.url", s.PrismCentral.URL},
-		{"prism_central.api_key", string(s.PrismCentral.APIKey)},
-		{"prism_central.saml_idp_name", s.PrismCentral.SAMLIdPName},
 		{"keycloak.realm", s.Keycloak.Realm},
 		{"keycloak.admin_client_id", s.Keycloak.AdminClientID},
 		{"keycloak.admin_client_secret", string(s.Keycloak.AdminClientSecret)},
@@ -148,12 +168,8 @@ func (s Settings) Missing() []string {
 		{"tenants.project_prefix", s.Tenants.ProjectPrefix},
 		{"tenants.group_prefix", s.Tenants.GroupPrefix},
 		{"tenants.role", s.Tenants.Role},
-		{"tenants.cluster_ext_id", s.Tenants.ClusterExtID},
-		{"tenants.storage_container_ext_id", s.Tenants.StorageContainerExtID},
 	} {
-		if strings.TrimSpace(r.value) == "" {
-			out = append(out, r.key)
-		}
+		add(r.key, r.value)
 	}
 	if s.Tenants.OperationTimeout == 0 {
 		out = append(out, "tenants.operation_timeout")
@@ -180,7 +196,8 @@ func (s Settings) ValidateFormat() error {
 			errs = append(errs, fmt.Errorf("settings: %s %q must be a host name (letters, digits, dots, dashes, optional :port)", r.key, r.value))
 		}
 	}
-	for _, r := range []struct{ key, value string }{{"prism_central.url", s.PrismCentral.URL}, {"oidc.issuer", s.OIDC.Issuer}} {
+	errs = append(errs, s.validateSites()...)
+	for _, r := range []struct{ key, value string }{{"oidc.issuer", s.OIDC.Issuer}} {
 		if r.value == "" {
 			continue
 		}
