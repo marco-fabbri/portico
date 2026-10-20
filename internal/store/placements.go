@@ -19,6 +19,9 @@ const (
 	PlacementActive   PlacementStatus = "active"
 	PlacementFailed   PlacementStatus = "failed"
 	PlacementRemoving PlacementStatus = "removing"
+	// PlacementRemoveFailed is a removal that stopped: it is repeated,
+	// never turned back into provisioning (review I2).
+	PlacementRemoveFailed PlacementStatus = "remove-failed"
 )
 
 // Placement is a tenant on one site: the Projects 2.0 objects Portico

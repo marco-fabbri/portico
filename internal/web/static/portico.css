@@ -91,7 +91,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .status { display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .status-creating, .status-deleting, .status-removing { background: var(--neutral-bg); color: var(--neutral); }
 .status-active, .status-available { background: var(--ok-bg); color: var(--ok); }
-.status-failed, .status-unreachable { background: var(--bad-bg); color: var(--bad); }
+.status-failed, .status-unreachable, .status-remove-failed { background: var(--bad-bg); color: var(--bad); }
 .status-disabled, .status-maintenance { background: var(--warn-bg); color: var(--warn); }
 h1 .status { vertical-align: middle; margin-left: .3rem; }
 .ok, .step-ok { color: var(--ok); font-weight: 600; } .bad, .step-failed { color: var(--bad); font-weight: 600; }

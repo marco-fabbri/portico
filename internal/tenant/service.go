@@ -457,10 +457,14 @@ func (s *Service) RecoverInterrupted(ctx context.Context) (int, error) {
 		}
 		for j := range ps {
 			p := &ps[j]
-			if p.Status != store.PlacementCreating && p.Status != store.PlacementRemoving {
+			switch p.Status {
+			case store.PlacementCreating:
+				p.Status, p.LastError = store.PlacementFailed, "provisioning interrupted by a restart; retry"
+			case store.PlacementRemoving:
+				p.Status, p.LastError = store.PlacementRemoveFailed, "removal interrupted by a restart; remove the site again"
+			default:
 				continue
 			}
-			p.Status, p.LastError = store.PlacementFailed, "interrupted by a restart; retry or remove the site again"
 			if err := s.st.UpdatePlacement(ctx, p); err != nil {
 				return n, err
 			}

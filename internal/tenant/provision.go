@@ -91,7 +91,10 @@ func (s *Service) provision(ctx context.Context, id string, keepStatus bool) err
 	var failures []string
 	var ready []prepared
 	for i := range ps {
-		if ps[i].Status == store.PlacementActive {
+		// Active sites are done; a site being removed, or whose removal
+		// failed, is never provisioned again (review I2).
+		switch ps[i].Status {
+		case store.PlacementActive, store.PlacementRemoving, store.PlacementRemoveFailed:
 			continue
 		}
 		pr, err := s.prepare(ctx, &ps[i])
@@ -332,7 +335,7 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string, 
 		return err
 	}
 	fail := func(err error) error {
-		p.Status, p.LastError = store.PlacementFailed, err.Error()
+		p.Status, p.LastError = store.PlacementRemoveFailed, err.Error()
 		if uerr := s.st.UpdatePlacement(ctx, p); uerr != nil {
 			s.log.Warn("placement update failed", "tenant", tenantID, "site", siteID, "err", uerr.Error())
 		}
