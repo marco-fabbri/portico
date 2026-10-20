@@ -91,7 +91,8 @@ func (h *publicHarness) do(method, rawURL string, hdr map[string]string, session
 		r.Header.Set(k, v)
 	}
 	if session {
-		h.store.Create(auth.Session{ID: "sid", Subject: "alice", Email: "alice@example.test", Tenant: "acme", CreatedAt: time.Now(), LastSeen: time.Now()})
+		// An established session: on its one site, whose cookies it holds.
+		h.store.Create(auth.Session{ID: "sid", Subject: "alice", Email: "alice@example.test", Tenant: "acme", Site: "site-a", CookieSite: "site-a", CreatedAt: time.Now(), LastSeen: time.Now()})
 		r.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: "sid"})
 	}
 	rec := httptest.NewRecorder()

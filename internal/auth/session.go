@@ -46,6 +46,10 @@ type Session struct {
 	// every request (design sites §4.4).
 	Site      string
 	SiteSince time.Time
+	// CookieSite is the site whose Prism Central cookies the browser
+	// holds live: the last site chosen. "Disconnect" clears Site, not
+	// CookieSite, so the next choice still stashes the right cookies.
+	CookieSite string
 }
 
 // ActiveWindow is how recent a session's last request must be for the
@@ -123,6 +127,7 @@ func (m *MemoryStore) SetSite(id, site string, now time.Time) bool {
 	if s.Site != site {
 		s.Site, s.SiteSince = site, now
 	}
+	s.CookieSite = site
 	m.sessions[id] = s
 	return true
 }
