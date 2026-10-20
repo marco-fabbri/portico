@@ -245,11 +245,14 @@ consequences, accepted:
 
 Decided mechanism (builder fixes the details after measuring, section 6):
 
-- The chosen site lives in a Portico cookie (`__Host-portico_site`),
-  authenticated by Portico so the browser cannot forge it, and is checked
-  against the tenant's placements on every request. No server-side
-  state, so the pair (design 4.11) needs nothing more than the shared key
-  it already plans.
+- The chosen site lives in the Portico session, next to the tenant the
+  login resolved, and is checked against the tenant's placements on every
+  request; the browser cannot choose a site the check refuses. Builder's
+  ruling while planning (2026-10-20), replacing a separate
+  `__Host-portico_site` cookie: "Disconnect remaining users" and the list
+  of connected users need the site on the server anyway, and when the pair
+  (design 4.11) turns the session into a shared encrypted cookie, the site
+  travels inside it.
 - Prism Central's cookies keep their own names for the **active** site,
   because the console's JavaScript may read some of them. On a switch,
   Portico renames the active site's cookies into a per-site stash
