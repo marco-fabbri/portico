@@ -4,6 +4,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -84,40 +85,78 @@ func New(svc *tenant.Service, st store.Store, brand *branding.Service, so *Setti
 	mux.HandleFunc("POST "+Prefix+"tenants/{id}/enable", h.running(h.enable))
 	mux.HandleFunc("POST "+Prefix+"tenants/{id}/users", h.running(h.createUser))
 	mux.HandleFunc("GET "+Prefix+"tenants/{id}/visibility", h.running(h.visibility))
+	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites", h.running(h.addSite))
+	mux.HandleFunc("DELETE "+Prefix+"tenants/{id}/sites/{site}", h.running(h.removeSite))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})
 	return mux
 }
 
-// tenantJSON is the wire shape of a tenant.
+// tenantJSON is the wire shape of a tenant: the row and one entry per
+// site it is placed on (design sites §4.2).
 type tenantJSON struct {
-	ID                  string    `json:"id"`
-	DisplayName         string    `json:"display_name"`
-	Status              string    `json:"status"`
-	Contacts            string    `json:"contacts"`
-	ProjectID           string    `json:"project_id"`
-	ProjectExtID        string    `json:"project_ext_id"`
-	ResourceGroupExtID  string    `json:"resource_group_ext_id"`
-	SAMLGroupExtID      string    `json:"saml_group_ext_id"`
-	KeycloakGroupID     string    `json:"keycloak_group_id"`
-	RoleMembershipExtID string    `json:"role_membership_ext_id"`
-	IdPShared           bool      `json:"idp_shared"`
-	LastError           string    `json:"last_error"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	ID              string          `json:"id"`
+	DisplayName     string          `json:"display_name"`
+	Status          string          `json:"status"`
+	Contacts        string          `json:"contacts"`
+	KeycloakGroupID string          `json:"keycloak_group_id"`
+	LastError       string          `json:"last_error"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+	Placements      []placementJSON `json:"placements"`
 }
 
-func toJSON(t *store.Tenant) tenantJSON {
-	return tenantJSON{
-		ID: t.ID, DisplayName: t.DisplayName, Status: string(t.Status), Contacts: t.Contacts,
-		ProjectID: t.ProjectID, ProjectExtID: t.ProjectExtID, ResourceGroupExtID: t.ResourceGroupExtID,
-		SAMLGroupExtID: t.SAMLGroupExtID, KeycloakGroupID: t.KeycloakGroupID, RoleMembershipExtID: t.RoleMembershipExtID,
-		IdPShared: t.IdPShared, LastError: t.LastError, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+// placementJSON is a tenant on one site.
+type placementJSON struct {
+	Site                  string `json:"site"`
+	Code                  string `json:"code"`
+	Status                string `json:"status"`
+	ClusterExtID          string `json:"cluster_ext_id"`
+	StorageContainerExtID string `json:"storage_container_ext_id"`
+	ProjectID             string `json:"project_id"`
+	ProjectExtID          string `json:"project_ext_id"`
+	ResourceGroupExtID    string `json:"resource_group_ext_id"`
+	SAMLGroupExtID        string `json:"saml_group_ext_id"`
+	RoleMembershipExtID   string `json:"role_membership_ext_id"`
+	IdPShared             bool   `json:"idp_shared"`
+	LastError             string `json:"last_error"`
+}
+
+// toJSON builds a tenant's wire shape with its placements.
+func (h *handler) toJSON(ctx context.Context, t *store.Tenant) (tenantJSON, error) {
+	ps, err := h.st.ListPlacements(ctx, t.ID)
+	if err != nil {
+		return tenantJSON{}, err
 	}
+	out := tenantJSON{
+		ID: t.ID, DisplayName: t.DisplayName, Status: string(t.Status), Contacts: t.Contacts,
+		KeycloakGroupID: t.KeycloakGroupID, LastError: t.LastError, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+		Placements: make([]placementJSON, 0, len(ps)),
+	}
+	for _, p := range ps {
+		out.Placements = append(out.Placements, placementJSON{
+			Site: p.SiteID, Code: h.svc.SiteCode(p.SiteID), Status: string(p.Status),
+			ClusterExtID: p.ClusterExtID, StorageContainerExtID: p.StorageContainerExtID,
+			ProjectID: p.ProjectID, ProjectExtID: p.ProjectExtID, ResourceGroupExtID: p.ResourceGroupExtID,
+			SAMLGroupExtID: p.SAMLGroupExtID, RoleMembershipExtID: p.RoleMembershipExtID, IdPShared: p.IdPShared, LastError: p.LastError,
+		})
+	}
+	return out, nil
+}
+
+// writeTenant answers a tenant with its placements.
+func (h *handler) writeTenant(w http.ResponseWriter, r *http.Request, status int, t *store.Tenant) {
+	j, err := h.toJSON(r.Context(), t)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, status, j)
 }
 
 type stepJSON struct {
+	Site   string    `json:"site"`
 	Name   string    `json:"name"`
 	OK     bool      `json:"ok"`
 	Detail string    `json:"detail"`
@@ -143,9 +182,9 @@ func (h *handler) fail(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "tenant not found")
 	case errors.Is(err, store.ErrExists), errors.Is(err, tenant.ErrExists):
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, tenant.ErrBusy), errors.Is(err, tenant.ErrState):
+	case errors.Is(err, tenant.ErrBusy), errors.Is(err, tenant.ErrState), errors.Is(err, tenant.ErrPlacementExists), errors.Is(err, tenant.ErrLastSite):
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, tenant.ErrInvalidSlug):
+	case errors.Is(err, tenant.ErrInvalidSlug), errors.Is(err, tenant.ErrUnknownSite), errors.Is(err, tenant.ErrNoSites), errors.Is(err, tenant.ErrNoPlacementTarget):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
 		h.log.Error("api request failed", "err", err.Error())
@@ -170,16 +209,22 @@ func (h *handler) listTenants(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]tenantJSON, 0, len(ts))
 	for i := range ts {
-		out = append(out, toJSON(&ts[i]))
+		j, err := h.toJSON(r.Context(), &ts[i])
+		if err != nil {
+			h.fail(w, err)
+			return
+		}
+		out = append(out, j)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 func (h *handler) createTenant(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Slug        string `json:"slug"`
-		DisplayName string `json:"display_name"`
-		Contacts    string `json:"contacts"`
+		Slug        string                 `json:"slug"`
+		DisplayName string                 `json:"display_name"`
+		Contacts    string                 `json:"contacts"`
+		Sites       []placementRequestJSON `json:"sites"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
@@ -189,12 +234,16 @@ func (h *handler) createTenant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, tenant.ErrInvalidSlug.Error())
 		return
 	}
-	t, err := h.svc.Create(r.Context(), tenant.CreateRequest{Slug: in.Slug, DisplayName: strings.TrimSpace(in.DisplayName), Contacts: strings.TrimSpace(in.Contacts)})
+	req := tenant.CreateRequest{Slug: in.Slug, DisplayName: strings.TrimSpace(in.DisplayName), Contacts: strings.TrimSpace(in.Contacts)}
+	for _, p := range in.Sites {
+		req.Sites = append(req.Sites, p.request())
+	}
+	t, err := h.svc.Create(r.Context(), req)
 	if err != nil {
 		h.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, toJSON(t))
+	h.writeTenant(w, r, http.StatusAccepted, t)
 }
 
 func (h *handler) getTenant(w http.ResponseWriter, r *http.Request) {
@@ -203,7 +252,7 @@ func (h *handler) getTenant(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toJSON(t))
+	h.writeTenant(w, r, http.StatusOK, t)
 }
 
 func (h *handler) listSteps(w http.ResponseWriter, r *http.Request) {
@@ -218,7 +267,7 @@ func (h *handler) listSteps(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]stepJSON, 0, len(steps))
 	for _, s := range steps {
-		out = append(out, stepJSON{Name: s.Name, OK: s.OK, Detail: s.Detail, At: s.At})
+		out = append(out, stepJSON{Site: s.SiteID, Name: s.Name, OK: s.OK, Detail: s.Detail, At: s.At})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -233,7 +282,7 @@ func (h *handler) retry(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, toJSON(t))
+	h.writeTenant(w, r, http.StatusAccepted, t)
 }
 
 func (h *handler) deleteTenant(w http.ResponseWriter, r *http.Request) {
@@ -277,7 +326,7 @@ func (h *handler) setEnabled(w http.ResponseWriter, r *http.Request, enabled boo
 		h.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toJSON(t))
+	h.writeTenant(w, r, http.StatusOK, t)
 }
 
 func (h *handler) createUser(w http.ResponseWriter, r *http.Request) {
@@ -309,5 +358,60 @@ func (h *handler) visibility(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, v)
+	writeJSON(w, http.StatusOK, map[string]any{"sites": v})
+}
+
+// placementRequestJSON places a tenant on a site; empty cluster and
+// container take the site's defaults.
+type placementRequestJSON struct {
+	Site                  string `json:"site"`
+	ClusterExtID          string `json:"cluster_ext_id"`
+	StorageContainerExtID string `json:"storage_container_ext_id"`
+}
+
+func (p placementRequestJSON) request() tenant.PlacementRequest {
+	return tenant.PlacementRequest{Site: strings.TrimSpace(p.Site), ClusterExtID: strings.TrimSpace(p.ClusterExtID), StorageContainerExtID: strings.TrimSpace(p.StorageContainerExtID)}
+}
+
+func (h *handler) addSite(w http.ResponseWriter, r *http.Request) {
+	var in placementRequestJSON
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	id := r.PathValue("id")
+	if err := h.svc.AddSite(r.Context(), id, in.request()); err != nil {
+		h.fail(w, err)
+		return
+	}
+	h.log.Info("tenant site added", "tenant", id, "site", in.Site)
+	t, err := h.st.GetTenant(r.Context(), id)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	h.writeTenant(w, r, http.StatusAccepted, t)
+}
+
+func (h *handler) removeSite(w http.ResponseWriter, r *http.Request) {
+	deleteProject := false
+	if v := r.URL.Query().Get("delete_project"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "delete_project must be true or false")
+			return
+		}
+		deleteProject = b
+	}
+	id, site := r.PathValue("id"), r.PathValue("site")
+	if err := h.svc.RemoveSite(r.Context(), id, site, deleteProject); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "the tenant is not placed on site "+site)
+			return
+		}
+		h.fail(w, err)
+		return
+	}
+	h.log.Info("tenant site removal started", "tenant", id, "site", site, "delete_project", deleteProject)
+	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "site": site, "status": string(store.PlacementRemoving), "delete_project": deleteProject})
 }

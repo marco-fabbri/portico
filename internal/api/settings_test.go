@@ -94,7 +94,7 @@ func newSettingsEnv(t *testing.T, stored bool) *settingsEnv {
 		}
 	}
 	log := slog.New(slog.NewJSONHandler(e.log, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	tsvc := tenant.NewService(st, tenanttest.NewPC("portico-idp"), tenanttest.NewKC(), tenant.Config{SAMLIdPName: "portico-idp", ClusterExtID: "cl", StorageContainerExtID: "sc"}, log)
+	tsvc := tenant.NewService(st, []tenant.Site{{ID: "site-a", Code: "SITE-A", PC: tenanttest.NewPC("portico-idp"), SAMLIdPName: "portico-idp", ClusterExtID: "cl", StorageContainerExtID: "sc"}}, tenanttest.NewKC(), tenant.Config{}, log)
 	file := sampleSettings(pc.URL)
 	e.busy = 0
 	e.kcAdmin = newFakeKCAdmin(t)

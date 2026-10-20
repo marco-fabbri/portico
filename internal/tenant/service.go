@@ -1,6 +1,7 @@
 // Package tenant creates, deletes and checks tenants (design §4.4): a
-// Keycloak group tied to a Projects 2.0 project through a SAML group and a
-// project-scoped role membership. Every step is idempotent (find, then
+// Keycloak group tied, on every site where the tenant has resources, to a
+// Projects 2.0 project through a SAML group and a project-scoped role
+// membership (design sites §4.2). Every step is idempotent (find, then
 // create) and recorded in the store, so a failed run can be retried and
 // the record shows where it stopped. Long operations run in the
 // background; one operation per tenant at a time.
@@ -26,7 +27,27 @@ var (
 	ErrState = errors.New("tenant: operation not allowed in this status")
 	// ErrExists is returned when a user already exists.
 	ErrExists = errors.New("tenant: already exists")
+	// ErrUnknownSite: the request names a site that is not configured.
+	ErrUnknownSite = errors.New("tenant: no such site")
+	// ErrNoSites: no site named while several are configured.
+	ErrNoSites = errors.New("tenant: name the sites to place the tenant on")
+	// ErrLastSite: a tenant keeps at least one site; delete the tenant instead.
+	ErrLastSite = errors.New("tenant: this is the tenant's last site; delete the tenant instead")
+	// ErrPlacementExists: the tenant is already on that site.
+	ErrPlacementExists = errors.New("tenant: already placed on this site")
+	// ErrNoPlacementTarget: neither the request nor the site names a cluster and a storage container.
+	ErrNoPlacementTarget = errors.New("tenant: a cluster and a storage container are needed on this site (the site has no defaults)")
 )
+
+// Site is one Prism Central the service places tenants on (design sites
+// §4.1), with its client, its SAML identity provider and the default
+// placement of new tenants.
+type Site struct {
+	ID, Code                            string
+	PC                                  PrismCentral
+	SAMLIdPName                         string
+	ClusterExtID, StorageContainerExtID string
+}
 
 // PrismCentral is the part of the Prism Central client the service uses.
 type PrismCentral interface {
@@ -62,15 +83,13 @@ type Keycloak interface {
 	SetUserEnabled(ctx context.Context, userID string, enabled bool) error
 }
 
-// Config holds the naming and placement settings of the service.
+// Config holds the naming settings of the service; placement lives on
+// the sites.
 type Config struct {
-	ProjectPrefix         string        // project name and id = ProjectPrefix + "-" + slug
-	GroupPrefix           string        // Keycloak and SAML group = GroupPrefix + slug
-	RoleName              string        // role bound inside the project, "Project Admin" by default
-	SAMLIdPName           string        // the identity provider in Prism Central to share with projects
-	ClusterExtID          string        // placement of the resource group
-	StorageContainerExtID string        // placement of the resource group
-	OperationTimeout      time.Duration // context of a background run
+	ProjectPrefix    string        // project name and id = ProjectPrefix + "-" + slug, on every site
+	GroupPrefix      string        // Keycloak and SAML group = GroupPrefix + slug
+	RoleName         string        // role bound inside the project, "Project Admin" by default
+	OperationTimeout time.Duration // context of a background run
 }
 
 func (c Config) withDefaults() Config {
@@ -91,28 +110,99 @@ func (c Config) withDefaults() Config {
 
 // Service runs tenant operations.
 type Service struct {
-	st  store.Store
-	pc  PrismCentral
-	kc  Keycloak
-	cfg Config
-	log *slog.Logger
+	st    store.Store
+	sites map[string]Site
+	order []string
+	kc    Keycloak
+	cfg   Config
+	log   *slog.Logger
 
 	mu      sync.Mutex
 	running map[string]bool
 	wg      sync.WaitGroup
+	hooks   []func(tenantID string)
 }
 
-// NewService returns a service over the store and the two backends.
-func NewService(st store.Store, pc PrismCentral, kc Keycloak, cfg Config, log *slog.Logger) *Service {
+// NewService returns a service over the store, the sites (in the order
+// they are shown) and Keycloak.
+func NewService(st store.Store, sites []Site, kc Keycloak, cfg Config, log *slog.Logger) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Service{st: st, pc: pc, kc: kc, cfg: cfg.withDefaults(), log: log, running: map[string]bool{}}
+	s := &Service{st: st, sites: map[string]Site{}, kc: kc, cfg: cfg.withDefaults(), log: log, running: map[string]bool{}}
+	for _, site := range sites {
+		s.sites[site.ID] = site
+		s.order = append(s.order, site.ID)
+	}
+	return s
 }
 
-// CreateRequest is the input of Create.
+// Sites returns the configured sites in order.
+func (s *Service) Sites() []Site {
+	out := make([]Site, 0, len(s.order))
+	for _, id := range s.order {
+		out = append(out, s.sites[id])
+	}
+	return out
+}
+
+// SiteCode returns the code of a configured site, or the id itself.
+func (s *Service) SiteCode(id string) string {
+	if site, ok := s.sites[id]; ok && site.Code != "" {
+		return site.Code
+	}
+	return id
+}
+
+// OnPlacementChange registers fn, called with the tenant id whenever its
+// placements change (created, active, failed, removed): the routing index
+// drops its cached copy (design sites §4.3).
+func (s *Service) OnPlacementChange(fn func(tenantID string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hooks = append(s.hooks, fn)
+}
+
+func (s *Service) changed(tenantID string) {
+	s.mu.Lock()
+	hooks := append([]func(string){}, s.hooks...)
+	s.mu.Unlock()
+	for _, fn := range hooks {
+		fn(tenantID)
+	}
+}
+
+// PlacementRequest places a tenant on a site; an empty cluster or
+// container takes the site's default.
+type PlacementRequest struct {
+	Site, ClusterExtID, StorageContainerExtID string
+}
+
+// CreateRequest is the input of Create. Without sites the tenant goes on
+// the only configured site; with several configured, Sites is required.
 type CreateRequest struct {
 	Slug, DisplayName, Contacts string
+	Sites                       []PlacementRequest
+}
+
+// placementFor resolves a request against the configured sites.
+func (s *Service) placementFor(tenantID string, r PlacementRequest) (*store.Placement, error) {
+	site, ok := s.sites[r.Site]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrUnknownSite, r.Site)
+	}
+	p := &store.Placement{TenantID: tenantID, SiteID: site.ID, Status: store.PlacementCreating,
+		ClusterExtID: r.ClusterExtID, StorageContainerExtID: r.StorageContainerExtID, ProjectID: s.projectName(tenantID)}
+	if p.ClusterExtID == "" {
+		p.ClusterExtID = site.ClusterExtID
+	}
+	if p.StorageContainerExtID == "" {
+		p.StorageContainerExtID = site.StorageContainerExtID
+	}
+	if p.ClusterExtID == "" || p.StorageContainerExtID == "" {
+		return nil, fmt.Errorf("%w: site %s", ErrNoPlacementTarget, site.Code)
+	}
+	return p, nil
 }
 
 func (s *Service) projectName(slug string) string { return s.cfg.ProjectPrefix + "-" + slug }
@@ -162,13 +252,34 @@ func (s *Service) Running() int {
 	return len(s.running)
 }
 
-// Create validates the request, records the tenant as creating and starts
-// provisioning in the background. store.ErrExists passes through.
+// Create validates the request, records the tenant and its placements
+// as creating and starts provisioning in the background. store.ErrExists
+// passes through.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*store.Tenant, error) {
 	if !ValidSlug(req.Slug) {
 		return nil, ErrInvalidSlug
 	}
-	t := &store.Tenant{ID: req.Slug, DisplayName: req.DisplayName, Contacts: req.Contacts, Status: store.StatusCreating, ProjectID: s.projectName(req.Slug), LastOp: store.OpProvision}
+	reqs := req.Sites
+	if len(reqs) == 0 {
+		if len(s.order) != 1 {
+			return nil, ErrNoSites
+		}
+		reqs = []PlacementRequest{{Site: s.order[0]}}
+	}
+	var ps []*store.Placement
+	seen := map[string]bool{}
+	for _, r := range reqs {
+		if seen[r.Site] {
+			return nil, fmt.Errorf("%w: %s named twice", ErrPlacementExists, r.Site)
+		}
+		seen[r.Site] = true
+		p, err := s.placementFor(req.Slug, r)
+		if err != nil {
+			return nil, err
+		}
+		ps = append(ps, p)
+	}
+	t := &store.Tenant{ID: req.Slug, DisplayName: req.DisplayName, Contacts: req.Contacts, Status: store.StatusCreating, LastOp: store.OpProvision}
 	// The lock comes first: a deletion releases it only after the row is
 	// gone, so a Create in that window must not insert an orphan row.
 	if !s.acquire(t.ID) {
@@ -178,9 +289,81 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*store.Tenant,
 		s.release(t.ID)
 		return nil, err
 	}
-	s.background(t.ID, store.OpProvision, func(ctx context.Context) error { return s.provision(ctx, t.ID) })
+	for _, p := range ps {
+		if err := s.st.CreatePlacement(ctx, p); err != nil {
+			s.st.DeleteTenant(ctx, t.ID) // the placements go with the row
+			s.release(t.ID)
+			return nil, err
+		}
+	}
+	s.changed(t.ID)
+	s.background(t.ID, store.OpProvision, func(ctx context.Context) error { return s.provision(ctx, t.ID, false) })
 	out := *t
 	return &out, nil
+}
+
+// AddSite places an active tenant on one more site and provisions it in
+// the background; the tenant stays active whatever the new site's
+// outcome, which its placement records (design sites §4.2).
+func (s *Service) AddSite(ctx context.Context, id string, r PlacementRequest) error {
+	t, err := s.st.GetTenant(ctx, id)
+	if err != nil {
+		return err
+	}
+	if t.Status != store.StatusActive {
+		return fmt.Errorf("%w: %s", ErrState, t.Status)
+	}
+	p, err := s.placementFor(id, r)
+	if err != nil {
+		return err
+	}
+	if !s.acquire(id) {
+		return ErrBusy
+	}
+	if err := s.st.CreatePlacement(ctx, p); err != nil {
+		s.release(id)
+		if errors.Is(err, store.ErrExists) {
+			return fmt.Errorf("%w: %s", ErrPlacementExists, s.SiteCode(p.SiteID))
+		}
+		return err
+	}
+	s.changed(id)
+	s.background(id, store.OpProvision, func(ctx context.Context) error { return s.provision(ctx, id, true) })
+	return nil
+}
+
+// RemoveSite takes a tenant off one site in the background: the 2a
+// deletion steps on that site, the project too when deleteProject is
+// set, then the placement row. The last site cannot be removed.
+func (s *Service) RemoveSite(ctx context.Context, id, siteID string, deleteProject bool) error {
+	if _, err := s.st.GetTenant(ctx, id); err != nil {
+		return err
+	}
+	p, err := s.st.GetPlacement(ctx, id, siteID)
+	if err != nil {
+		return err
+	}
+	ps, err := s.st.ListPlacements(ctx, id)
+	if err != nil {
+		return err
+	}
+	if len(ps) <= 1 {
+		return ErrLastSite
+	}
+	if !s.acquire(id) {
+		return ErrBusy
+	}
+	p.Status, p.LastError = store.PlacementRemoving, ""
+	if err := s.st.UpdatePlacement(ctx, p); err != nil {
+		s.release(id)
+		return err
+	}
+	s.changed(id)
+	s.background(id, "remove-site", func(ctx context.Context) error {
+		defer s.changed(id)
+		return s.removePlacement(ctx, id, siteID, deleteProject)
+	})
+	return nil
 }
 
 // Provision runs the provisioning steps synchronously. It is what Create
@@ -190,30 +373,49 @@ func (s *Service) Provision(ctx context.Context, id string) error {
 		return ErrBusy
 	}
 	defer s.release(id)
-	return s.provision(ctx, id)
+	return s.provision(ctx, id, false)
 }
 
-// Retry restarts provisioning of a failed tenant in the background.
+// Retry restarts provisioning in the background on every placement that
+// is not active: a failed tenant (not after a failed deletion), or an
+// active tenant whose added site failed.
 func (s *Service) Retry(ctx context.Context, id string) error {
 	t, err := s.st.GetTenant(ctx, id)
 	if err != nil {
 		return err
 	}
-	if t.Status != store.StatusFailed {
-		return fmt.Errorf("%w: %s", ErrState, t.Status)
-	}
-	if t.LastOp == store.OpDelete {
+	keepStatus := false
+	switch {
+	case t.Status == store.StatusFailed && t.LastOp == store.OpDelete:
 		return fmt.Errorf("%w: the last operation was a deletion that failed; delete the tenant again", ErrState)
+	case t.Status == store.StatusFailed:
+	case t.Status == store.StatusActive:
+		ps, err := s.st.ListPlacements(ctx, id)
+		if err != nil {
+			return err
+		}
+		failed := false
+		for _, p := range ps {
+			failed = failed || p.Status == store.PlacementFailed
+		}
+		if !failed {
+			return fmt.Errorf("%w: %s, and every site is active", ErrState, t.Status)
+		}
+		keepStatus = true
+	default:
+		return fmt.Errorf("%w: %s", ErrState, t.Status)
 	}
 	if !s.acquire(id) {
 		return ErrBusy
 	}
-	t.Status, t.LastOp = store.StatusCreating, store.OpProvision
-	if err := s.st.UpdateTenant(ctx, t); err != nil {
-		s.release(id)
-		return err
+	if !keepStatus {
+		t.Status, t.LastOp = store.StatusCreating, store.OpProvision
+		if err := s.st.UpdateTenant(ctx, t); err != nil {
+			s.release(id)
+			return err
+		}
 	}
-	s.background(id, store.OpProvision, func(ctx context.Context) error { return s.provision(ctx, id) })
+	s.background(id, store.OpProvision, func(ctx context.Context) error { return s.provision(ctx, id, keepStatus) })
 	return nil
 }
 
@@ -243,6 +445,27 @@ func (s *Service) RecoverInterrupted(ctx context.Context) (int, error) {
 		s.log.Warn("tenant operation interrupted by a restart", "tenant", t.ID, "op", t.LastOp)
 		n++
 	}
+	// Placements left creating or removing (a site added or removed when
+	// the process stopped) are failed too, whatever their tenant's status.
+	for i := range ts {
+		if s.isRunning(ts[i].ID) {
+			continue
+		}
+		ps, err := s.st.ListPlacements(ctx, ts[i].ID)
+		if err != nil {
+			return n, err
+		}
+		for j := range ps {
+			p := &ps[j]
+			if p.Status != store.PlacementCreating && p.Status != store.PlacementRemoving {
+				continue
+			}
+			p.Status, p.LastError = store.PlacementFailed, "interrupted by a restart; retry or remove the site again"
+			if err := s.st.UpdatePlacement(ctx, p); err != nil {
+				return n, err
+			}
+		}
+	}
 	return n, nil
 }
 
@@ -267,7 +490,10 @@ func (s *Service) Delete(ctx context.Context, id string, deleteProject bool) err
 		s.release(id)
 		return err
 	}
-	s.background(id, store.OpDelete, func(ctx context.Context) error { return s.remove(ctx, id, deleteProject) })
+	s.background(id, store.OpDelete, func(ctx context.Context) error {
+		defer s.changed(id)
+		return s.remove(ctx, id, deleteProject)
+	})
 	return nil
 }
 

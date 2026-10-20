@@ -58,9 +58,10 @@ type PC struct {
 	Policies    map[string][]string // policy display name → extIds it mentions
 	Creates     map[string]int      // method → count
 	Calls       int
-	FailOnce    map[string]error // method → error returned once
-	GateCreate  *Gate            // held by CreateProject when set
-	GateDelete  *Gate            // held by DeleteUserGroup when set
+	FailOnce    map[string]error  // method → error returned once
+	GateCreate  *Gate             // held by CreateProject when set
+	GateDelete  *Gate             // held by DeleteUserGroup when set
+	RGCluster   map[string]string // resource group extId → the cluster it was created on
 	seq         int
 }
 
@@ -68,12 +69,13 @@ type PC struct {
 // "Project Admin" and the default project.
 func NewPC(idpName string) *PC {
 	return &PC{
-		Projects: []nutanix.Project{{ExtID: "00000000-0000-0000-0000-000000000000", ID: "default", Name: "_internal", IsDefault: true}},
-		IdPs:     []nutanix.SAMLIdP{{ExtID: "idp-1", Name: idpName}},
-		Roles:    []nutanix.Role{{ExtID: "role-pa", DisplayName: "Project Admin"}},
-		Policies: map[string][]string{"Super Admin_acp": {"u-admin"}},
-		Creates:  map[string]int{},
-		FailOnce: map[string]error{},
+		Projects:  []nutanix.Project{{ExtID: "00000000-0000-0000-0000-000000000000", ID: "default", Name: "_internal", IsDefault: true}},
+		IdPs:      []nutanix.SAMLIdP{{ExtID: "idp-1", Name: idpName}},
+		Roles:     []nutanix.Role{{ExtID: "role-pa", DisplayName: "Project Admin"}},
+		Policies:  map[string][]string{"Super Admin_acp": {"u-admin"}},
+		Creates:   map[string]int{},
+		FailOnce:  map[string]error{},
+		RGCluster: map[string]string{},
 	}
 }
 
@@ -162,6 +164,7 @@ func (p *PC) CreateResourceGroup(ctx context.Context, name, projectExtID, cluste
 	p.Creates["CreateResourceGroup"]++
 	rg := nutanix.ResourceGroup{ExtID: p.next("rg"), Name: name, ProjectExtID: projectExtID}
 	p.RGs = append(p.RGs, rg)
+	p.RGCluster[rg.ExtID] = clusterExtID
 	return &rg, nil
 }
 

@@ -34,9 +34,19 @@ func newEnv(t *testing.T) *env {
 	kc := tenanttest.NewKC()
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	cfg := Config{ProjectPrefix: "portico", GroupPrefix: "tenant-", RoleName: "Project Admin", SAMLIdPName: "portico-idp",
-		ClusterExtID: "cl-1", StorageContainerExtID: "sc-1", OperationTimeout: 5 * time.Second}
-	return &env{svc: NewService(st, pc, kc, cfg, log), st: st, pc: pc, kc: kc, log: &buf}
+	cfg := Config{ProjectPrefix: "portico", GroupPrefix: "tenant-", RoleName: "Project Admin", OperationTimeout: 5 * time.Second}
+	sites := []Site{{ID: "site-a", Code: "SITE-A", PC: pc, SAMLIdPName: "portico-idp", ClusterExtID: "cl-1", StorageContainerExtID: "sc-1"}}
+	return &env{svc: NewService(st, sites, kc, cfg, log), st: st, pc: pc, kc: kc, log: &buf}
+}
+
+// place returns the tenant's placement on the only site.
+func (e *env) place(t *testing.T, id string) *store.Placement {
+	t.Helper()
+	p, err := e.st.GetPlacement(context.Background(), id, "site-a")
+	if err != nil {
+		t.Fatalf("placement %s: %v", id, err)
+	}
+	return p
 }
 
 func (e *env) create(t *testing.T, slug string) *store.Tenant {
@@ -89,19 +99,20 @@ func TestProvisionHappyPath(t *testing.T) {
 	if len(e.kc.Groups) != 1 || e.kc.Groups[0].Name != "tenant-acme" || tn.KeycloakGroupID != e.kc.Groups[0].ID {
 		t.Fatalf("keycloak groups = %+v, tenant %+v", e.kc.Groups, tn)
 	}
-	if len(e.pc.Projects) != 2 || e.pc.Projects[1].Name != "portico-acme" || e.pc.Projects[1].ID != "portico-acme" || tn.ProjectExtID != e.pc.Projects[1].ExtID || tn.ProjectID != "portico-acme" {
+	pl := e.place(t, "acme")
+	if len(e.pc.Projects) != 2 || e.pc.Projects[1].Name != "portico-acme" || e.pc.Projects[1].ID != "portico-acme" || pl.ProjectExtID != e.pc.Projects[1].ExtID || pl.ProjectID != "portico-acme" {
 		t.Fatalf("projects = %+v, tenant %+v", e.pc.Projects, tn)
 	}
-	if len(e.pc.RGs) != 1 || e.pc.RGs[0].ProjectExtID != tn.ProjectExtID || tn.ResourceGroupExtID != e.pc.RGs[0].ExtID {
+	if len(e.pc.RGs) != 1 || e.pc.RGs[0].ProjectExtID != pl.ProjectExtID || pl.ResourceGroupExtID != e.pc.RGs[0].ExtID {
 		t.Fatalf("resource groups = %+v", e.pc.RGs)
 	}
-	if len(e.pc.Groups) != 1 || e.pc.Groups[0].Name != "tenant-acme" || tn.SAMLGroupExtID != e.pc.Groups[0].ExtID {
+	if len(e.pc.Groups) != 1 || e.pc.Groups[0].Name != "tenant-acme" || pl.SAMLGroupExtID != e.pc.Groups[0].ExtID {
 		t.Fatalf("saml groups = %+v", e.pc.Groups)
 	}
-	if !tn.IdPShared || len(e.pc.IdPs[0].SharedWithProjects) != 1 || e.pc.IdPs[0].SharedWithProjects[0] != tn.ProjectExtID {
+	if !pl.IdPShared || len(e.pc.IdPs[0].SharedWithProjects) != 1 || e.pc.IdPs[0].SharedWithProjects[0] != pl.ProjectExtID {
 		t.Fatalf("idp sharing = %+v, tenant %+v", e.pc.IdPs[0], tn)
 	}
-	if len(e.pc.Memberships) != 1 || e.pc.Memberships[0].ProjectExtID != tn.ProjectExtID || e.pc.Memberships[0].IdentityExtID != tn.SAMLGroupExtID || e.pc.Memberships[0].RoleExtID != "role-pa" || tn.RoleMembershipExtID != e.pc.Memberships[0].ExtID {
+	if len(e.pc.Memberships) != 1 || e.pc.Memberships[0].ProjectExtID != pl.ProjectExtID || e.pc.Memberships[0].IdentityExtID != pl.SAMLGroupExtID || e.pc.Memberships[0].RoleExtID != "role-pa" || pl.RoleMembershipExtID != e.pc.Memberships[0].ExtID {
 		t.Fatalf("memberships = %+v", e.pc.Memberships)
 	}
 	steps, _ := e.st.ListSteps(context.Background(), "acme")
@@ -212,7 +223,7 @@ func TestDeleteReverseOrderAndTolerates404(t *testing.T) {
 	e := newEnv(t)
 	e.create(t, "acme")
 	e.svc.Wait()
-	tn := e.get(t, "acme")
+	tn := e.place(t, "acme")
 	// Someone removed the membership and the SAML group by hand.
 	e.pc.Memberships = nil
 	e.pc.Groups = nil
@@ -246,7 +257,7 @@ func TestDeleteKeepsProjectByDefault(t *testing.T) {
 	e := newEnv(t)
 	e.create(t, "acme")
 	e.svc.Wait()
-	tn := e.get(t, "acme")
+	tn := e.place(t, "acme")
 	if err := e.svc.Delete(context.Background(), "acme", false); err != nil {
 		t.Fatal(err)
 	}
@@ -272,9 +283,9 @@ func TestDeleteRefusesForeignProjectName(t *testing.T) {
 	e := newEnv(t)
 	e.create(t, "acme")
 	e.svc.Wait()
-	tn := e.get(t, "acme")
+	tn := e.place(t, "acme")
 	tn.ProjectID = "other-name"
-	if err := e.st.UpdateTenant(context.Background(), tn); err != nil {
+	if err := e.st.UpdatePlacement(context.Background(), tn); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.svc.Delete(context.Background(), "acme", true); err != nil {
@@ -376,14 +387,16 @@ func TestVisibilityFindings(t *testing.T) {
 	e.create(t, "acme")
 	e.svc.Wait()
 	ctx := context.Background()
-	v, err := e.svc.Visibility(ctx, "acme")
-	if err != nil || !v.OK || len(v.Findings) != 0 {
-		t.Fatalf("clean visibility = %+v, %v", v, err)
+	vs, err := e.svc.Visibility(ctx, "acme")
+	v := vs["site-a"]
+	if err != nil || v == nil || !v.OK || len(v.Findings) != 0 {
+		t.Fatalf("clean visibility = %+v, %v", vs, err)
 	}
-	tn := e.get(t, "acme")
+	tn := e.place(t, "acme")
 	e.pc.Memberships = append(e.pc.Memberships, nutanix.RoleMembership{ExtID: "rm-x", IdentityExtID: tn.SAMLGroupExtID, IdentityType: "GROUP", ProjectExtID: "p-other", RoleExtID: "role-pa", ScopeTemplateName: nutanix.ScopeTemplate})
 	e.pc.Policies["Leaky_acp"] = []string{tn.SAMLGroupExtID}
-	v, err = e.svc.Visibility(ctx, "acme")
+	vs, err = e.svc.Visibility(ctx, "acme")
+	v = vs["site-a"]
 	if err != nil || v.OK || len(v.Findings) != 2 {
 		t.Fatalf("visibility = %+v, %v; want 2 findings", v, err)
 	}
@@ -416,11 +429,15 @@ func TestRecoverInterruptedMarksFailedAndRetryWorks(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	for _, row := range []*store.Tenant{
-		{ID: "a", Status: store.StatusCreating, ProjectID: "portico-a", LastOp: store.OpProvision},
-		{ID: "b", Status: store.StatusDeleting, ProjectID: "portico-b", LastOp: store.OpDelete},
-		{ID: "c", Status: store.StatusActive, ProjectID: "portico-c", LastOp: store.OpProvision},
+		{ID: "a", Status: store.StatusCreating, LastOp: store.OpProvision},
+		{ID: "b", Status: store.StatusDeleting, LastOp: store.OpDelete},
+		{ID: "c", Status: store.StatusActive, LastOp: store.OpProvision},
 	} {
 		if err := e.st.CreateTenant(ctx, row); err != nil {
+			t.Fatal(err)
+		}
+		st := map[string]store.PlacementStatus{"a": store.PlacementCreating, "b": store.PlacementRemoving, "c": store.PlacementActive}[row.ID]
+		if err := e.st.CreatePlacement(ctx, &store.Placement{TenantID: row.ID, SiteID: "site-a", Status: st, ProjectID: "portico-" + row.ID, ClusterExtID: "cl-1", StorageContainerExtID: "sc-1"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -435,6 +452,9 @@ func TestRecoverInterruptedMarksFailedAndRetryWorks(t *testing.T) {
 		}
 		if want == store.StatusFailed && !strings.Contains(tn.LastError, "interrupted") {
 			t.Fatalf("tenant %s LastError %q", id, tn.LastError)
+		}
+		if p := e.place(t, id); want == store.StatusFailed && p.Status != store.PlacementFailed {
+			t.Fatalf("placement of %s = %q, want failed", id, p.Status)
 		}
 	}
 	if err := e.svc.Retry(ctx, "a"); err != nil {

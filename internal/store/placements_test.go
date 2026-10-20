@@ -195,3 +195,28 @@ func TestMigrationMovesTenantIdentifiersToSite1(t *testing.T) {
 		t.Fatalf("migrated steps = %+v", steps)
 	}
 }
+
+// Migration 0005 drops the tenant columns moved to placements in 0004.
+func TestMigrationDropsTenantColumns(t *testing.T) {
+	s := openTemp(t)
+	rows, err := s.db.Query(`SELECT name FROM pragma_table_info('tenants')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var cols []string
+	for rows.Next() {
+		var c string
+		rows.Scan(&c)
+		cols = append(cols, c)
+	}
+	joined := strings.Join(cols, ",")
+	for _, gone := range []string{"project_id", "project_ext_id", "resource_group_ext_id", "saml_group_ext_id", "role_membership_ext_id", "idp_shared"} {
+		if strings.Contains(","+joined+",", ","+gone+",") {
+			t.Fatalf("tenants still has %s: %s", gone, joined)
+		}
+	}
+	if !strings.Contains(joined, "keycloak_group_id") {
+		t.Fatalf("tenants lost keycloak_group_id: %s", joined)
+	}
+}
