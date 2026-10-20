@@ -26,10 +26,10 @@ type fakeKC struct {
 	groups    []map[string]any
 	users     map[string]map[string]any // id → representation
 	fail      map[string]int
-	revoked   map[string]bool // tokens that no longer work
-	members   int             // number of members GroupMembers pages through
-	realm     map[string]any  // realm representation served on GET /admin/realms/msp
-	adm       *adminState     // realm administration (admin_test.go)
+	revoked   map[string]bool             // tokens that no longer work
+	members   int                         // number of members GroupMembers pages through
+	realm     map[string]any              // realm representation served on GET /admin/realms/msp
+	adm       *adminState                 // realm administration (admin_test.go)
 	userGrps  map[string][]map[string]any // user id → its groups
 }
 
