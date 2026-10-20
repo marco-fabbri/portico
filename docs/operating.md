@@ -9,7 +9,7 @@ configuration file, one directory of state.
 | Command | What it does |
 |---|---|
 | `portico serve -config /etc/portico/portico.yaml` | Runs the three listeners: public (`:443`, or a loopback port behind `cloudflared`), admin (`internal.admin_listen`: health at `/healthz`, the admin UI, the JSON API) and the pass-through to Prism Central (`internal.passthrough_listen`, local login allowed) |
-| `portico settings import -config <file>` | Moves the runtime sections of the file (public names, Prism Central, Keycloak, OIDC, tenants) and the contents of the secret files into the store, sealed with the master key. Run as the service user (it refuses root) so the key belongs to the user that runs `serve` |
+| `portico settings import -config <file>` | Moves the runtime sections of the file (public names, Prism Central, Keycloak, OIDC, tenants) and the contents of the secret files into the store, sealed with the master key; the file's Prism Central becomes site `site-1` (code `SITE-1`). Run as the service user (it refuses root) so the key belongs to the user that runs `serve` |
 | `portico settings show -config <file>` | Prints the stored settings as YAML, each secret as `<set>` or `<unset>` |
 | `portico admin set-password -config <file>` | Sets the break-glass password of the admin UI and API, read from standard input, stored as a bcrypt hash; a password set this way needs no change at login |
 | `portico version` | The version the binary was built with |
@@ -51,12 +51,46 @@ opens the public path. Measured on the lab: 41 s from empty store to
 running (write-up 15). Filling the file by hand with pre-created accounts
 remains possible (`deploy/portico.yaml.example`, then `settings import`).
 
+## Sites
+
+A site is one Prism Central behind Portico, shown to tenants by its code
+(`AZ-IT-MI1`) on the one public name. The setup page lists the sites;
+each has its own page.
+
+- **Add**: code, name, Prism Central URL; then the site's service account
+  and SAML trust from its page, and the default cluster and storage
+  container for new tenants. Apply to start serving it.
+- **Tenants on sites**: a tenant is placed on the sites where it gets
+  resources, each with its project; a site can be added to or removed
+  from a tenant later (never its last one). The tenant's user signs in
+  once and, with several sites, chooses one on the site page.
+- **Maintenance**: "Put in maintenance" on the site's page (or
+  `PUT /api/v1/sites/{id}/maintenance`) takes effect at once: no new
+  tenant session enters the site; those already on it keep working. The
+  page shows how many users are still connected through Portico, active
+  (a request in the last two minutes; an open console tab polls) or
+  idle, and refreshes every 10 s. When the count does not drop,
+  "Disconnect the remaining users" ends their routing to the site: their
+  next request lands on the maintenance page. Administrators working on
+  Prism Central directly are not counted.
+- **Remove**: a site without tenants is removed from its page. A site
+  whose Prism Central is gone for good is **forgotten**: type its code,
+  Portico deletes its records of the site and of the tenants placed on
+  it without contacting that Prism Central, and lists what stays there
+  (projects, groups, role memberships, the identity provider, its
+  service account) for a clean-up if it ever comes back.
+- **Upgrade**: a store written by a single-Prism Central release becomes
+  site `site-1`, code `SITE-1`, with every tenant placed on it; rename
+  the code on the site's page.
+
 ## Logs
 
 Structured JSON on standard error (`log.level` in the file), read with
 `journalctl -u portico`. The access log of the public path records
 method, path, status, duration and whether a session was present; never
-a header value, a cookie, a token or a password.
+a header value, a cookie, a token or a password. Site changes are logged
+at warning level: maintenance on and off, disconnections (with the
+count), a forgotten site with what it left behind.
 
 ## Upgrading
 
