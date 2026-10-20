@@ -196,16 +196,20 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}
 
 	sessions := auth.NewMemoryStore(cfg.Session.MaxAge, cfg.Session.Idle)
+	// Keycloak's admin client: tenant provisioning, and the tenant of a
+	// user at login (design sites §4.3).
+	kcClient := keycloak.New(cfg.Keycloak.URL, cfg.Keycloak.Realm, cfg.Keycloak.AdminClientID, kcSecret, &http.Client{Timeout: 15 * time.Second}, log)
 	authn := auth.NewAuthenticator(auth.OIDCConfig{
 		Issuer: cfg.OIDC.Issuer,
 		// The issuer's path is the realm path; the loopback base plus that
 		// path is the same realm on the backchannel.
-		DiscoveryURL: strings.TrimSuffix(cfg.Keycloak.URL, "/") + issuer.Path,
-		ClientID:     cfg.OIDC.ClientID,
-		ClientSecret: secret,
-		RedirectURL:  "https://" + cfg.Public.PrismHost + "/.portico/callback",
-		CookieMaxAge: cfg.Session.MaxAge,
-		ErrorPage:    pages.Error,
+		DiscoveryURL:  strings.TrimSuffix(cfg.Keycloak.URL, "/") + issuer.Path,
+		ClientID:      cfg.OIDC.ClientID,
+		ClientSecret:  secret,
+		RedirectURL:   "https://" + cfg.Public.PrismHost + "/.portico/callback",
+		CookieMaxAge:  cfg.Session.MaxAge,
+		ErrorPage:     pages.Error,
+		ResolveTenant: tenant.Resolver(kcClient, st, cfg.Tenants.GroupPrefix, log),
 	}, sessions, &http.Client{Timeout: 15 * time.Second}, log)
 
 	stripped := auth.PorticoCookies()
@@ -228,7 +232,6 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	kcClient := keycloak.New(cfg.Keycloak.URL, cfg.Keycloak.Realm, cfg.Keycloak.AdminClientID, kcSecret, &http.Client{Timeout: 15 * time.Second}, log)
 	// One Prism Central client per site, through that site's service
 	// account (design sites §4.1).
 	var tenantSites []tenant.Site

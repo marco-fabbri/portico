@@ -110,3 +110,51 @@ func TestSessionFromRequest(t *testing.T) {
 		t.Errorf("known id: ok=%v s=%+v", ok, s)
 	}
 }
+
+func TestSetSiteAndClearSite(t *testing.T) {
+	st := NewMemoryStore(8*time.Hour, 15*time.Minute)
+	st.Create(newSession("a"))
+	st.Create(newSession("b"))
+	if !st.SetSite("a", "site-1", t0.Add(time.Minute)) || !st.SetSite("b", "site-1", t0.Add(time.Minute)) {
+		t.Fatal("SetSite on live sessions")
+	}
+	s, _ := st.Get("a", t0.Add(2*time.Minute))
+	if s.Site != "site-1" || !s.SiteSince.Equal(t0.Add(time.Minute)) {
+		t.Fatalf("session a = %+v", s)
+	}
+	// Choosing the same site again keeps the time it was first chosen.
+	st.SetSite("a", "site-1", t0.Add(3*time.Minute))
+	if s, _ := st.Get("a", t0.Add(3*time.Minute)); !s.SiteSince.Equal(t0.Add(time.Minute)) {
+		t.Fatalf("SiteSince moved on a repeat: %v", s.SiteSince)
+	}
+	st.SetSite("b", "site-2", t0.Add(4*time.Minute))
+	if n := st.ClearSite("site-1"); n != 1 {
+		t.Fatalf("ClearSite = %d, want 1", n)
+	}
+	if s, _ := st.Get("a", t0.Add(5*time.Minute)); s.Site != "" || !s.SiteSince.IsZero() {
+		t.Fatalf("session a after ClearSite = %+v", s)
+	}
+	if s, _ := st.Get("b", t0.Add(5*time.Minute)); s.Site != "site-2" {
+		t.Fatalf("session b lost its site: %+v", s)
+	}
+	if st.SetSite("gone", "site-1", t0) {
+		t.Fatal("SetSite on a missing session")
+	}
+}
+
+func TestListDropsExpired(t *testing.T) {
+	st := NewMemoryStore(8*time.Hour, 15*time.Minute)
+	st.Create(newSession("a"))
+	st.Create(newSession("b"))
+	st.Get("a", t0.Add(10*time.Minute))
+	got := st.List(t0.Add(20 * time.Minute))
+	if len(got) != 1 || got[0].ID != "a" {
+		t.Fatalf("List = %+v", got)
+	}
+	if _, ok := st.sessions["b"]; ok {
+		t.Fatal("List kept an expired session")
+	}
+	if ActiveWindow != 2*time.Minute {
+		t.Fatalf("ActiveWindow = %v", ActiveWindow)
+	}
+}

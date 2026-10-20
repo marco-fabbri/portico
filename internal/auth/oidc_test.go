@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"crypto/tls"
 	"io"
 	"log/slog"
@@ -479,5 +480,41 @@ func TestLogoutSendsTheIDTokenHint(t *testing.T) {
 	loc, _ := url.Parse(rec.Header().Get("Location"))
 	if rec.Code != 302 || loc.Query().Get("id_token_hint") != idToken || loc.Query().Get("client_id") != "portico" {
 		t.Fatalf("logout: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+func TestCallbackStoresTenant(t *testing.T) {
+	idp := newFakeIDP(t)
+	st := NewMemoryStore(8*time.Hour, 15*time.Minute)
+	cfg := testConfig(idp)
+	var asked string
+	cfg.ResolveTenant = func(ctx context.Context, subject string) (string, error) {
+		asked = subject
+		return "acme", nil
+	}
+	a := NewAuthenticator(cfg, st, insecureClient(), slog.New(slog.NewTextHandler(testWriter{t}, nil)))
+	client, _ := porticoServer(t, a)
+	if _, err := client.Get("https://prism.test/.portico/login?rd=/console/"); err != nil {
+		t.Fatal(err)
+	}
+	sessions := st.List(time.Now())
+	if len(sessions) != 1 || sessions[0].Tenant != "acme" || asked != "alice" || sessions[0].Site != "" {
+		t.Fatalf("sessions = %+v asked=%q", sessions, asked)
+	}
+}
+
+func TestCallbackResolverErrorStillLogsIn(t *testing.T) {
+	idp := newFakeIDP(t)
+	st := NewMemoryStore(8*time.Hour, 15*time.Minute)
+	cfg := testConfig(idp)
+	cfg.ResolveTenant = func(ctx context.Context, subject string) (string, error) { return "", errors.New("keycloak down") }
+	a := NewAuthenticator(cfg, st, insecureClient(), slog.New(slog.NewTextHandler(testWriter{t}, nil)))
+	client, _ := porticoServer(t, a)
+	resp, err := client.Get("https://prism.test/.portico/login?rd=/console/")
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("login: %v %v", resp, err)
+	}
+	if sessions := st.List(time.Now()); len(sessions) != 1 || sessions[0].Tenant != "" {
+		t.Fatalf("sessions = %+v", sessions)
 	}
 }
