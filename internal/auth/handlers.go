@@ -209,9 +209,16 @@ func (a *Authenticator) Callback() http.Handler {
 		_ = idt.Claims(&claims)
 		now := time.Now()
 		s := Session{ID: NewSessionID(), Subject: idt.Subject, Email: claims.Email, IDToken: raw, CreatedAt: now, LastSeen: now}
+		if a.cfg.ResolveTenant != nil {
+			tenant, err := a.cfg.ResolveTenant(ctx, idt.Subject)
+			if err != nil {
+				a.log.Warn("login: tenant not resolved", "subject", s.Subject, "err", err.Error())
+			}
+			s.Tenant = tenant
+		}
 		a.store.Create(s)
 		SetSessionCookie(w, s.ID, a.cfg.CookieMaxAge)
-		a.log.Info("login", "subject", s.Subject, "email", s.Email)
+		a.log.Info("login", "subject", s.Subject, "email", s.Email, "tenant", s.Tenant)
 		w.Header().Set("Cache-Control", "no-store")
 		http.Redirect(w, r, SafeReturnPath(ls.Return), http.StatusFound)
 	})

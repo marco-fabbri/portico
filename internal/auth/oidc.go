@@ -35,6 +35,11 @@ type OIDCConfig struct {
 	// CookieMaxAge is the lifetime of the session cookie, matching the
 	// store's absolute lifetime.
 	CookieMaxAge time.Duration
+	// ResolveTenant, when set, names the tenant of the user who just
+	// logged in (by OIDC subject); the session keeps it. An error leaves
+	// the session without a tenant: the routing then shows the "no site"
+	// page instead of reaching any Prism Central.
+	ResolveTenant func(ctx context.Context, subject string) (string, error)
 }
 
 // Provider is a discovered identity provider.
