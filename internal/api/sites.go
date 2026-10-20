@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/marco-fabbri/portico/internal/settings"
 	"github.com/marco-fabbri/portico/internal/store"
@@ -253,6 +254,22 @@ type siteJSON struct {
 	ClusterExtID          string   `json:"cluster_ext_id"`
 	StorageContainerExtID string   `json:"storage_container_ext_id"`
 	Tenants               []string `json:"tenants"`
+	// Live state, in running mode only.
+	Status      string `json:"status,omitempty"`
+	Maintenance bool   `json:"maintenance"`
+	Active      int    `json:"active"`
+	Idle        int    `json:"idle"`
+}
+
+// withLive adds the site's live state when the runtime exists.
+func (h *handler) withLive(j siteJSON) siteJSON {
+	if h.so == nil || h.so.Runtime == nil {
+		return j
+	}
+	now := time.Now()
+	j.Status, j.Maintenance = string(h.so.Runtime.Status(j.ID)), h.so.Runtime.Maintenance(j.ID)
+	j.Active, j.Idle = SessionCounts(h.so.Runtime.Sessions(j.ID, now), now)
+	return j
 }
 
 func toSiteJSON(s settings.Site, tenants []string) siteJSON {
@@ -292,6 +309,7 @@ func (h *handler) siteRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/check", h.checkSite)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/bootstrap/prism-central", h.bootstrapPrismCentral)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/bootstrap/saml", h.bootstrapSAML)
+	h.runtimeRoutes(mux)
 }
 
 // siteError maps the site operations' errors to statuses.
@@ -331,7 +349,7 @@ func (h *handler) listSites(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []siteJSON{}
 	for _, s := range cur.OrderedSites() {
-		out = append(out, toSiteJSON(s, h.siteTenants(r, s.ID)))
+		out = append(out, h.withLive(toSiteJSON(s, h.siteTenants(r, s.ID))))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sites": out})
 }
@@ -370,7 +388,7 @@ func (h *handler) getSite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, ErrUnknownSite.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toSiteJSON(s, h.siteTenants(r, s.ID)))
+	writeJSON(w, http.StatusOK, h.withLive(toSiteJSON(s, h.siteTenants(r, s.ID))))
 }
 
 func (h *handler) putSite(w http.ResponseWriter, r *http.Request) {
