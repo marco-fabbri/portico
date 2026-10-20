@@ -4,8 +4,12 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/marco-fabbri/portico/internal/api"
+	"github.com/marco-fabbri/portico/internal/auth"
 	"github.com/marco-fabbri/portico/internal/settings"
+	"github.com/marco-fabbri/portico/internal/sites"
 	"github.com/marco-fabbri/portico/internal/store"
 )
 
@@ -97,5 +101,45 @@ func TestSiteRemoveAndForgetFromThePage(t *testing.T) {
 	}
 	if got, _ := svc.Get(ctx); len(got.Sites) != 0 {
 		t.Fatalf("sites left: %+v", got.Sites)
+	}
+}
+
+func TestSitePageShowsCountAndDisconnect(t *testing.T) {
+	e := newEnv(t, true)
+	withSetup(t, e, true)
+	mon := sites.NewMonitor(e.st, map[string]sites.Prober{"site-a": func(context.Context) error { return nil }}, nil)
+	sess := auth.NewMemoryStore(8*time.Hour, 15*time.Minute)
+	e.web.setup.Runtime = &api.Runtime{Monitor: mon, Store: sess}
+	e.login(t)
+	now := time.Now()
+	sess.Create(auth.Session{ID: "t1", Email: "carol@acme.example", Tenant: "acme", Site: "site-a", SiteSince: now.Add(-time.Hour), CreatedAt: now.Add(-time.Hour), LastSeen: now.Add(-20 * time.Second)})
+	sess.Create(auth.Session{ID: "t2", Email: "dave@acme.example", Tenant: "acme", Site: "site-a", SiteSince: now.Add(-time.Hour), CreatedAt: now.Add(-time.Hour), LastSeen: now.Add(-9 * time.Minute)})
+	body := e.do("GET", "/setup/sites/site-a", nil, true).Body.String()
+	for _, want := range []string{`class="status status-available"`, "2 users still connected", `hx-get="/setup/sites/site-a/sessions"`, `hx-trigger="every 10s"`, "carol@acme.example", "Disconnect the 2 remaining users", "only access through Portico", `action="/setup/sites/site-a/maintenance"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("site page lacks %q:\n%s", want, body)
+		}
+	}
+	if rec := e.do("POST", "/setup/sites/site-a/maintenance", e.form("maintenance", "on"), true); rec.Code != 303 || mon.Status("site-a") != sites.Maintenance {
+		t.Fatalf("maintenance on: %d %s", rec.Code, mon.Status("site-a"))
+	}
+	frag := e.do("GET", "/setup/sites/site-a/sessions", nil, true).Body.String()
+	if strings.Contains(frag, "<html") || !strings.Contains(frag, "2 users still connected") {
+		t.Fatalf("sessions fragment: %s", frag)
+	}
+	if rec := e.do("POST", "/setup/sites/site-a/disconnect", e.form(), true); rec.Code != 303 {
+		t.Fatalf("disconnect: %d", rec.Code)
+	}
+	if s, _ := sess.Get("t1", time.Now()); s.Site != "" {
+		t.Fatal("session still on the site")
+	}
+	body = e.do("GET", "/setup/sites/site-a", nil, true).Body.String()
+	if !strings.Contains(body, "No user is connected") || strings.Contains(body, "Disconnect the") || !strings.Contains(body, `class="status status-maintenance"`) {
+		t.Fatalf("site page after disconnect:\n%s", body)
+	}
+	for _, path := range []string{"/setup/sites/site-a/maintenance", "/setup/sites/site-a/disconnect"} {
+		if rec := e.do("POST", path, map[string][]string{"maintenance": {"off"}}, true); rec.Code != 403 {
+			t.Fatalf("%s without CSRF: %d", path, rec.Code)
+		}
 	}
 }

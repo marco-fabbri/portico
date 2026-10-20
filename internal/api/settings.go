@@ -35,6 +35,9 @@ type SettingsOptions struct {
 	// restarts Keycloak (deploy/keycloak-hostname.path). Portico owns the
 	// file; it holds no secret.
 	HostnameFile string
+	// Runtime is the live state of the sites (status, maintenance,
+	// sessions); nil in setup mode.
+	Runtime SitesRuntime
 
 	restarting atomic.Bool
 }
