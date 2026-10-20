@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/marco-fabbri/portico/internal/auth"
 	"github.com/marco-fabbri/portico/internal/config"
+	"github.com/marco-fabbri/portico/internal/sites"
 )
 
 type publicHarness struct {
@@ -45,17 +47,30 @@ func newPublicHarnessWith(t *testing.T, prismURL string, mutate func(*PublicOpti
 		Issuer: "https://id.test/realms/x", DiscoveryURL: "https://127.0.0.1:1/realms/x",
 		ClientID: "portico", ClientSecret: "s", RedirectURL: "https://prism.test/.portico/callback",
 	}, store, nil, log)
+	// One site, site-a, with tenant acme placed on it: every request of
+	// the harness session reaches that site's Prism Central.
+	site := &SiteBackend{ID: "site-a", Code: "SITE-A", Upstream: upstreamFor(t, prismURL, "prism.test")}
 	opts := PublicOptions{
 		PrismHost: "prism.test",
 		IDHost:    "id.test",
-		Prism:     upstreamFor(t, prismURL, "prism.test"),
-		Keycloak:  upstreamFor(t, kcUp.URL, "id.test"),
-		Auth:      a,
-		Policy:    PrismPolicy{AllowPrefixes: config.DefaultAllowPrefixes},
-		Log:       log,
+		Sites: &SiteRouting{
+			Backends:   map[string]*SiteBackend{"site-a": site},
+			Placements: func(context.Context, string) ([]string, error) { return []string{"site-a"}, nil },
+			Status:     func(string) sites.Status { return sites.Available },
+			SetSite:    store.SetSite,
+		},
+		Keycloak: upstreamFor(t, kcUp.URL, "id.test"),
+		Auth:     a,
+		Policy:   PrismPolicy{AllowPrefixes: config.DefaultAllowPrefixes},
+		Log:      log,
 	}
 	if mutate != nil {
 		mutate(&opts)
+	}
+	// The landing tests give the site's Prism Central fields on the
+	// landing options, as before sites; they belong to the site now.
+	if l := opts.Landing; l != nil {
+		site.PrismHTTP, site.PrismBase, site.IdPExtID = l.PrismHTTP, l.PrismBase, l.IdPExtID
 	}
 	h := NewPublic(opts)
 	return &publicHarness{handler: h, prism: prismGot, keycloak: kcGot, store: store, logBuf: logBuf}
@@ -76,7 +91,7 @@ func (h *publicHarness) do(method, rawURL string, hdr map[string]string, session
 		r.Header.Set(k, v)
 	}
 	if session {
-		h.store.Create(auth.Session{ID: "sid", Subject: "alice", Email: "alice@example.test", CreatedAt: time.Now(), LastSeen: time.Now()})
+		h.store.Create(auth.Session{ID: "sid", Subject: "alice", Email: "alice@example.test", Tenant: "acme", CreatedAt: time.Now(), LastSeen: time.Now()})
 		r.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: "sid"})
 	}
 	rec := httptest.NewRecorder()
