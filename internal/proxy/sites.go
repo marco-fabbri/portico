@@ -139,8 +139,8 @@ func (s *SiteRouting) route(w http.ResponseWriter, r *http.Request, sess auth.Se
 			Refuse(w, http.StatusUnauthorized, "session-gone", "portico session required")
 			return nil, false
 		}
-		if sess.Site != "" && s.Switch != nil {
-			s.Switch(w, r, sess.Site, b.ID)
+		if sess.CookieSite != b.ID && s.Switch != nil {
+			s.Switch(w, r, sess.CookieSite, b.ID)
 		}
 		return b, true
 	}
@@ -208,8 +208,8 @@ func (s *SiteRouting) selectSite(w http.ResponseWriter, r *http.Request) {
 		Refuse(w, http.StatusUnauthorized, "session-gone", "portico session required")
 		return
 	}
-	if sess.Site != b.ID && s.Switch != nil {
-		s.Switch(w, r, sess.Site, b.ID)
+	if sess.CookieSite != b.ID && s.Switch != nil {
+		s.Switch(w, r, sess.CookieSite, b.ID)
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, "/", http.StatusSeeOther)

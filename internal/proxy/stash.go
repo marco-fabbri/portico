@@ -58,34 +58,56 @@ func isPorticoCookie(name string) bool {
 	return false
 }
 
-// switchSiteCookies moves the browser from site from to site to in one
-// response: the live Prism Central cookies go into from's stash (kept for
-// maxAge) and leave their names; to's stash comes back under the real
-// names. A first selection (from empty) stashes nothing. The expiries
-// are written before the restores, so a restored name wins in the browser.
+// switchSiteCookies moves the browser to site to in one response, from
+// the site whose cookies are live (from). With a known from, the live
+// Prism Central cookies go into from's stash (kept for maxAge) and leave
+// their names, and to's stash comes back under the real names. With from
+// empty (a new Portico session: the browser's Prism Central cookies may
+// belong to an expired session or another user) every live and stashed
+// Prism Central cookie is expired, nothing is restored. The expiries are
+// written before the restores, so a restored name wins in the browser.
+// The request itself is rewritten to carry only Portico's cookies and
+// the restored ones: when it is proxied (a session moved to its one
+// remaining site), the arriving site never sees another site's cookies.
 func switchSiteCookies(w http.ResponseWriter, r *http.Request, from, to string, maxAge time.Duration) {
-	var restore []*http.Cookie
+	expire := func(name string) {
+		http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	}
+	var restore, keep []*http.Cookie
 	for _, c := range r.Cookies() {
 		if isPorticoCookie(c.Name) {
+			keep = append(keep, c)
 			continue
 		}
 		if site, name, ok := parseStash(c.Name); ok {
-			if site == to {
+			switch {
+			case from == "":
+				expire(c.Name)
+			case site == to:
 				restore = append(restore, &http.Cookie{Name: name, Value: c.Value})
-				http.SetCookie(w, &http.Cookie{Name: c.Name, Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+				expire(c.Name)
 			}
 			continue
 		}
-		if from == "" || from == to {
-			continue
+		if from != "" && from != to {
+			http.SetCookie(w, &http.Cookie{Name: StashName(from, c.Name), Value: c.Value, Path: "/", MaxAge: int(maxAge.Seconds()), Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 		}
-		http.SetCookie(w, &http.Cookie{Name: StashName(from, c.Name), Value: c.Value, Path: "/", MaxAge: int(maxAge.Seconds()), Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
-		http.SetCookie(w, &http.Cookie{Name: c.Name, Value: "", Path: "/", MaxAge: -1, Secure: true})
+		expire(c.Name)
 	}
 	for _, c := range restore {
 		http.SetCookie(w, &http.Cookie{Name: c.Name, Value: c.Value, Path: "/", Secure: true, HttpOnly: attrsOf(c.Name).HttpOnly, SameSite: http.SameSiteLaxMode})
+		keep = append(keep, c)
 	}
-	if clearStorageOnSwitch && from != "" && from != to {
+	parts := make([]string, 0, len(keep))
+	for _, c := range keep {
+		parts = append(parts, c.Name+"="+c.Value)
+	}
+	if len(parts) == 0 {
+		r.Header.Del("Cookie")
+	} else {
+		r.Header.Set("Cookie", strings.Join(parts, "; "))
+	}
+	if clearStorageOnSwitch && from != to {
 		w.Header().Set("Clear-Site-Data", `"storage"`)
 	}
 }

@@ -110,7 +110,7 @@ func TestSiteIDsWithDashesDoNotCollide(t *testing.T) {
 		r.AddCookie(&http.Cookie{Name: k, Value: v})
 	}
 	rec := httptest.NewRecorder()
-	switchSiteCookies(rec, r, "", "az-it-mi1", time.Hour)
+	switchSiteCookies(rec, r, "other", "az-it-mi1", time.Hour)
 	got := cookieJar{}
 	for k, v := range jar {
 		got[k] = v
@@ -121,15 +121,83 @@ func TestSiteIDsWithDashesDoNotCollide(t *testing.T) {
 	}
 }
 
-func TestFirstSelectionStashesNothing(t *testing.T) {
+// A new Portico session does not know whose Prism Central cookies the
+// browser holds (an expired session, another user on a shared browser):
+// its first selection expires them all, live and stashed.
+func TestFirstSelectionWipesUnownedCookies(t *testing.T) {
 	h := newSitesHarness(t)
 	h.session("s1", "acme", "")
-	jar := cookieJar{auth.SessionCookie: "s1", "leftover": "x"}
-	rec := h.doJar("POST", "/.portico/sites/select", jar, url.Values{"site": {"site-a"}})
+	jar := cookieJar{auth.SessionCookie: "s1", "NTNX_IGW_SESSION": "old-a-token", StashName("site-b", "NTNX_IGW_SESSION"): "old-b-token"}
+	rec := h.doJar("POST", "/.portico/sites/select", jar, url.Values{"site": {"site-b"}})
 	for _, c := range rec.Result().Cookies() {
-		if strings.HasPrefix(c.Name, "__Host-pstash.") {
+		if strings.HasPrefix(c.Name, "__Host-pstash.") && c.MaxAge >= 0 {
 			t.Fatalf("first selection stashed %s", c.Name)
 		}
+	}
+	if len(jar) != 1 || jar[auth.SessionCookie] != "s1" {
+		t.Fatalf("unowned cookies left after the first selection: %v", jar)
+	}
+}
+
+// Review C1 (a): after "Disconnect" the session has no site, but the
+// browser still holds site A's cookies: choosing B must stash them, never
+// send them to B.
+func TestSwitchAfterDisconnectStashes(t *testing.T) {
+	h := newSitesHarness(t)
+	h.session("s1", "acme", "")
+	jar := cookieJar{auth.SessionCookie: "s1"}
+	h.doJar("POST", "/.portico/sites/select", jar, url.Values{"site": {"site-a"}})
+	jar["NTNX_IGW_SESSION"] = "a-token"
+	h.store.ClearSite("site-a")
+	h.doJar("POST", "/.portico/sites/select", jar, url.Values{"site": {"site-b"}})
+	h.doJar("GET", "/console/", jar, nil)
+	for _, r := range *h.b {
+		if strings.Contains(r.Header.Get("Cookie"), "a-token") {
+			t.Fatalf("site B received site A's session after a disconnect: %q", r.Header.Get("Cookie"))
+		}
+	}
+	if jar[StashName("site-a", "NTNX_IGW_SESSION")] != "a-token" {
+		t.Fatalf("site A's cookie not stashed: %v", jar)
+	}
+}
+
+// Review C1 (b): a new Portico session with site A's cookies still in the
+// browser never sends them to B.
+func TestNewSessionNeverCarriesOldCookies(t *testing.T) {
+	h := newSitesHarness(t)
+	h.session("s2", "acme", "")
+	jar := cookieJar{auth.SessionCookie: "s2", "NTNX_IGW_SESSION": "a-token"}
+	h.doJar("POST", "/.portico/sites/select", jar, url.Values{"site": {"site-b"}})
+	h.doJar("GET", "/console/", jar, nil)
+	if len(*h.b) == 0 {
+		t.Fatal("site B got no request")
+	}
+	for _, r := range *h.b {
+		if strings.Contains(r.Header.Get("Cookie"), "a-token") {
+			t.Fatalf("site B received an old cookie: %q", r.Header.Get("Cookie"))
+		}
+	}
+}
+
+// Review C1 (c): when a session loses its site and is moved to the one
+// left, the very request that triggers the move carries no cookie of the
+// lost site.
+func TestAutoMoveRequestCarriesNoOldCookies(t *testing.T) {
+	h := newSitesHarness(t)
+	h.session("s1", "acme", "")
+	jar := cookieJar{auth.SessionCookie: "s1"}
+	h.doJar("POST", "/.portico/sites/select", jar, url.Values{"site": {"site-b"}})
+	jar["NTNX_IGW_SESSION"] = "b-token"
+	h.placements["acme"] = []string{"site-a"}
+	h.doJar("GET", "/console/", jar, nil)
+	if len(*h.a) != 1 {
+		t.Fatalf("site A requests = %d", len(*h.a))
+	}
+	if c := (*h.a)[0].Header.Get("Cookie"); strings.Contains(c, "b-token") {
+		t.Fatalf("site A received site B's session on the move: %q", c)
+	}
+	if jar[StashName("site-b", "NTNX_IGW_SESSION")] != "b-token" {
+		t.Fatalf("site B's cookie not stashed on the move: %v", jar)
 	}
 }
 
