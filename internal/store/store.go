@@ -72,6 +72,7 @@ func (t *Tenant) DisplayNameOr() string {
 // Step is one recorded provisioning or deletion step of a tenant.
 type Step struct {
 	TenantID, Name string
+	SiteID         string // "" for a tenant-wide step (the Keycloak group)
 	OK             bool
 	Detail         string
 	At             time.Time
@@ -87,6 +88,13 @@ type Store interface {
 	DeleteTenant(ctx context.Context, id string) error
 	AddStep(ctx context.Context, st Step) error
 	ListSteps(ctx context.Context, tenantID string) ([]Step, error)
+	CreatePlacement(ctx context.Context, p *Placement) error
+	GetPlacement(ctx context.Context, tenantID, siteID string) (*Placement, error)
+	ListPlacements(ctx context.Context, tenantID string) ([]Placement, error)
+	ListPlacementsBySite(ctx context.Context, siteID string) ([]Placement, error)
+	UpdatePlacement(ctx context.Context, p *Placement) error
+	DeletePlacement(ctx context.Context, tenantID, siteID string) error
+	DeletePlacementsBySite(ctx context.Context, siteID string) (int, error)
 	SetAdminPassword(ctx context.Context, name, bcryptHash string) error
 	AdminPasswordHash(ctx context.Context, name string) (string, error)
 	GetSetting(ctx context.Context, key string) ([]byte, error)
