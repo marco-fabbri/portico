@@ -102,14 +102,14 @@ func (s *SQLite) AddStep(ctx context.Context, st Step) error {
 	if st.At.IsZero() {
 		st.At = time.Now().UTC()
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO tenant_steps (tenant_id, name, ok, detail, at) VALUES (?,?,?,?,?)`,
-		st.TenantID, st.Name, boolInt(st.OK), st.Detail, formatTime(st.At))
+	_, err := s.db.ExecContext(ctx, `INSERT INTO tenant_steps (tenant_id, site_id, name, ok, detail, at) VALUES (?,?,?,?,?,?)`,
+		st.TenantID, st.SiteID, st.Name, boolInt(st.OK), st.Detail, formatTime(st.At))
 	return err
 }
 
 // ListSteps returns the steps of a tenant in insertion order.
 func (s *SQLite) ListSteps(ctx context.Context, tenantID string) ([]Step, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT tenant_id, name, ok, detail, at FROM tenant_steps WHERE tenant_id = ? ORDER BY seq`, tenantID)
+	rows, err := s.db.QueryContext(ctx, `SELECT tenant_id, site_id, name, ok, detail, at FROM tenant_steps WHERE tenant_id = ? ORDER BY seq`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +119,7 @@ func (s *SQLite) ListSteps(ctx context.Context, tenantID string) ([]Step, error)
 		var st Step
 		var ok int
 		var at string
-		if err := rows.Scan(&st.TenantID, &st.Name, &ok, &st.Detail, &at); err != nil {
+		if err := rows.Scan(&st.TenantID, &st.SiteID, &st.Name, &ok, &st.Detail, &at); err != nil {
 			return nil, err
 		}
 		st.OK, st.At = ok != 0, parseTime(at)
