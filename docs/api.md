@@ -66,7 +66,7 @@ live calls (maintenance, sessions) take effect at once.
 
 | Method and path | What it does | Answers |
 |---|---|---|
-| `GET /api/v1/sites` | The sites in order: `id`, `code`, `name`, `order`, `url`, `tls_verify`, `ca_pem`, `api_key_set`, `saml_idp_name`, `saml_entity_id`, `cluster_ext_id`, `storage_container_ext_id` (defaults for new tenants), `tenants`; in running mode also `status` (`available`, `maintenance`, `unreachable`), `maintenance`, `active`, `idle` | 200 |
+| `GET /api/v1/sites` | `{"sites": [...]}`, the sites in order: `id`, `code`, `name`, `order`, `url`, `tls_verify`, `ca_pem`, `api_key_set`, `saml_idp_name`, `saml_entity_id`, `cluster_ext_id`, `storage_container_ext_id` (defaults for new tenants), `tenants`; in running mode also `status` (`available`, `maintenance`, `unreachable` after three failed probes in a row), `maintenance`, `active`, `idle` | 200 |
 | `POST /api/v1/sites` | Add a site: `{"code", "name", "order", "url", "tls_verify", "ca_pem", "api_key", "saml_idp_name", "cluster_ext_id", "storage_container_ext_id"}` (all but the code and URL optional) | 201; 400; 409 on a duplicate id or code |
 | `GET /api/v1/sites/{id}`, `PUT /api/v1/sites/{id}` | One site; replace its fields (not the id). An empty `api_key` or `saml_idp_name` keeps the stored one | 200; 404; 409 |
 | `DELETE /api/v1/sites/{id}` | Remove a site no tenant is placed on | 204; 409 naming the tenants |
