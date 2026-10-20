@@ -1,5 +1,22 @@
 {{define "content"}}
-<div class="page-head"><div><h1>Site {{.Data.S.Code}}</h1><p>{{with .Data.S.Name}}{{.}} · {{end}}<a href="/setup">Back to the setup</a></p></div></div>
+<div class="page-head"><div><h1>Site {{.Data.S.Code}}{{with .Data.Live}} <span class="status status-{{.Status}}">{{.Status}}</span>{{end}}</h1><p>{{with .Data.S.Name}}{{.}} · {{end}}<a href="/setup">Back to the setup</a></p></div></div>
+
+{{with .Data.Live}}
+<section class="card" id="card-live">
+  <h2>Tenants on this site</h2>
+  <form method="post" action="/setup/sites/{{.ID}}/maintenance" class="inline">
+    <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+    {{if .Maintenance}}
+    <p class="state todo">In maintenance: no new tenant session enters this site; the ones already working continue until they end or are disconnected.</p>
+    <input type="hidden" name="maintenance" value="off"><button type="submit">End the maintenance</button>
+    {{else}}
+    <input type="hidden" name="maintenance" value="on"><button type="submit">Put in maintenance</button>
+    {{end}}
+  </form>
+  {{template "site_sessions" $}}
+  <p class="muted small">Counted: only access through Portico (administrators working on Prism Central directly are not); with a pair of appliances, each node counts its own sessions.</p>
+</section>
+{{end}}
 
 <section class="card" id="card-connection">
   <h2>Connection</h2>
@@ -105,3 +122,21 @@
   {{range .Containers}}<option value="{{.ExtID}}"{{if eq .ExtID $.Data.S.StorageContainerExtID}} selected{{end}}>{{.Name}} ({{.ExtID}})</option>{{else}}<option value="" disabled selected>none found</option>{{end}}
 </select>
 {{end}}
+
+{{/* The connected users: refreshed every 10 s; the disconnect button names how many it cuts. */}}
+{{define "site_sessions"}}{{with .Data.Live}}<div id="site-sessions" hx-get="/setup/sites/{{.ID}}/sessions" hx-trigger="every 10s" hx-swap="outerHTML">
+  {{$n := len .Sessions}}
+  {{if .Sessions}}
+  <p><strong>{{$n}} user{{if ne $n 1}}s{{end}} still connected</strong> ({{.Active}} active, {{.Idle}} idle).</p>
+  <table>
+    <thead><tr><th>Tenant</th><th>User</th><th>On the site since</th><th>Last activity</th><th>State</th></tr></thead>
+    <tbody>{{range .Sessions}}<tr><td>{{.Tenant}}</td><td>{{.Email}}</td><td>{{.Since}}</td><td>{{.LastActivity}}</td><td>{{if .Active}}active{{else}}idle{{end}}</td></tr>{{end}}</tbody>
+  </table>
+  <form method="post" action="/setup/sites/{{.ID}}/disconnect" class="inline">
+    <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+    <button type="submit" class="danger">Disconnect the {{$n}} remaining user{{if ne $n 1}}s{{end}}</button>
+  </form>
+  {{else}}
+  <p class="state done">No user is connected to this site through Portico.</p>
+  {{end}}
+</div>{{end}}{{end}}

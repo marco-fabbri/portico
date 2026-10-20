@@ -2,12 +2,15 @@ package web
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/marco-fabbri/portico/internal/api"
+	"github.com/marco-fabbri/portico/internal/auth"
 	"github.com/marco-fabbri/portico/internal/settings"
 )
 
@@ -32,6 +35,8 @@ func toSiteRow(s settings.Site, tenants []string) siteRow {
 type siteData struct {
 	siteRow
 	Mode string
+	// Live is the site's live state; nil in setup mode.
+	Live *siteLive
 	// OOB marks the inputs a bootstrap fragment swaps into the page.
 	OOB bool
 	// Form keeps the non-secret bootstrap fields as typed; passwords are
@@ -57,6 +62,45 @@ func (h *Handler) siteRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /setup/sites/{id}/bootstrap/{target}", h.siteBootstrap)
 	mux.HandleFunc("POST /setup/sites/{id}/delete", h.siteDelete)
 	mux.HandleFunc("POST /setup/sites/{id}/forget", h.siteForget)
+	mux.HandleFunc("POST /setup/sites/{id}/maintenance", h.siteMaintenance)
+	mux.HandleFunc("GET /setup/sites/{id}/sessions", h.siteSessions)
+	mux.HandleFunc("POST /setup/sites/{id}/disconnect", h.siteDisconnect)
+}
+
+// siteLive is the live state of a site on its page (design sites §4.1).
+type siteLive struct {
+	ID           string
+	Status       string
+	Maintenance  bool
+	Active, Idle int
+	Sessions     []sessionRow
+}
+
+// sessionRow is a tenant session on the site, never its id.
+type sessionRow struct {
+	Tenant, Email, Since, LastActivity string
+	Active                             bool
+}
+
+// live gathers the site's live state, nil without a runtime.
+func (h *Handler) live(id string) *siteLive {
+	if h.setup == nil || h.setup.Runtime == nil {
+		return nil
+	}
+	rt := h.setup.Runtime
+	now := time.Now()
+	ss := rt.Sessions(id, now)
+	l := &siteLive{ID: id, Status: string(rt.Status(id)), Maintenance: rt.Maintenance(id)}
+	l.Active, l.Idle = api.SessionCounts(ss, now)
+	for _, s := range ss {
+		since := ""
+		if !s.SiteSince.IsZero() {
+			since = s.SiteSince.Format("2006-01-02 15:04")
+		}
+		l.Sessions = append(l.Sessions, sessionRow{Tenant: s.Tenant, Email: s.Email, Since: since,
+			LastActivity: s.LastSeen.Format("15:04:05"), Active: now.Sub(s.LastSeen) <= auth.ActiveWindow})
+	}
+	return l
 }
 
 // siteTenants lists the tenants placed on a site.
@@ -170,7 +214,7 @@ func (h *Handler) loadSite(w http.ResponseWriter, r *http.Request) (settings.Sit
 }
 
 func (h *Handler) renderSite(w http.ResponseWriter, r *http.Request, status int, s settings.Site, errMsg string) {
-	d := siteData{siteRow: toSiteRow(s, h.siteTenants(r, s.ID)), Mode: h.setup.Mode}
+	d := siteData{siteRow: toSiteRow(s, h.siteTenants(r, s.ID)), Mode: h.setup.Mode, Live: h.live(s.ID)}
 	h.render(w, r, status, "site", "Site "+s.Code, d, errMsg)
 }
 
@@ -343,4 +387,56 @@ func (h *Handler) siteForget(w http.ResponseWriter, r *http.Request) {
 	}
 	h.log.Warn("site forgotten: its Prism Central was not contacted", "via", "ui", "site", res.Forgotten, "left_in_prism_central", res.LeftInPrismCentral)
 	h.render(w, r, http.StatusOK, "site_forgotten", "Site forgotten", forgetData{Res: res}, "")
+}
+
+// siteMaintenance switches the site's maintenance flag; it takes effect
+// at once, without Apply (design sites §4.1).
+func (h *Handler) siteMaintenance(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCSRF(w, r) {
+		return
+	}
+	s, ok := h.loadSite(w, r)
+	if !ok {
+		return
+	}
+	if h.setup.Runtime == nil {
+		h.renderSite(w, r, http.StatusServiceUnavailable, s, api.SetupModeMessage)
+		return
+	}
+	on := r.PostFormValue("maintenance") == "on"
+	if err := h.setup.Runtime.SetMaintenance(r.Context(), s.ID, on); err != nil {
+		h.renderSite(w, r, http.StatusInternalServerError, s, err.Error())
+		return
+	}
+	h.log.Warn("site maintenance set", "via", "ui", "site", s.ID, "maintenance", on)
+	http.Redirect(w, r, "/setup/sites/"+url.PathEscape(s.ID), http.StatusSeeOther)
+}
+
+// siteSessions is the connected-users fragment, polled every 10 s.
+func (h *Handler) siteSessions(w http.ResponseWriter, r *http.Request) {
+	s, ok := h.loadSite(w, r)
+	if !ok {
+		return
+	}
+	d := siteData{siteRow: toSiteRow(s, nil), Live: h.live(s.ID)}
+	h.fragment(w, r, "site", "site_sessions", d)
+}
+
+// siteDisconnect ends the routing of every session on the site: their
+// next request lands on the site page or the maintenance page.
+func (h *Handler) siteDisconnect(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCSRF(w, r) {
+		return
+	}
+	s, ok := h.loadSite(w, r)
+	if !ok {
+		return
+	}
+	if h.setup.Runtime == nil {
+		h.renderSite(w, r, http.StatusServiceUnavailable, s, api.SetupModeMessage)
+		return
+	}
+	n := h.setup.Runtime.Disconnect(s.ID)
+	h.log.Warn("site sessions disconnected", "via", "ui", "site", s.ID, "disconnected", n)
+	http.Redirect(w, r, "/setup/sites/"+url.PathEscape(s.ID)+"?notice="+url.QueryEscape(fmt.Sprintf("%d user(s) disconnected from %s.", n, s.Code)), http.StatusSeeOther)
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/marco-fabbri/portico/internal/proxy"
 	"github.com/marco-fabbri/portico/internal/secrets"
 	"github.com/marco-fabbri/portico/internal/settings"
+	"github.com/marco-fabbri/portico/internal/sites"
 	"github.com/marco-fabbri/portico/internal/store"
 	"github.com/marco-fabbri/portico/internal/tenant"
 	"github.com/marco-fabbri/portico/internal/web"
@@ -235,6 +236,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// One Prism Central client per site, through that site's service
 	// account (design sites §4.1).
 	var tenantSites []tenant.Site
+	probes := map[string]sites.Prober{}
 	for _, site := range runDoc.OrderedSites() {
 		_, siteTLS, err := siteTarget(site, log)
 		if err != nil {
@@ -246,6 +248,10 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		}
 		tenantSites = append(tenantSites, tenant.Site{ID: site.ID, Code: site.Code, PC: c, SAMLIdPName: site.SAMLIdPName,
 			ClusterExtID: site.ClusterExtID, StorageContainerExtID: site.StorageContainerExtID})
+		probes[site.ID] = func(ctx context.Context) error {
+			_, err := c.PrismCentralVersion(ctx)
+			return err
+		}
 	}
 	tenants := tenant.NewService(st, tenantSites, kcClient, tenant.Config{
 		ProjectPrefix: cfg.Tenants.ProjectPrefix, GroupPrefix: cfg.Tenants.GroupPrefix, RoleName: cfg.Tenants.Role,
@@ -257,6 +263,17 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		log.Warn("tenants interrupted by the previous run marked failed", "count", n)
 	}
 	setup.Busy = tenants.Running
+	// Live state of the sites (design sites §4.1): the probe every 30 s,
+	// the maintenance flags, the sessions on each site; the index of the
+	// tenants' active placements, dropped when they change.
+	monitor := sites.NewMonitor(st, probes, log)
+	if err := monitor.Load(ctx); err != nil {
+		return fmt.Errorf("site state: %w", err)
+	}
+	go monitor.Run(ctx, 30*time.Second, 5*time.Second)
+	placements := sites.NewIndex(st, 5*time.Second)
+	tenants.OnPlacementChange(placements.Invalidate)
+	setup.Runtime = &api.Runtime{Monitor: monitor, Store: sessions}
 
 	publicTLS, err := serverTLS(cfg.Public.TLS)
 	if err != nil {
