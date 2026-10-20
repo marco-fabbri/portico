@@ -59,6 +59,17 @@ it; the Milestone 2f sweep closed the 2d and 2e items listed at the end.
 - `UNIQUE` violation detected by error-text substring (`internal/store`).
 - `PoliciesMentioning` substring-matches the group extId in the policy
   JSON (measured ok on pc.7.6, re-measure after an upgrade).
+- Deleting a tenant right after its role membership: Prism Central
+  refused to delete the resource group ("not empty", 10018) for between
+  3 and 10 minutes on 2026-10-20 (write-up 21; on 2026-10-18 the whole
+  deletion took 28 s). The resource-group step should retry that refusal
+  with a backoff within `operation_timeout` instead of failing the
+  tenant (`internal/tenant`).
+- A v4 `DELETE` whose task fails late is answered by Prism Central's
+  gateway with "504 upstream request timeout" after about 60 s: Portico
+  then records the 504, not the task's reason. Look the entity's latest
+  task up on a 504 and report its `legacyErrorMessage`
+  (`internal/nutanix`).
 
 ## Admin UI, branding, settings
 
@@ -208,4 +219,11 @@ drawn across the logo on the Keycloak login page.
   where one-site sessions are re-attached at once; an upstream
   `Set-Cookie` carrying a stash or Portico cookie name is not filtered;
   the sites design §5 still says the site is held in a cookie.
+- Minor findings of the appliance acceptance (write-up 21): the legacy
+  adoption line ("the single Prism Central of the stored document is now
+  site site-1") is written in plain text before the JSON logger exists;
+  the `tls_verify is false` warning is logged twice per site at start;
+  a maintenance change is logged twice (monitor and API); re-running
+  `install.sh` on an appliance also upgrades the packages it installs
+  (cloudflared went to 2026.10.2), which docs/install.md does not say.
 
