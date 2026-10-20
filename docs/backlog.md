@@ -194,4 +194,18 @@ drawn across the logo on the Keycloak login page.
   sessions and then the list.
 - The new-tenant form takes cluster and container as text prefilled with
   the site's defaults; live pickers per site would save typing an extId.
+- Minor findings of the Milestone 4 review, deferred: a placement left
+  `creating` when the Keycloak group step fails during "add a site"
+  (retry refused, the page polls); a legacy tenant without a project
+  gets no placement and a retry marks it active with no site; the
+  tenant is resolved only at login, and the no-site page has no
+  sign-out link (a transient Keycloak error strands the user for the
+  session); an index read in flight during an invalidation can keep the
+  old list up to 5 s; a settings save copies the sites read outside the
+  lock and can revert a concurrent site change; removing a site has no
+  busy check and checks placements outside the patch, and maintenance
+  flags of removed sites linger; "Disconnect" shows outside maintenance,
+  where one-site sessions are re-attached at once; an upstream
+  `Set-Cookie` carrying a stash or Portico cookie name is not filtered;
+  the sites design §5 still says the site is held in a cookie.
 
