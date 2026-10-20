@@ -82,7 +82,7 @@ func upstreamFor(t *testing.T, target, host string) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewUpstream(UpstreamOptions{Target: u, HostHeader: host, StripCookies: []string{auth.SessionCookie, auth.OIDCCookie}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	return NewUpstream(UpstreamOptions{Target: u, HostHeader: host, StripCookies: auth.PorticoCookies(), Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
 }
 
 func (h *publicHarness) do(method, rawURL string, hdr map[string]string, session bool) *httptest.ResponseRecorder {

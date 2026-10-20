@@ -308,11 +308,12 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	public := proxy.NewPublic(proxy.PublicOptions{
 		PrismHost: cfg.Public.PrismHost, IDHost: cfg.Public.IDHost,
 		Sites: &proxy.SiteRouting{
-			Backends:   backends,
-			Placements: placements.Sites,
-			Status:     monitor.Status,
-			SetSite:    sessions.SetSite,
-			Pages:      pages,
+			Backends:    backends,
+			Placements:  placements.Sites,
+			Status:      monitor.Status,
+			SetSite:     sessions.SetSite,
+			StashMaxAge: cfg.Session.MaxAge,
+			Pages:       pages,
 		},
 		Keycloak: kcUp, Auth: authn,
 		Policy: proxy.PrismPolicy{AllowPrefixes: cfg.Policy.AllowPrefixes}, Log: log,

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/marco-fabbri/portico/internal/auth"
 )
@@ -54,6 +55,15 @@ func NewPublic(o PublicOptions) http.Handler {
 	portico.Handle("GET /.portico/login", o.Auth.Login())
 	portico.Handle("GET /.portico/callback", o.Auth.Callback())
 	portico.Handle("GET /.portico/logout", o.Auth.Logout())
+	if o.Sites.Switch == nil {
+		maxAge := o.Sites.StashMaxAge
+		if maxAge <= 0 {
+			maxAge = 8 * time.Hour
+		}
+		o.Sites.Switch = func(w http.ResponseWriter, r *http.Request, from, to string) {
+			switchSiteCookies(w, r, from, to, maxAge)
+		}
+	}
 	portico.Handle("GET "+sitesPath, o.Auth.Require(http.HandlerFunc(o.Sites.sitesPage)))
 	portico.Handle("POST "+selectPath, o.Auth.Require(http.HandlerFunc(o.Sites.selectSite)))
 	if o.Landing != nil {
