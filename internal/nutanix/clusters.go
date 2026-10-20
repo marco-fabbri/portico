@@ -7,9 +7,11 @@ const PathClusterMgmt = "/api/clustermgmt/v4.0"
 
 // Cluster is a cluster registered to Prism Central.
 type Cluster struct {
-	ExtID string
-	Name  string
-	IsAOS bool // false for the Prism Central cluster itself
+	ExtID          string
+	Name           string
+	IsAOS          bool   // false for the Prism Central cluster itself
+	IsPrismCentral bool   // the Prism Central's own entry
+	Version        string // config.buildInfo.version, e.g. "pc.7.6.0.6"
 }
 
 // StorageContainer is a storage container of some cluster.
@@ -26,6 +28,9 @@ func (c *Client) ListClusters(ctx context.Context) ([]Cluster, error) {
 		Name   string `json:"name"`
 		Config struct {
 			ClusterFunction []string `json:"clusterFunction"`
+			BuildInfo       struct {
+				Version string `json:"version"`
+			} `json:"buildInfo"`
 		} `json:"config"`
 	}
 	if err := c.listAll(ctx, PathClusterMgmt+"/config/clusters", nil, &raw); err != nil {
@@ -33,10 +38,13 @@ func (c *Client) ListClusters(ctx context.Context) ([]Cluster, error) {
 	}
 	out := make([]Cluster, 0, len(raw))
 	for _, r := range raw {
-		cl := Cluster{ExtID: r.ExtID, Name: r.Name}
+		cl := Cluster{ExtID: r.ExtID, Name: r.Name, Version: r.Config.BuildInfo.Version}
 		for _, f := range r.Config.ClusterFunction {
-			if f == "AOS" {
+			switch f {
+			case "AOS":
 				cl.IsAOS = true
+			case "PRISM_CENTRAL":
+				cl.IsPrismCentral = true
 			}
 		}
 		out = append(out, cl)
@@ -68,4 +76,26 @@ func (c *Client) ListStorageContainers(ctx context.Context) ([]StorageContainer,
 		out = append(out, sc)
 	}
 	return out, nil
+}
+
+// PrismCentralVersion returns the build version Prism Central reports
+// for itself in the clusters list (its PRISM_CENTRAL entry), "" when the
+// entry or the field is absent. Provisional call (design sites §6, D5):
+// the service account can list clusters, measured in write-up 07.
+func (c *Client) PrismCentralVersion(ctx context.Context) (string, error) {
+	cls, err := c.ListClusters(ctx)
+	if err != nil {
+		return "", err
+	}
+	return PrismCentralVersionOf(cls), nil
+}
+
+// PrismCentralVersionOf picks Prism Central's version from a clusters list.
+func PrismCentralVersionOf(cls []Cluster) string {
+	for _, cl := range cls {
+		if cl.IsPrismCentral {
+			return cl.Version
+		}
+	}
+	return ""
 }

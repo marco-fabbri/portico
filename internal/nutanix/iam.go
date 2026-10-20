@@ -28,6 +28,10 @@ type SAMLIdPSpec struct {
 	Name        string
 	MetadataXML []byte
 	RedirectURL string
+	// EntityIssuer, when set, names Prism Central as a SAML service
+	// provider instead of the default derived from RedirectURL: several
+	// sites behind one public name need distinct names (design sites §4.5).
+	EntityIssuer string
 }
 
 // UserGroup is a SAML group known to Prism Central.
@@ -82,6 +86,9 @@ func (c *Client) CreateSAMLIdP(ctx context.Context, spec SAMLIdPSpec) (*SAMLIdP,
 	}
 	if spec.RedirectURL != "" {
 		body["redirectURL"] = spec.RedirectURL
+	}
+	if spec.EntityIssuer != "" {
+		body["entityIssuer"] = spec.EntityIssuer
 	}
 	var out SAMLIdP
 	if _, err := c.do(ctx, http.MethodPost, PathIAM1+"/authn/saml-identity-providers", "", body, "", &out); err != nil {

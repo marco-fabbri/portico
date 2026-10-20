@@ -16,17 +16,17 @@ func samlEnv(t *testing.T) (*fakePCAdmin, *fakeKCAdmin, Settings) {
 	s := Defaults()
 	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
 	s.Keycloak.Realm, s.Keycloak.AdminClientSecret = "msp", Secret(kc.adminSecret)
-	s.PrismCentral.URL, s.PrismCentral.APIKey = pc.srv.URL, Secret(pc.issuedKey)
+	s.Sites = []Site{{ID: "site-a", Code: "SITE-A", URL: pc.srv.URL, APIKey: Secret(pc.issuedKey)}}
 	return pc, kc, s
 }
 
 func TestSAMLBootstrapCreatesIdPAndKeycloakClient(t *testing.T) {
 	pc, kc, s := samlEnv(t)
-	res, out, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{})
+	res, out, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{})
 	if res.Name != "portico-keycloak" {
 		t.Fatalf("result name %q, want the default", res.Name)
 	}
-	if err != nil || !res.OK || res.UsedCredentials || out.PrismCentral.SAMLIdPName != "portico-keycloak" {
+	if err != nil || !res.OK || res.UsedCredentials || out.Sites[0].SAMLIdPName != "portico-keycloak" {
 		t.Fatalf("res=%+v out=%+v err=%v", res, out, err)
 	}
 	if pc.idpPost["redirectURL"] != "https://prism.example.test" || pc.idpPost["name"] != "portico-keycloak" || pc.idpPost["idpMetadataXml"] == nil {
@@ -51,7 +51,7 @@ func TestSAMLBootstrapRefusesAnotherIdP(t *testing.T) {
 	pc, kc, s := samlEnv(t)
 	pc.addIdP("corp-adfs")
 	var se *StateError
-	_, _, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{})
+	_, _, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{})
 	if !errors.As(err, &se) || !strings.Contains(err.Error(), "corp-adfs") || !strings.Contains(err.Error(), "does not adopt") {
 		t.Fatalf("another IdP: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestSAMLBootstrapRefusesAnotherIdP(t *testing.T) {
 func TestSAMLBootstrapDescriptorMismatch(t *testing.T) {
 	pc, kc, s := samlEnv(t)
 	kc.descriptorEntityID = "https://localhost:8080/realms/msp"
-	res, _, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{})
+	res, _, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{})
 	if err != nil || res.OK || !strings.Contains(res.Message, "check Keycloak's hostname setting") || !strings.Contains(res.Message, "https://localhost:8080/realms/msp") {
 		t.Fatalf("mismatch: %+v %v", res, err)
 	}
@@ -75,12 +75,12 @@ func TestSAMLBootstrapDescriptorMismatch(t *testing.T) {
 func TestSAMLBootstrapForbiddenAsksForCredentials(t *testing.T) {
 	pc, kc, s := samlEnv(t)
 	pc.forbidKey = true
-	res, _, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{})
+	res, _, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{})
 	if err != nil || res.OK || res.Message != "Prism Central refused the service account (403): give the credentials of an account that can manage identity providers" {
 		t.Fatalf("forbidden: %+v %v", res, err)
 	}
-	res, out, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, SAMLInput{Username: "admin", Password: "pc-pw-1"})
-	if err != nil || !res.OK || !res.UsedCredentials || out.PrismCentral.SAMLIdPName != "portico-keycloak" || out.PrismCentral.APIKey != Secret(pc.issuedKey) {
+	res, out, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{Username: "admin", Password: "pc-pw-1"})
+	if err != nil || !res.OK || !res.UsedCredentials || out.Sites[0].SAMLIdPName != "portico-keycloak" || out.Sites[0].APIKey != Secret(pc.issuedKey) {
 		t.Fatalf("with credentials: %+v %v", res, err)
 	}
 }
@@ -88,11 +88,11 @@ func TestSAMLBootstrapForbiddenAsksForCredentials(t *testing.T) {
 func TestSAMLBootstrapIsIdempotent(t *testing.T) {
 	pc, kc, s := samlEnv(t)
 	b := NewBootstrapper(nil, nil)
-	if res, _, err := b.SAML(context.Background(), kc.srv.URL, s, SAMLInput{Name: "msp-idp"}); err != nil || !res.OK {
+	if res, _, err := b.SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{Name: "msp-idp"}); err != nil || !res.OK {
 		t.Fatalf("first run: %+v %v", res, err)
 	}
-	res, out, err := b.SAML(context.Background(), kc.srv.URL, s, SAMLInput{Name: "msp-idp"})
-	if err != nil || !res.OK || len(res.Created) != 0 || res.IdPExtID != "idp-msp-idp" || out.PrismCentral.SAMLIdPName != "msp-idp" {
+	res, out, err := b.SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{Name: "msp-idp"})
+	if err != nil || !res.OK || len(res.Created) != 0 || res.IdPExtID != "idp-msp-idp" || out.Sites[0].SAMLIdPName != "msp-idp" {
 		t.Fatalf("second run: %+v %v", res, err)
 	}
 	if len(pc.idps) != 1 || len(kc.mappers[clientUUID("https://prism.example.test/api/iam/authn")]) != 2 {
@@ -108,22 +108,24 @@ func TestSAMLBootstrapPreconditions(t *testing.T) {
 		"no hosts":        func(s *Settings) { s.IDHost = "" },
 		"no realm":        func(s *Settings) { s.Keycloak.Realm = "" },
 		"no admin secret": func(s *Settings) { s.Keycloak.AdminClientSecret = "" },
-		"no pc url":       func(s *Settings) { s.PrismCentral.URL = "" },
-		"no key":          func(s *Settings) { s.PrismCentral.APIKey = "" },
+		"no pc url":       func(s *Settings) { s.Sites[0].URL = "" },
+		"no key":          func(s *Settings) { s.Sites[0].APIKey = "" },
 	} {
 		c := s
+		c.Sites = append([]Site(nil), s.Sites...)
 		mut(&c)
-		if _, _, err := b.SAML(context.Background(), kc.srv.URL, c, SAMLInput{}); !errors.As(err, &se) || !strings.Contains(err.Error(), "must be set first") {
+		if _, _, err := b.SAML(context.Background(), kc.srv.URL, c, "site-a", SAMLInput{}); !errors.As(err, &se) || !strings.Contains(err.Error(), "must be set first") {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
-	if _, _, err := b.SAML(context.Background(), kc.srv.URL, s, SAMLInput{Name: "Bad Name"}); !errors.As(err, &se) {
+	if _, _, err := b.SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{Name: "Bad Name"}); !errors.As(err, &se) {
 		t.Fatalf("bad name: %v", err)
 	}
 	// Without the key, both credentials make the precondition pass.
 	c := s
-	c.PrismCentral.APIKey = ""
-	if res, _, err := b.SAML(context.Background(), kc.srv.URL, c, SAMLInput{Username: "admin", Password: "pc-pw-1"}); err != nil || !res.OK {
+	c.Sites = append([]Site(nil), s.Sites...)
+	c.Sites[0].APIKey = ""
+	if res, _, err := b.SAML(context.Background(), kc.srv.URL, c, "site-a", SAMLInput{Username: "admin", Password: "pc-pw-1"}); err != nil || !res.OK {
 		t.Fatalf("credentials instead of the key: %+v %v", res, err)
 	}
 }

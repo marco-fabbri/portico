@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
+	"sync/atomic"
 
 	"github.com/marco-fabbri/portico/internal/secrets"
 	"github.com/marco-fabbri/portico/internal/store"
@@ -39,6 +41,8 @@ type Service struct {
 	sealer *secrets.Sealer
 	mu     sync.Mutex // serialises the read-modify-write of Update and Patch
 	hooks  []func(ctx context.Context, in Settings) error
+
+	legacyLogged atomic.Bool
 }
 
 // NewService returns a service over the store with the sealer.
@@ -62,19 +66,22 @@ func (s *Service) Stored(ctx context.Context) bool {
 	return err == nil
 }
 
-// secretFields lists the sealed fields with their names for errors.
-func secretFields(s *Settings) []struct {
+// secretField is a sealed field with its name for errors.
+type secretField struct {
 	name string
 	ptr  *Secret
-} {
-	return []struct {
-		name string
-		ptr  *Secret
-	}{
-		{"prism_central.api_key", &s.PrismCentral.APIKey},
-		{"keycloak.admin_client_secret", &s.Keycloak.AdminClientSecret},
-		{"oidc.client_secret", &s.OIDC.ClientSecret},
+}
+
+// secretFields lists the sealed fields: each site's key, then the
+// Keycloak admin client secret and the OIDC client secret.
+func secretFields(s *Settings) []secretField {
+	out := make([]secretField, 0, len(s.Sites)+2)
+	for i := range s.Sites {
+		out = append(out, secretField{"sites." + s.Sites[i].ID + ".api_key", &s.Sites[i].APIKey})
 	}
+	return append(out,
+		secretField{"keycloak.admin_client_secret", &s.Keycloak.AdminClientSecret},
+		secretField{"oidc.client_secret", &s.OIDC.ClientSecret})
 }
 
 // Get returns the document with its secrets opened.
@@ -89,6 +96,11 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 	var out Settings
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return Settings{}, fmt.Errorf("settings: stored document unreadable: %w", err)
+	}
+	// A single-Prism Central document: its connection becomes site-1,
+	// the key moved still sealed (design sites §4.7).
+	if adoptLegacy(raw, &out) && !s.legacyLogged.Swap(true) {
+		slog.Default().Info("settings: the single Prism Central of the stored document is now site " + LegacySiteID)
 	}
 	for _, f := range secretFields(&out) {
 		if *f.ptr == "" {
@@ -152,14 +164,28 @@ func (s *Service) Update(ctx context.Context, in Settings) error {
 		return err
 	}
 	if err == nil {
-		curFields, inFields := secretFields(&cur), secretFields(&in)
-		for i := range inFields {
-			if *inFields[i].ptr == "" {
-				*inFields[i].ptr = *curFields[i].ptr
-			}
-		}
+		keepSecrets(cur, &in)
 	}
 	return s.set(ctx, in)
+}
+
+// keepSecrets fills every empty secret of in with cur's: the Keycloak
+// and OIDC secrets by field, the sites' keys by site id.
+func keepSecrets(cur Settings, in *Settings) {
+	if in.Keycloak.AdminClientSecret == "" {
+		in.Keycloak.AdminClientSecret = cur.Keycloak.AdminClientSecret
+	}
+	if in.OIDC.ClientSecret == "" {
+		in.OIDC.ClientSecret = cur.OIDC.ClientSecret
+	}
+	for i := range in.Sites {
+		if in.Sites[i].APIKey != "" {
+			continue
+		}
+		if site, ok := cur.Site(in.Sites[i].ID); ok {
+			in.Sites[i].APIKey = site.APIKey
+		}
+	}
 }
 
 // Patch changes the stored document in place: it is read, handed to fn

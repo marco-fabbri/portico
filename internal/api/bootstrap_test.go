@@ -289,7 +289,10 @@ func TestBootstrapKeycloakNeedsHosts(t *testing.T) {
 func TestBootstrapPrismCentralStoresKeyAndNeverLogsPassword(t *testing.T) {
 	e := newDraftEnv(t)
 	e.putHosts(t)
-	rec, out := e.do("POST", "/api/v1/settings/bootstrap/prism-central", `{"username":"admin","password":"pc-pw-1","url":"`+e.pcAdmin.URL+`","tls_verify":false}`)
+	if rec, out := e.do("POST", "/api/v1/sites", `{"code":"SITE-A","url":"`+e.pcAdmin.URL+`","tls_verify":false}`); rec.Code != 201 || out["id"] != "site-a" {
+		t.Fatalf("create site: %d %v", rec.Code, out)
+	}
+	rec, out := e.do("POST", "/api/v1/sites/site-a/bootstrap/prism-central", `{"username":"admin","password":"pc-pw-1"}`)
 	if rec.Code != 200 || out["ok"] != true || out["stored"] != true || out["service_account"] != "portico" || out["clusters"] == nil {
 		t.Fatalf("bootstrap: %d %v", rec.Code, out)
 	}
@@ -301,17 +304,23 @@ func TestBootstrapPrismCentralStoresKeyAndNeverLogsPassword(t *testing.T) {
 	if !strings.Contains(e.log.String(), `"msg":"bootstrap prism central"`) {
 		t.Fatalf("log lacks the bootstrap line: %s", e.log.String())
 	}
-	rec, out = e.do("GET", "/api/v1/settings", "")
-	if pc := out["prism_central"].(map[string]any); pc["api_key_set"] != true || pc["url"] != e.pcAdmin.URL || out["prism_host"] != "prism.example.test" {
+	rec, out = e.do("GET", "/api/v1/sites/site-a", "")
+	if out["api_key_set"] != true || out["url"] != e.pcAdmin.URL {
 		t.Fatalf("stored: %v", out)
 	}
-	rec, out = e.do("POST", "/api/v1/settings/bootstrap/prism-central", `{"username":"admin","password":"wrong","url":"`+e.pcAdmin.URL+`","tls_verify":false}`)
+	if _, set := e.do("GET", "/api/v1/settings", ""); set["prism_host"] != "prism.example.test" {
+		t.Fatalf("the bootstrap lost the hosts: %v", set)
+	}
+	rec, out = e.do("POST", "/api/v1/sites/site-a/bootstrap/prism-central", `{"username":"admin","password":"wrong"}`)
 	if rec.Code != 200 || out["ok"] != false || !strings.Contains(out["message"].(string), "refused the credentials") || out["stored"] != false {
 		t.Fatalf("wrong password: %d %v", rec.Code, out)
 	}
-	rec, out = e.do("POST", "/api/v1/settings/bootstrap/prism-central", `{"username":"admin","url":"`+e.pcAdmin.URL+`"}`)
+	rec, out = e.do("POST", "/api/v1/sites/site-a/bootstrap/prism-central", `{"username":"admin"}`)
 	if rec.Code != 409 {
 		t.Fatalf("no password: %d %v", rec.Code, out)
+	}
+	if rec, _ := e.do("POST", "/api/v1/sites/nope/bootstrap/prism-central", `{"username":"admin","password":"pc-pw-1"}`); rec.Code != 404 {
+		t.Fatalf("unknown site: %d", rec.Code)
 	}
 }
 
@@ -320,12 +329,12 @@ func TestBootstrapSAMLStoresIdPName(t *testing.T) {
 	e.so.File = nil
 	// A document after the two previous bootstraps, pointing at the fakes.
 	doc := sampleSettings(e.pcAdmin.URL)
-	doc.PrismCentral.APIKey, doc.PrismCentral.SAMLIdPName = settings.Secret(e.pcAdmin.issuedKey()), ""
+	doc.Sites[0].APIKey, doc.Sites[0].SAMLIdPName = settings.Secret(e.pcAdmin.issuedKey()), ""
 	if err := e.svc.Set(context.Background(), doc); err != nil {
 		t.Fatal(err)
 	}
 	e.kcAdmin.realms["portico"] = map[string]any{"realm": "portico"}
-	rec, out := e.do("POST", "/api/v1/settings/bootstrap/saml", `{}`)
+	rec, out := e.do("POST", "/api/v1/sites/site-a/bootstrap/saml", `{}`)
 	if rec.Code != 200 || out["ok"] != true || out["stored"] != true || out["entity_id"] != "https://prism.example.test/api/iam/authn" || out["used_credentials"] != false || out["name"] != "portico-keycloak" {
 		t.Fatalf("bootstrap: %d %v", rec.Code, out)
 	}
@@ -335,11 +344,14 @@ func TestBootstrapSAMLStoresIdPName(t *testing.T) {
 		t.Fatalf("log lacks the bootstrap line with the name: %s", e.log.String())
 	}
 	rec, out = e.do("GET", "/api/v1/settings", "")
-	if out["prism_central"].(map[string]any)["saml_idp_name"] != "portico-keycloak" || out["complete"] != true {
+	if out["complete"] != true {
 		t.Fatalf("stored: %v", out)
 	}
+	if _, site := e.do("GET", "/api/v1/sites/site-a", ""); site["saml_idp_name"] != "portico-keycloak" || site["saml_entity_id"] != "https://prism.example.test/api/iam/authn" {
+		t.Fatalf("site after the SAML bootstrap: %v", site)
+	}
 	e.pcAdmin.addIdP("corp-adfs")
-	rec, out = e.do("POST", "/api/v1/settings/bootstrap/saml", `{"name":"portico-keycloak"}`)
+	rec, out = e.do("POST", "/api/v1/sites/site-a/bootstrap/saml", `{"name":"portico-keycloak"}`)
 	if rec.Code != 409 || !strings.Contains(out["error"].(string), "corp-adfs") {
 		t.Fatalf("second IdP: %d %v", rec.Code, out)
 	}

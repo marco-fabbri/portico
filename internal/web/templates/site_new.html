@@ -1,0 +1,20 @@
+{{define "content"}}
+<section class="card narrow" style="margin-top:1rem">
+  <h1>New site</h1>
+  <p class="muted">A site is one Prism Central, shown to tenants by its code. After saving, create its service account and its SAML trust on the site's page, then apply.</p>
+  <form method="post" action="/setup/sites/new">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <label>Code <input type="text" name="code" value="{{.Data.Code}}" pattern="[A-Z0-9][A-Z0-9-]{1,31}" placeholder="AZ-IT-MI1" required autofocus>
+      <span class="muted">what tenants see: upper-case letters, digits and dashes</span></label>
+    <label>Name <input type="text" name="name" value="{{.Data.Name}}" placeholder="Milan"></label>
+    <label>Order <input type="number" name="order" value="{{.Data.Order}}"></label>
+    <label>Prism Central URL <input type="url" name="url" value="{{.Data.URL}}" placeholder="https://10.0.0.10:9440" required></label>
+    <label class="inline"><input type="checkbox" name="tls_verify" value="on"{{if .Data.TLSVerify}} checked{{end}}> verify the TLS certificate</label>
+    <label>CA certificate (PEM, when verifying a private CA) <textarea name="ca_pem" rows="4">{{.Data.CAPEM}}</textarea></label>
+    <div class="actions">
+      <button type="submit" class="primary">Add site</button>
+      <a class="button" href="/setup">Cancel</a>
+    </div>
+  </form>
+</section>
+{{end}}

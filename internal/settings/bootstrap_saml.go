@@ -40,20 +40,32 @@ type SAMLResult struct {
 
 const defaultIdPName = "portico-keycloak"
 
+// perSiteEntityID chooses how several sites behind one public name meet
+// Keycloak (design sites §4.5). Prism Central derives its SAML entity id
+// from the IdP's redirect URL, the same for every site: false keeps that
+// shared id and one Keycloak client for all sites (variant B); true sets
+// a per-site entityIssuer and one client per site (variant A). Decision
+// D3 of write-up 20; variant B is the behaviour measured until then.
+var perSiteEntityID = false
+
 // SAML establishes the trust between Keycloak and Prism Central (design
 // §4.4): the realm's SAML descriptor becomes the identity provider in
 // Prism Central (with the public name as redirect URL), and the SP
 // metadata Prism Central publishes for it becomes a SAML client in
 // Keycloak. Prism Central holds one SAML identity provider: another one
 // is a *StateError, never adopted.
-func (b *Bootstrapper) SAML(ctx context.Context, keycloakURL string, s Settings, in SAMLInput) (SAMLResult, Settings, error) {
+func (b *Bootstrapper) SAML(ctx context.Context, keycloakURL string, s Settings, siteID string, in SAMLInput) (SAMLResult, Settings, error) {
+	site, ok := s.Site(siteID)
+	if !ok {
+		return SAMLResult{}, s, &StateError{Msg: fmt.Sprintf("no site with id %q", siteID)}
+	}
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
 		name = defaultIdPName
 	}
 	creds := in.Username != "" && in.Password != ""
-	if strings.TrimSpace(s.PrismHost) == "" || strings.TrimSpace(s.IDHost) == "" || s.Keycloak.Realm == "" || s.Keycloak.AdminClientSecret == "" || s.PrismCentral.URL == "" || (s.PrismCentral.APIKey == "" && !creds) {
-		return SAMLResult{}, s, &StateError{Msg: "the public names, the Keycloak realm with its admin client and the Prism Central connection must be set first"}
+	if strings.TrimSpace(s.PrismHost) == "" || strings.TrimSpace(s.IDHost) == "" || s.Keycloak.Realm == "" || s.Keycloak.AdminClientSecret == "" || site.URL == "" || (site.APIKey == "" && !creds) {
+		return SAMLResult{}, s, &StateError{Msg: "the public names, the Keycloak realm with its admin client and the site's Prism Central connection must be set first"}
 	}
 	if !reServiceAccount.MatchString(name) {
 		return SAMLResult{}, s, &StateError{Msg: "the identity provider name must be lower-case letters, digits, dots, dashes and underscores"}
@@ -83,19 +95,19 @@ func (b *Bootstrapper) SAML(ctx context.Context, keycloakURL string, s Settings,
 	}
 
 	// Prism Central: the service account, or the one-time credentials.
-	u, err := url.Parse(s.PrismCentral.URL)
+	u, err := url.Parse(site.URL)
 	if err != nil || u.Host == "" {
-		return SAMLResult{}, s, &StateError{Msg: fmt.Sprintf("the Prism Central URL %q is not valid", s.PrismCentral.URL)}
+		return SAMLResult{}, s, &StateError{Msg: fmt.Sprintf("the Prism Central URL %q is not valid", site.URL)}
 	}
-	tlsCfg, err := proxy.PrismTLSPEM(u.Hostname(), []byte(s.PrismCentral.CAPEM), s.PrismCentral.TLSVerify)
+	tlsCfg, err := proxy.PrismTLSPEM(u.Hostname(), []byte(site.CAPEM), site.TLSVerify)
 	if err != nil {
 		return SAMLResult{}, s, &StateError{Msg: "the CA certificate is not usable: " + err.Error()}
 	}
 	var pc *nutanix.Client
 	if creds {
-		pc, err = nutanix.NewWithPassword(s.PrismCentral.URL, in.Username, in.Password, tlsCfg, b.log)
+		pc, err = nutanix.NewWithPassword(site.URL, in.Username, in.Password, tlsCfg, b.log)
 	} else {
-		pc, err = nutanix.New(s.PrismCentral.URL, string(s.PrismCentral.APIKey), tlsCfg, b.log)
+		pc, err = nutanix.New(site.URL, string(site.APIKey), tlsCfg, b.log)
 	}
 	if err != nil {
 		return SAMLResult{}, s, &StateError{Msg: err.Error()}
@@ -109,7 +121,7 @@ func (b *Bootstrapper) SAML(ctx context.Context, keycloakURL string, s Settings,
 		case errors.As(err, &apiErr) && (apiErr.Status == http.StatusUnauthorized || apiErr.Status == http.StatusForbidden):
 			res.Message = fmt.Sprintf("Prism Central refused the credentials (%d)", apiErr.Status)
 		default:
-			res.Message = prismError(s.PrismCentral.URL, err)
+			res.Message = prismError(site.URL, err)
 		}
 		return res, s, nil
 	}
@@ -126,7 +138,11 @@ func (b *Bootstrapper) SAML(ctx context.Context, keycloakURL string, s Settings,
 		return SAMLResult{}, s, &StateError{Msg: fmt.Sprintf("an identity provider named %s already exists: Portico does not adopt an existing one", idps[i].Name)}
 	}
 	if idp == nil {
-		idp, err = pc.CreateSAMLIdP(ctx, nutanix.SAMLIdPSpec{Name: name, MetadataXML: descriptor, RedirectURL: "https://" + s.PrismHost})
+		spec := nutanix.SAMLIdPSpec{Name: name, MetadataXML: descriptor, RedirectURL: "https://" + s.PrismHost}
+		if perSiteEntityID {
+			spec.EntityIssuer = "https://" + s.PrismHost + "/api/iam/authn/" + siteID
+		}
+		idp, err = pc.CreateSAMLIdP(ctx, spec)
 		if err != nil {
 			return remote(err)
 		}
@@ -180,8 +196,13 @@ func (b *Bootstrapper) SAML(ctx context.Context, keycloakURL string, s Settings,
 		res.Created = append(res.Created, "mappers "+strings.Join(added, ", "))
 	}
 
-	patch := func(d *Settings) { d.PrismCentral.SAMLIdPName = name }
+	patch := func(d *Settings) {
+		if i := d.siteIndex(siteID); i >= 0 {
+			d.Sites[i].SAMLIdPName, d.Sites[i].SAMLEntityID = name, entityID
+		}
+	}
 	out := s
+	out.Sites = append([]Site(nil), s.Sites...)
 	patch(&out)
 	if len(res.Created) == 0 {
 		res.Message = fmt.Sprintf("the SAML trust is in place: identity provider %s and Keycloak client %s", name, entityID)

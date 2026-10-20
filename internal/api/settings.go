@@ -97,17 +97,10 @@ func (o *SettingsOptions) Restarting() bool { return o.restarting.Load() }
 
 var errRestartUnavailable = errors.New("restart is not available in this process")
 
-// Check runs the named check with the candidate document. The stored
-// Prism Central key is used only against the stored host: a check that
-// names another host must bring its own key, or the stored
-// service-account key would be sent wherever the caller points.
+// Check runs the named check with the candidate document. A site's
+// Prism Central is checked with CheckSite.
 func (o *SettingsOptions) Check(ctx context.Context, target string, cur, s settings.Settings, keyGiven bool) (settings.CheckResult, bool) {
 	switch target {
-	case "prism_central":
-		if !keyGiven && !sameHost(cur.PrismCentral.URL, s.PrismCentral.URL) {
-			return settings.CheckResult{Message: "the API key must be given when the Prism Central URL changes: the stored key is only sent to the stored host"}, true
-		}
-		return o.Checker.PrismCentral(ctx, s, string(s.PrismCentral.APIKey)), true
 	case "keycloak":
 		return o.Checker.Keycloak(ctx, o.KeycloakURL, s, string(s.Keycloak.AdminClientSecret)), true
 	case "oidc":
@@ -127,22 +120,17 @@ func sameHost(a, b string) bool {
 // on input and never written on output; the *_set booleans say whether
 // one is held.
 type settingsJSON struct {
-	Stored       bool     `json:"stored"`
-	Source       string   `json:"source"`
-	Mode         string   `json:"mode,omitempty"`
-	Complete     bool     `json:"complete"`
-	Missing      []string `json:"missing"`
-	PrismHost    string   `json:"prism_host"`
-	IDHost       string   `json:"id_host"`
-	PrismCentral struct {
-		URL         string `json:"url"`
-		TLSVerify   *bool  `json:"tls_verify"` // absent keeps the current value
-		CAPEM       string `json:"ca_pem"`
-		APIKey      string `json:"api_key,omitempty"`
-		APIKeySet   bool   `json:"api_key_set"`
-		SAMLIdPName string `json:"saml_idp_name"`
-	} `json:"prism_central"`
-	Keycloak struct {
+	Stored    bool     `json:"stored"`
+	Source    string   `json:"source"`
+	Mode      string   `json:"mode,omitempty"`
+	Complete  bool     `json:"complete"`
+	Missing   []string `json:"missing"`
+	PrismHost string   `json:"prism_host"`
+	IDHost    string   `json:"id_host"`
+	// Sites are listed and edited under /api/v1/sites; the document
+	// names only the pass-through's site here.
+	PassthroughSite string `json:"passthrough_site"`
+	Keycloak        struct {
 		Realm                string `json:"realm"`
 		AdminClientID        string `json:"admin_client_id"`
 		AdminClientSecret    string `json:"admin_client_secret,omitempty"`
@@ -155,12 +143,10 @@ type settingsJSON struct {
 		ClientSecretSet bool   `json:"client_secret_set"`
 	} `json:"oidc"`
 	Tenants struct {
-		ProjectPrefix         string `json:"project_prefix"`
-		GroupPrefix           string `json:"group_prefix"`
-		Role                  string `json:"role"`
-		ClusterExtID          string `json:"cluster_ext_id"`
-		StorageContainerExtID string `json:"storage_container_ext_id"`
-		OperationTimeout      string `json:"operation_timeout"`
+		ProjectPrefix    string `json:"project_prefix"`
+		GroupPrefix      string `json:"group_prefix"`
+		Role             string `json:"role"`
+		OperationTimeout string `json:"operation_timeout"`
 	} `json:"tenants"`
 }
 
@@ -172,36 +158,25 @@ func toSettingsJSON(s settings.Settings, source, mode string) settingsJSON {
 		j.Missing = []string{}
 	}
 	j.Complete = len(j.Missing) == 0
-	j.PrismHost, j.IDHost = s.PrismHost, s.IDHost
-	tlsVerify := s.PrismCentral.TLSVerify
-	j.PrismCentral.URL, j.PrismCentral.TLSVerify, j.PrismCentral.CAPEM = s.PrismCentral.URL, &tlsVerify, s.PrismCentral.CAPEM
-	j.PrismCentral.APIKeySet, j.PrismCentral.SAMLIdPName = s.PrismCentral.APIKey != "", s.PrismCentral.SAMLIdPName
+	j.PrismHost, j.IDHost, j.PassthroughSite = s.PrismHost, s.IDHost, s.PassthroughSite
 	j.Keycloak.Realm, j.Keycloak.AdminClientID, j.Keycloak.AdminClientSecretSet = s.Keycloak.Realm, s.Keycloak.AdminClientID, s.Keycloak.AdminClientSecret != ""
 	j.OIDC.Issuer, j.OIDC.ClientID, j.OIDC.ClientSecretSet = s.OIDC.Issuer, s.OIDC.ClientID, s.OIDC.ClientSecret != ""
 	j.Tenants.ProjectPrefix, j.Tenants.GroupPrefix, j.Tenants.Role = s.Tenants.ProjectPrefix, s.Tenants.GroupPrefix, s.Tenants.Role
-	j.Tenants.ClusterExtID, j.Tenants.StorageContainerExtID = s.Tenants.ClusterExtID, s.Tenants.StorageContainerExtID
 	j.Tenants.OperationTimeout = s.Tenants.OperationTimeout.String()
 	return j
 }
 
 // fromSettingsJSON builds the document from the body on top of base: an
-// empty secret and an absent tls_verify keep base's value (the stored
-// document, or the file's when nothing is stored yet), so a body
-// without secrets never erases them and a file-based installation is
-// adopted by its first PUT.
+// empty secret keeps base's value (the stored document, or the file's
+// when nothing is stored yet), so a body without secrets never erases
+// them and a file-based installation is adopted by its first PUT. The
+// sites come from base: they are edited under /api/v1/sites.
 func fromSettingsJSON(j settingsJSON, base settings.Settings) (settings.Settings, error) {
 	var s settings.Settings
-	s.PrismHost, s.IDHost = j.PrismHost, j.IDHost
-	s.PrismCentral.URL, s.PrismCentral.TLSVerify, s.PrismCentral.CAPEM = j.PrismCentral.URL, base.PrismCentral.TLSVerify, j.PrismCentral.CAPEM
-	if j.PrismCentral.TLSVerify != nil {
-		s.PrismCentral.TLSVerify = *j.PrismCentral.TLSVerify
-	}
-	s.PrismCentral.APIKey, s.PrismCentral.SAMLIdPName = settings.Secret(j.PrismCentral.APIKey), j.PrismCentral.SAMLIdPName
+	s.PrismHost, s.IDHost, s.PassthroughSite = j.PrismHost, j.IDHost, j.PassthroughSite
+	s.Sites = append([]settings.Site(nil), base.Sites...)
 	s.Keycloak.Realm, s.Keycloak.AdminClientID, s.Keycloak.AdminClientSecret = j.Keycloak.Realm, j.Keycloak.AdminClientID, settings.Secret(j.Keycloak.AdminClientSecret)
 	s.OIDC.Issuer, s.OIDC.ClientID, s.OIDC.ClientSecret = j.OIDC.Issuer, j.OIDC.ClientID, settings.Secret(j.OIDC.ClientSecret)
-	if s.PrismCentral.APIKey == "" {
-		s.PrismCentral.APIKey = base.PrismCentral.APIKey
-	}
 	if s.Keycloak.AdminClientSecret == "" {
 		s.Keycloak.AdminClientSecret = base.Keycloak.AdminClientSecret
 	}
@@ -209,7 +184,6 @@ func fromSettingsJSON(j settingsJSON, base settings.Settings) (settings.Settings
 		s.OIDC.ClientSecret = base.OIDC.ClientSecret
 	}
 	s.Tenants.ProjectPrefix, s.Tenants.GroupPrefix, s.Tenants.Role = j.Tenants.ProjectPrefix, j.Tenants.GroupPrefix, j.Tenants.Role
-	s.Tenants.ClusterExtID, s.Tenants.StorageContainerExtID = j.Tenants.ClusterExtID, j.Tenants.StorageContainerExtID
 	if v := strings.TrimSpace(j.Tenants.OperationTimeout); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
@@ -229,9 +203,6 @@ func fromBody(j settingsJSON) settings.Settings {
 // secretsIn names the secret fields a request carries, for the log.
 func secretsIn(s settings.Settings) []string {
 	var names []string
-	if s.PrismCentral.APIKey != "" {
-		names = append(names, "prism_central.api_key")
-	}
 	if s.Keycloak.AdminClientSecret != "" {
 		names = append(names, "keycloak.admin_client_secret")
 	}
@@ -321,13 +292,6 @@ func candidate(cur settings.Settings, target string, in settings.Settings) setti
 		}
 	}
 	switch target {
-	case "prism_central":
-		if in.PrismCentral.URL != "" {
-			out.PrismCentral.URL, out.PrismCentral.CAPEM = in.PrismCentral.URL, in.PrismCentral.CAPEM
-		}
-		out.PrismCentral.TLSVerify = in.PrismCentral.TLSVerify
-		pick(&out.PrismCentral.SAMLIdPName, in.PrismCentral.SAMLIdPName)
-		out.PrismCentral.APIKey = in.PrismCentral.APIKey
 	case "keycloak":
 		pick(&out.Keycloak.Realm, in.Keycloak.Realm)
 		pick(&out.Keycloak.AdminClientID, in.Keycloak.AdminClientID)
@@ -358,9 +322,9 @@ func (h *handler) checkSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	res, ok := h.so.Check(r.Context(), in.Target, cur, candidate(cur, in.Target, cand), in.PrismCentral.APIKey != "")
+	res, ok := h.so.Check(r.Context(), in.Target, cur, candidate(cur, in.Target, cand), false)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "target must be prism_central, keycloak or oidc")
+		writeError(w, http.StatusBadRequest, "target must be keycloak or oidc (a site's Prism Central is checked at /api/v1/sites/{id}/check)")
 		return
 	}
 	h.log.Info("settings check", "target", in.Target, "ok", res.OK)
@@ -432,73 +396,6 @@ func (h *handler) bootstrapKeycloak(w http.ResponseWriter, r *http.Request) {
 	res, _, err := h.so.Bootstrapper.Keycloak(r.Context(), h.so.KeycloakURL, cur, settings.KeycloakInput{AdminUsername: in.AdminUsername, AdminPassword: in.AdminPassword, Realm: in.Realm, DisplayName: in.DisplayName})
 	if err == nil {
 		h.log.Info("bootstrap keycloak", "realm", in.Realm, "user", in.AdminUsername, "ok", res.OK, "created", res.Created)
-	}
-	h.bootstrapAnswer(w, r, res, err)
-}
-
-// bootstrapPrismJSON is the Prism Central bootstrap request body.
-type bootstrapPrismJSON struct {
-	Username       string `json:"username"`
-	Password       string `json:"password"`
-	URL            string `json:"url"`
-	TLSVerify      *bool  `json:"tls_verify"`
-	CAPEM          string `json:"ca_pem"`
-	ServiceAccount string `json:"service_account"`
-}
-
-func (h *handler) bootstrapPrismCentral(w http.ResponseWriter, r *http.Request) {
-	if h.settingsUnavailable(w) {
-		return
-	}
-	var in bootstrapPrismJSON
-	if err := decode(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
-		return
-	}
-	cur, _, err := h.so.Current(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	pin := settings.PrismInput{Username: in.Username, Password: in.Password, URL: in.URL, TLSVerify: true, CAPEM: in.CAPEM, ServiceAccount: in.ServiceAccount}
-	if in.TLSVerify != nil {
-		pin.TLSVerify = *in.TLSVerify
-	}
-	res, _, err := h.so.Bootstrapper.PrismCentral(r.Context(), cur, pin)
-	if err == nil {
-		attrs := []any{"url", in.URL, "user", in.Username, "service_account", res.ServiceAccount, "ok", res.OK, "created", res.Created}
-		if res.OK {
-			attrs = append(attrs, "key_expires", res.KeyExpires)
-		}
-		h.log.Info("bootstrap prism central", attrs...)
-	}
-	h.bootstrapAnswer(w, r, res, err)
-}
-
-// bootstrapSAMLJSON is the SAML trust bootstrap request body.
-type bootstrapSAMLJSON struct {
-	Name     string `json:"name"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-func (h *handler) bootstrapSAML(w http.ResponseWriter, r *http.Request) {
-	if h.settingsUnavailable(w) {
-		return
-	}
-	var in bootstrapSAMLJSON
-	if err := decode(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
-		return
-	}
-	cur, _, err := h.so.Current(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	res, _, err := h.so.Bootstrapper.SAML(r.Context(), h.so.KeycloakURL, cur, settings.SAMLInput{Name: in.Name, Username: in.Username, Password: in.Password})
-	if err == nil {
-		h.log.Info("bootstrap saml", "name", res.Name, "ok", res.OK, "used_credentials", res.UsedCredentials, "created", res.Created)
 	}
 	h.bootstrapAnswer(w, r, res, err)
 }

@@ -19,8 +19,10 @@ import (
 // authorization policies, design §4.5), the connection, and the name of
 // the service account to create.
 type PrismInput struct {
-	Username       string
-	Password       string
+	Username string
+	Password string
+	// URL, TLSVerify and CAPEM replace the site's connection when URL is
+	// set; an empty URL uses the site's stored connection.
 	URL            string
 	TLSVerify      bool
 	CAPEM          string
@@ -47,12 +49,20 @@ const (
 
 var reServiceAccount = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
-// PrismCentral creates the service account (or finds it), issues it a
-// new API key, puts it in the Project Manager policy and verifies the
-// key by listing clusters and containers. A failure after the key exists
-// revokes it. Refusals and unreachable hosts are results with OK false;
-// a precondition on the input is a *StateError.
-func (b *Bootstrapper) PrismCentral(ctx context.Context, s Settings, in PrismInput) (PrismResult, Settings, error) {
+// PrismCentral creates the service account of a site's Prism Central (or
+// finds it), issues it a new API key, puts it in the Project Manager
+// policy and verifies the key by listing clusters and containers (which
+// also checks the version). A failure after the key exists revokes it.
+// Refusals and unreachable hosts are results with OK false; a
+// precondition on the input, an unknown site included, is a *StateError.
+func (b *Bootstrapper) PrismCentral(ctx context.Context, s Settings, siteID string, in PrismInput) (PrismResult, Settings, error) {
+	site, ok := s.Site(siteID)
+	if !ok {
+		return PrismResult{}, s, &StateError{Msg: fmt.Sprintf("no site with id %q", siteID)}
+	}
+	if in.URL == "" {
+		in.URL, in.TLSVerify, in.CAPEM = site.URL, site.TLSVerify, site.CAPEM
+	}
 	name := in.ServiceAccount
 	if strings.TrimSpace(name) == "" {
 		name = defaultServiceAccount
@@ -171,23 +181,36 @@ func (b *Bootstrapper) PrismCentral(ctx context.Context, s Settings, in PrismInp
 		res.Created = append(res.Created, "policy member")
 	}
 
-	// Verification with the new key, which also fills the pickers.
-	out := s
-	out.PrismCentral.URL, out.PrismCentral.TLSVerify, out.PrismCentral.CAPEM = in.URL, in.TLSVerify, in.CAPEM
-	check := NewChecker(b.log).PrismCentral(ctx, out, key.Key)
+	// Verification with the new key, which also fills the pickers and
+	// refuses a Prism Central older than pc.7.6.
+	site.URL, site.TLSVerify, site.CAPEM = in.URL, in.TLSVerify, in.CAPEM
+	check := NewChecker(b.log).PrismCentral(ctx, site, key.Key)
 	if !check.OK {
 		return failed("the new key was refused: " + check.Message)
 	}
+	found := false
 	patch := func(d *Settings) {
-		d.PrismCentral.URL, d.PrismCentral.TLSVerify, d.PrismCentral.CAPEM = in.URL, in.TLSVerify, in.CAPEM
-		d.PrismCentral.APIKey = Secret(key.Key)
+		i := d.siteIndex(siteID)
+		if i < 0 {
+			return
+		}
+		found = true
+		d.Sites[i].URL, d.Sites[i].TLSVerify, d.Sites[i].CAPEM = in.URL, in.TLSVerify, in.CAPEM
+		d.Sites[i].APIKey = Secret(key.Key)
 	}
+	out := s
+	out.Sites = append([]Site(nil), s.Sites...)
 	patch(&out)
+	found = false
 	// A key that is not stored is a key nobody holds: revoke it.
 	stored, err := b.store(ctx, patch)
 	if err != nil {
 		res.CheckResult = CheckResult{Clusters: check.Clusters, Containers: check.Containers}
 		return failed("Prism Central bootstrap done but the settings were not stored, so the new key was revoked: " + err.Error())
+	}
+	if stored && !found {
+		res.CheckResult = CheckResult{Clusters: check.Clusters, Containers: check.Containers}
+		return failed("the site was removed while the bootstrap ran, so the new key was revoked")
 	}
 	res.CheckResult, res.Stored = check, stored
 	res.Message = fmt.Sprintf("Prism Central bootstrap done: created %s; %s", strings.Join(res.Created, ", "), check.Message)

@@ -268,7 +268,7 @@ func TestKeycloakBootstrapKeepsASaveMadeMeanwhile(t *testing.T) {
 	}
 	kc.onClients = func() {
 		kc.onClients = nil
-		if err := svc.Patch(ctx, func(d *Settings) { d.Tenants.ClusterExtID = "cl-9" }); err != nil {
+		if err := svc.Patch(ctx, func(d *Settings) { d.Tenants.Role = "role-9" }); err != nil {
 			t.Error(err)
 		}
 	}
@@ -277,7 +277,7 @@ func TestKeycloakBootstrapKeepsASaveMadeMeanwhile(t *testing.T) {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	got, err := svc.Get(ctx)
-	if err != nil || got.Keycloak.Realm != "msp" || got.Tenants.ClusterExtID != "cl-9" || got.OIDC.ClientSecret == "" {
+	if err != nil || got.Keycloak.Realm != "msp" || got.Tenants.Role != "role-9" || got.OIDC.ClientSecret == "" {
 		t.Fatalf("got=%+v err=%v", got, err)
 	}
 }

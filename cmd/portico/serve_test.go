@@ -305,8 +305,8 @@ func TestServeRefusesUnopenableSettings(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	err := runServe(ctx, cfg, slog.New(slog.NewJSONHandler(logBuf, nil)))
-	if err == nil || !strings.Contains(err.Error(), "prism_central.api_key") {
-		t.Fatalf("runServe with another key = %v, want an error naming prism_central.api_key", err)
+	if err == nil || !strings.Contains(err.Error(), "sites.site-1.api_key") {
+		t.Fatalf("runServe with another key = %v, want an error naming sites.site-1.api_key", err)
 	}
 	if resp, err := http.Get("http://" + cfg.Internal.AdminListen + "/healthz"); err == nil {
 		resp.Body.Close()
@@ -404,12 +404,20 @@ func TestServeSetupModeWithEmptyStore(t *testing.T) {
 		t.Fatalf("settings: %d %v", resp.StatusCode, out)
 	}
 	// A complete document stored through the API, then Apply → ErrRestart.
-	body := `{"prism_host":"prism.test","id_host":"id.test","prism_central":{"url":"https://127.0.0.1:1","tls_verify":false,"api_key":"k","saml_idp_name":"idp"},"keycloak":{"realm":"x","admin_client_id":"portico-admin","admin_client_secret":"s"},"oidc":{"issuer":"https://id.test/realms/x","client_id":"portico","client_secret":"s"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","cluster_ext_id":"cl","storage_container_ext_id":"sc","operation_timeout":"10m"}}`
+	body := `{"prism_host":"prism.test","id_host":"id.test","keycloak":{"realm":"x","admin_client_id":"portico-admin","admin_client_secret":"s"},"oidc":{"issuer":"https://id.test/realms/x","client_id":"portico","client_secret":"s"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`
 	req, _ = http.NewRequest("PUT", "http://"+cfg.Internal.AdminListen+"/api/v1/settings", strings.NewReader(body))
 	req.SetBasicAuth("admin", "pw-12345678")
 	req.Header.Set("Content-Type", "application/json")
 	if resp, err = client.Do(req); err != nil || resp.StatusCode != 200 {
 		t.Fatalf("PUT: %v %d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+	site := `{"code":"SITE-1","url":"https://127.0.0.1:1","tls_verify":false,"api_key":"k","saml_idp_name":"idp"}`
+	req, _ = http.NewRequest("POST", "http://"+cfg.Internal.AdminListen+"/api/v1/sites", strings.NewReader(site))
+	req.SetBasicAuth("admin", "pw-12345678")
+	req.Header.Set("Content-Type", "application/json")
+	if resp, err = client.Do(req); err != nil || resp.StatusCode != 201 {
+		t.Fatalf("POST site: %v %d", err, resp.StatusCode)
 	}
 	resp.Body.Close()
 	req, _ = http.NewRequest("POST", "http://"+cfg.Internal.AdminListen+"/api/v1/settings/apply", nil)

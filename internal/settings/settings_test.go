@@ -37,11 +37,11 @@ func newStore(t *testing.T) *store.SQLite {
 func sample() Settings {
 	var s Settings
 	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
-	s.PrismCentral.URL = "https://pc.example.test:9440"
-	s.PrismCentral.TLSVerify = true
-	s.PrismCentral.CAPEM = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
-	s.PrismCentral.APIKey = "k1-api-key-secret"
-	s.PrismCentral.SAMLIdPName = "portico-idp"
+	s.Sites = []Site{{
+		ID: "site-a", Code: "SITE-A", Name: "pc.example.test", URL: "https://pc.example.test:9440", TLSVerify: true,
+		CAPEM:  "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n",
+		APIKey: "k1-api-key-secret", SAMLIdPName: "portico-idp", ClusterExtID: "cl-1", StorageContainerExtID: "sc-1",
+	}}
 	s.Keycloak.Realm = "portico"
 	s.Keycloak.AdminClientID = "portico-admin"
 	s.Keycloak.AdminClientSecret = "kc-admin-secret"
@@ -49,7 +49,6 @@ func sample() Settings {
 	s.OIDC.ClientID = "portico"
 	s.OIDC.ClientSecret = "oidc-client-secret"
 	s.Tenants.ProjectPrefix, s.Tenants.GroupPrefix, s.Tenants.Role = "portico", "tenant-", "Project Admin"
-	s.Tenants.ClusterExtID, s.Tenants.StorageContainerExtID = "cl-1", "sc-1"
 	s.Tenants.OperationTimeout = 10 * time.Minute
 	return s
 }
@@ -60,7 +59,7 @@ func TestFromConfigOverlayRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := FromConfig(cfg, "k1", "a1", "c1", "CA-PEM")
-	if s.PrismHost != "prism.example.test" || s.PrismCentral.APIKey != "k1" || s.Keycloak.AdminClientSecret != "a1" || s.OIDC.ClientSecret != "c1" || s.PrismCentral.CAPEM != "CA-PEM" || s.Tenants.ClusterExtID != "cl-1" {
+	if s.PrismHost != "prism.example.test" || s.Sites[0].APIKey != "k1" || s.Keycloak.AdminClientSecret != "a1" || s.OIDC.ClientSecret != "c1" || s.Sites[0].CAPEM != "CA-PEM" || s.Sites[0].ClusterExtID != "cl-1" || s.Sites[0].ID != LegacySiteID {
 		t.Fatalf("FromConfig = %+v", s)
 	}
 	out := config.Default()
@@ -104,7 +103,7 @@ func TestServiceSetSealsSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.PrismCentral.APIKey != "k1-api-key-secret" || got.OIDC.ClientSecret != "oidc-client-secret" || got.PrismCentral.URL != "https://pc.example.test:9440" || got.Tenants.OperationTimeout != 10*time.Minute {
+	if got.Sites[0].APIKey != "k1-api-key-secret" || got.OIDC.ClientSecret != "oidc-client-secret" || got.Sites[0].URL != "https://pc.example.test:9440" || got.Tenants.OperationTimeout != 10*time.Minute {
 		t.Fatalf("Get = %+v", got)
 	}
 	if !svc.Stored(ctx) {
@@ -129,8 +128,8 @@ func TestServiceGetWrongKeyNamesField(t *testing.T) {
 	}
 	_, err := NewService(st, sealerFor(t, 2)).Get(context.Background())
 	var oe *OpenError
-	if !errors.As(err, &oe) || oe.Field != "prism_central.api_key" || !strings.Contains(err.Error(), "prism_central.api_key") {
-		t.Fatalf("Get with another key = %v, want *OpenError naming prism_central.api_key", err)
+	if !errors.As(err, &oe) || oe.Field != "sites.site-a.api_key" || !strings.Contains(err.Error(), "sites.site-a.api_key") {
+		t.Fatalf("Get with another key = %v, want *OpenError naming sites.site-a.api_key", err)
 	}
 	if !errors.Is(err, secrets.ErrOpen) {
 		t.Fatalf("OpenError should wrap secrets.ErrOpen: %v", err)
@@ -144,13 +143,13 @@ func TestServiceUpdateKeepsSecretsWhenEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	in := sample()
-	in.PrismCentral.URL = "https://pc2.example.test:9440"
-	in.PrismCentral.APIKey, in.Keycloak.AdminClientSecret, in.OIDC.ClientSecret = "", "", "oidc-new"
+	in.Sites[0].URL = "https://pc2.example.test:9440"
+	in.Sites[0].APIKey, in.Keycloak.AdminClientSecret, in.OIDC.ClientSecret = "", "", "oidc-new"
 	if err := svc.Update(ctx, in); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	got, _ := svc.Get(ctx)
-	if got.PrismCentral.URL != "https://pc2.example.test:9440" || got.PrismCentral.APIKey != "k1-api-key-secret" || got.Keycloak.AdminClientSecret != "kc-admin-secret" || got.OIDC.ClientSecret != "oidc-new" {
+	if got.Sites[0].URL != "https://pc2.example.test:9440" || got.Sites[0].APIKey != "k1-api-key-secret" || got.Keycloak.AdminClientSecret != "kc-admin-secret" || got.OIDC.ClientSecret != "oidc-new" {
 		t.Fatalf("Get after Update = %+v", got)
 	}
 }
@@ -178,7 +177,7 @@ func TestMissingListsEmptyRequiredFields(t *testing.T) {
 	var s Settings
 	s.PrismHost = "prism.example.test"
 	got := s.Missing()
-	if len(got) != 16 || got[0] != "id_host" || got[len(got)-1] != "tenants.operation_timeout" {
+	if len(got) != 12 || got[0] != "id_host" || got[len(got)-1] != "tenants.operation_timeout" {
 		t.Fatalf("missing = %v", got)
 	}
 	full := sample()
@@ -212,7 +211,7 @@ func TestServiceStoresADraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := svc.Get(context.Background())
-	if err != nil || got.PrismHost != "prism.example.test" || len(got.Missing()) != 9 {
+	if err != nil || got.PrismHost != "prism.example.test" || len(got.Missing()) != 5 {
 		t.Fatalf("draft = %+v %v", got, err)
 	}
 }
@@ -230,11 +229,11 @@ func TestServicePatchMergesIntoTheStoredDocument(t *testing.T) {
 	if err := svc.Patch(ctx, func(d *Settings) { d.Keycloak.Realm = "msp" }); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Patch(ctx, func(d *Settings) { d.Tenants.ClusterExtID = "cl-9" }); err != nil {
+	if err := svc.Patch(ctx, func(d *Settings) { d.Tenants.Role = "role-9" }); err != nil {
 		t.Fatal(err)
 	}
 	got, err := svc.Get(ctx)
-	if err != nil || got.Keycloak.Realm != "msp" || got.Tenants.ClusterExtID != "cl-9" || got.PrismHost != "prism.example.test" {
+	if err != nil || got.Keycloak.Realm != "msp" || got.Tenants.Role != "role-9" || got.PrismHost != "prism.example.test" {
 		t.Fatalf("got=%+v err=%v", got, err)
 	}
 	// Nothing stored yet: the patch applies to the defaults.
@@ -250,9 +249,9 @@ func TestServicePatchMergesIntoTheStoredDocument(t *testing.T) {
 
 func TestValidateFormatRefusesUserinfoURL(t *testing.T) {
 	s := Defaults()
-	s.PrismCentral.URL = "https://admin:pw-in-url@10.0.0.10:9440"
+	s.Sites = []Site{{ID: "site-a", Code: "SITE-A", URL: "https://admin:pw-in-url@10.0.0.10:9440"}}
 	err := s.ValidateFormat()
-	if err == nil || !strings.Contains(err.Error(), "prism_central.url must not carry credentials") || strings.Contains(err.Error(), "pw-in-url") {
+	if err == nil || !strings.Contains(err.Error(), "sites[0].url must not carry credentials") || strings.Contains(err.Error(), "pw-in-url") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -267,8 +266,8 @@ func TestServiceGetNamesAPlaintextSecret(t *testing.T) {
 	}
 	_, err := NewService(st, sealerFor(t, 1)).Get(context.Background())
 	var oe *OpenError
-	if !errors.As(err, &oe) || oe.Field != "prism_central.api_key" {
-		t.Fatalf("Get on a plaintext secret = %v, want *OpenError naming prism_central.api_key", err)
+	if !errors.As(err, &oe) || oe.Field != "sites.site-1.api_key" {
+		t.Fatalf("Get on a plaintext secret = %v, want *OpenError naming sites.site-1.api_key", err)
 	}
 }
 
