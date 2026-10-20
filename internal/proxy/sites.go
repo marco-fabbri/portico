@@ -35,10 +35,13 @@ type SiteRouting struct {
 	Placements func(ctx context.Context, tenantID string) ([]string, error)
 	Status     func(siteID string) sites.Status
 	SetSite    func(sessionID, siteID string, now time.Time) bool
-	// Switch, when set, runs in the response that moves a session from
-	// one site to another (the cookie stash, Task 8).
+	// Switch runs in the response that moves a session from one site to
+	// another; NewPublic sets the cookie stash when it is nil.
 	Switch func(w http.ResponseWriter, r *http.Request, from, to string)
-	Pages  *branding.Pages
+	// StashMaxAge keeps a site's stashed cookies; the session's lifetime,
+	// 8 h when zero.
+	StashMaxAge time.Duration
+	Pages       *branding.Pages
 }
 
 const (
