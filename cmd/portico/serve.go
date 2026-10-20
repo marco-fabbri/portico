@@ -257,8 +257,8 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}
 	setup.Busy = tenants.Running
 	// Live state of the sites (design sites §4.1): the probe every 30 s
-	// with a 10 s timeout (write-up 21: the clusters call took up to 9 s
-	// on a Prism Central serving its console), the maintenance flags, the
+	// with a 10 s timeout (write-up 21: the clusters call took 9 to 30 s
+	// for a few minutes on NTNX-01, then 0.6 s again), the maintenance flags, the
 	// sessions on each site; the index of the tenants' active placements,
 	// dropped when they change.
 	monitor := sites.NewMonitor(st, probes, log)

@@ -26,8 +26,7 @@ const (
 
 // FailuresToUnreachable is how many failed probes in a row make a site
 // unreachable; one answer makes it available again (write-up 21: one
-// slow answer from a Prism Central that serves its console must not lock
-// its tenants out).
+// slow answer must not lock a Prism Central's tenants out).
 const FailuresToUnreachable = 3
 
 // StateKey is the store setting holding the maintenance flags:

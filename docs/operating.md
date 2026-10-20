@@ -82,7 +82,8 @@ each has its own page.
   out and a tenant whose only site it is gets the "site unreachable"
   page; sessions already on it keep being proxied. The first answer
   makes it available again. One slow answer does not count: on NTNX-01
-  the call took up to 30 s for a few minutes while the console worked.
+  the call took up to 30 s for a few minutes after a restart, then
+  0.6 s again.
 - **Remove**: a site without tenants is removed from its page. A site
   whose Prism Central is gone for good is **forgotten**: type its code,
   Portico deletes its records of the site and of the tenants placed on
