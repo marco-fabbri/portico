@@ -97,15 +97,16 @@ func NewUpstream(o UpstreamOptions) *httputil.ReverseProxy {
 	}
 }
 
-// stripCookies removes the named cookies and drops the header when nothing
-// remains.
+// stripCookies removes the named cookies and every site stash cookie
+// (design sites §4.4: one site's Prism Central session never reaches
+// another), and drops the header when nothing remains.
 func stripCookies(r *http.Request, strip map[string]bool) {
-	if len(strip) == 0 || r.Header.Get("Cookie") == "" {
+	if r.Header.Get("Cookie") == "" {
 		return
 	}
 	kept := make([]string, 0, 4)
 	for _, c := range r.Cookies() {
-		if !strip[c.Name] {
+		if !strip[c.Name] && !strings.HasPrefix(c.Name, stashPrefix) {
 			kept = append(kept, c.Name+"="+c.Value)
 		}
 	}
