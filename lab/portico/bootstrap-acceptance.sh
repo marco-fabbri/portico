@@ -17,6 +17,8 @@ REALM="${LAB_REALM:-portico-lab}"
 SERVICE_ACCOUNT="${LAB_SERVICE_ACCOUNT:-portico}"
 IDP_NAME="${LAB_SAML_IDP:-portico-lab-keycloak}"
 PROJECT_PREFIX="${LAB_PROJECT_PREFIX:-portico-lab}"
+# The lab's Prism Central is one site (Milestone 4): code and id.
+SITE_CODE="${LAB_SITE_CODE:-SITE-1}"; SITE="$(tr '[:upper:]' '[:lower:]' <<<"$SITE_CODE")"
 for f in prism-pw keycloak-admin-pw portico-admin-pw; do [ -s "$S/$f" ] || { echo "missing $S/$f" >&2; exit 1; }; done
 umask 077; tmp=$(mktemp -d); trap 'rm -rf "${tmp:?}"' EXIT
 fail=0
@@ -28,7 +30,7 @@ t0() { date +%s; }
 if [ "${1:-}" = "--refusal-only" ]; then
   # Review focus 3 on the real Prism Central: a foreign IdP is refused, not adopted.
   jq -n '{name:"portico-e2e"}' > "$tmp/saml.json"
-  code=$(api POST /api/v1/settings/bootstrap/saml "$tmp/saml.json")
+  code=$(api POST "/api/v1/sites/$SITE/bootstrap/saml" "$tmp/saml.json")
   line "bootstrap/saml with another name while portico-lab-keycloak exists" "$code $(field '.error' | grep -o 'portico-lab-keycloak' | head -1)" "409 portico-lab-keycloak"
   if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi
   exit
@@ -49,29 +51,37 @@ s=$(t0); code=$(api POST /api/v1/settings/bootstrap/keycloak "$tmp/kc.json"); d=
 line "bootstrap keycloak (${d}s)" "$code ok=$(field .ok) created=$(field '.created|length') stored=$(field .stored)" "200 ok=true created=3 stored=true"
 echo "     $(field .message)"
 
-# 3. Prism Central: service account, key, policy, verified with the new key.
-jq -n --rawfile pw "$S/prism-pw" --arg u "$PC_URL" --arg sa "$SERVICE_ACCOUNT" '{username:"admin", password:($pw|rtrimstr("\n")), url:$u, tls_verify:false, service_account:$sa}' > "$tmp/pc.json"
-s=$(t0); code=$(api POST /api/v1/settings/bootstrap/prism-central "$tmp/pc.json"); d=$(( $(t0) - s ))
+# 3. The site, then its Prism Central: service account, key, policy,
+#    verified with the new key.
+jq -n --arg c "$SITE_CODE" --arg u "$PC_URL" '{code:$c, name:"NTNX-01", url:$u, tls_verify:false}' > "$tmp/site.json"
+code=$(api POST /api/v1/sites "$tmp/site.json")
+line "POST site $SITE_CODE" "$code $(field .id)" "201 $SITE"
+jq -n --rawfile pw "$S/prism-pw" --arg sa "$SERVICE_ACCOUNT" '{username:"admin", password:($pw|rtrimstr("\n")), service_account:$sa}' > "$tmp/pc.json"
+s=$(t0); code=$(api POST "/api/v1/sites/$SITE/bootstrap/prism-central" "$tmp/pc.json"); d=$(( $(t0) - s ))
 line "bootstrap prism-central (${d}s)" "$code ok=$(field .ok) clusters=$(field '.clusters|length') stored=$(field .stored)" "200 ok=true clusters=1 stored=true"
 echo "     $(field .message)"
 cluster=$(field '.clusters[0].ext_id'); container=$(field '.containers[0].ext_id'); sa_ext=$(field .service_account_ext_id); key_name=$(field .key_name)
 echo "     service account $sa_ext, key $key_name, expires $(field .key_expires)"
 
-# 4. Tenants card.
-jq -n --arg c "$cluster" --arg sc "$container" --arg pp "$PROJECT_PREFIX" '{project_prefix:$pp, group_prefix:"tenant-", role:"Project Admin", cluster_ext_id:$c, storage_container_ext_id:$sc, operation_timeout:"15m"}' > "$tmp/tenants.json"
+# 4. The site's placement defaults, then the tenants card.
+api GET "/api/v1/sites/$SITE" >/dev/null
+jq --arg c "$cluster" --arg sc "$container" '{code, name, order, url, tls_verify, ca_pem, cluster_ext_id:$c, storage_container_ext_id:$sc}' "$tmp/out" > "$tmp/site.json"
+code=$(api PUT "/api/v1/sites/$SITE" "$tmp/site.json")
+line "PUT site defaults" "$code $(field .cluster_ext_id)" "200 $cluster"
+jq -n --arg pp "$PROJECT_PREFIX" '{project_prefix:$pp, group_prefix:"tenant-", role:"Project Admin", operation_timeout:"15m"}' > "$tmp/tenants.json"
 api GET /api/v1/settings >/dev/null
-jq --slurpfile t "$tmp/tenants.json" '{prism_host, id_host, prism_central:{url:.prism_central.url, tls_verify:.prism_central.tls_verify, saml_idp_name:.prism_central.saml_idp_name}, keycloak:{realm:.keycloak.realm, admin_client_id:.keycloak.admin_client_id}, oidc:{issuer:.oidc.issuer, client_id:.oidc.client_id}, tenants:$t[0]}' "$tmp/out" > "$tmp/put.json"
+jq --slurpfile t "$tmp/tenants.json" '{prism_host, id_host, passthrough_site, keycloak:{realm:.keycloak.realm, admin_client_id:.keycloak.admin_client_id}, oidc:{issuer:.oidc.issuer, client_id:.oidc.client_id}, tenants:$t[0]}' "$tmp/out" > "$tmp/put.json"
 code=$(api PUT /api/v1/settings "$tmp/put.json")
-line "PUT tenants card" "$code missing=$(field '.missing|join(",")')" "200 missing=prism_central.saml_idp_name"
+line "PUT tenants card" "$code missing=$(field '.missing|join(",")')" "200 missing=sites.$SITE.saml_idp_name"
 
 # 5. SAML trust: the service account first, the admin credentials on a 403.
 jq -n --arg n "$IDP_NAME" '{name:$n}' > "$tmp/saml.json"
-s=$(t0); code=$(api POST /api/v1/settings/bootstrap/saml "$tmp/saml.json"); d=$(( $(t0) - s ))
+s=$(t0); code=$(api POST "/api/v1/sites/$SITE/bootstrap/saml" "$tmp/saml.json"); d=$(( $(t0) - s ))
 used="service account"
 if [ "$code" = 200 ] && [ "$(field .ok)" = false ] && grep -q "refused the service account" <<<"$(field .message)"; then
   echo "     service account refused: $(field .message)"
   jq -n --rawfile pw "$S/prism-pw" --arg n "$IDP_NAME" '{name:$n, username:"admin", password:($pw|rtrimstr("\n"))}' > "$tmp/saml.json"
-  s=$(t0); code=$(api POST /api/v1/settings/bootstrap/saml "$tmp/saml.json"); d=$(( $(t0) - s ))
+  s=$(t0); code=$(api POST "/api/v1/sites/$SITE/bootstrap/saml" "$tmp/saml.json"); d=$(( $(t0) - s ))
   used="admin credentials"
 fi
 line "bootstrap saml with the $used (${d}s)" "$code ok=$(field .ok) used_credentials=$(field .used_credentials) stored=$(field .stored)" "200 ok=true used_credentials=$([ "$used" = "service account" ] && echo false || echo true) stored=true"
@@ -81,11 +91,15 @@ echo "     idp $(field .idp_ext_id), entityID $(field .entity_id), ACS $(field .
 # 6. Complete, checks, apply.
 code=$(api GET /api/v1/settings)
 line "GET settings after the bootstraps" "$code complete=$(field .complete) missing=$(field '.missing|length')" "200 complete=true missing=0"
-for target in keycloak oidc prism_central; do
+for target in keycloak oidc; do
   jq -n --arg t "$target" '{target:$t}' > "$tmp/check.json"
   code=$(api POST /api/v1/settings/check "$tmp/check.json")
   line "check $target" "$code ok=$(field .ok)" "200 ok=true"
 done
+echo '{}' > "$tmp/check.json"
+code=$(api POST "/api/v1/sites/$SITE/check" "$tmp/check.json")
+line "check site $SITE_CODE" "$code ok=$(field .ok)" "200 ok=true"
+echo "     $(field .message)"
 code=$(api POST /api/v1/settings/apply)
 line "apply" "$code" 202
 back=timeout
