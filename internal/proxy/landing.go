@@ -21,13 +21,28 @@ import (
 // (docs/lab write-ups 12 and 13). Prism Central keeps deciding who logs
 // in; Portico only saves the click.
 type LandingOptions struct {
-	Pages     *branding.Pages
-	Logo      func(ctx context.Context) (data []byte, ctype string, ok bool)
+	Pages *branding.Pages
+	Logo  func(ctx context.Context) (data []byte, ctype string, ok bool)
+	// PrismHTTP, PrismBase and IdPExtID are the request's site's: forSite
+	// fills them from the SiteBackend.
 	PrismHTTP *http.Client // to Prism Central, same TLS as the upstream, no redirects
 	PrismBase *url.URL     // https://<pc>:9440
 	PrismHost string       // public host name, sent as Host
 	IdPExtID  func(ctx context.Context) (string, error)
 	Log       *slog.Logger
+	// SwitchURL, when set, puts a "switch site" link on the landing page.
+	SwitchURL string
+}
+
+// forSite returns the landing options for one site's Prism Central; nil
+// when the landing page is off.
+func (l *LandingOptions) forSite(b *SiteBackend) *LandingOptions {
+	if l == nil {
+		return nil
+	}
+	c := *l
+	c.PrismHTTP, c.PrismBase, c.IdPExtID = b.PrismHTTP, b.PrismBase, b.IdPExtID
+	return &c
 }
 
 const (
@@ -67,7 +82,7 @@ func (l *LandingOptions) signOut(w http.ResponseWriter, r *http.Request) {
 
 func (l *LandingOptions) landing(w http.ResponseWriter, r *http.Request) {
 	setRule(r, "landing")
-	l.Pages.Landing(w, r, samlStartPath)
+	l.Pages.LandingSwitch(w, r, samlStartPath, l.SwitchURL)
 }
 
 // samlStart selects the SAML identity provider on the browser's login

@@ -40,6 +40,15 @@ type pageData struct {
 	Text               string
 	Retry              string
 	HasLogo            bool
+	SwitchURL          string     // landing: a "switch site" link when set
+	Tiles              []SiteTile // site page
+	Email              string     // site page: who is signed in
+}
+
+// SiteTile is one site on the site page (design sites §2, variant B).
+type SiteTile struct {
+	ID, Code, Name, Status string
+	Selectable, Current    bool
 }
 
 // lockup splits the MSP name as the login page does.
@@ -67,8 +76,21 @@ func (p *Pages) write(w http.ResponseWriter, status int, name string, d pageData
 // Landing renders the waiting page that sends the browser to next after
 // the configured minimum display time (rounded down to whole seconds).
 func (p *Pages) Landing(w http.ResponseWriter, r *http.Request, next string) {
+	p.LandingSwitch(w, r, next, "")
+}
+
+// LandingSwitch is Landing with a "switch site" link to switchURL, for a
+// tenant with several sites.
+func (p *Pages) LandingSwitch(w http.ResponseWriter, r *http.Request, next, switchURL string) {
 	b := p.get(r.Context())
-	p.write(w, http.StatusOK, "landing.html", pageData{B: b, Delay: b.MinDisplayMs / 1000, Next: next, HasLogo: b.HasLogo()})
+	p.write(w, http.StatusOK, "landing.html", pageData{B: b, Delay: b.MinDisplayMs / 1000, Next: next, HasLogo: b.HasLogo(), SwitchURL: switchURL})
+}
+
+// Sites renders the site page: one tile per site, the user's email and a
+// sign-out link.
+func (p *Pages) Sites(w http.ResponseWriter, r *http.Request, tiles []SiteTile, email string) {
+	b := p.get(r.Context())
+	p.write(w, http.StatusOK, "sites.html", pageData{B: b, Title: "Choose a site", Tiles: tiles, Email: email, HasLogo: b.HasLogo()})
 }
 
 // Error renders a branded error page; retry, when not empty, is a link.

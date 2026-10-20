@@ -173,10 +173,6 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		runDoc = fileDoc
 	}
 	pages := branding.NewPages(brand.Get)
-	pcURL, err := url.Parse(cfg.PrismCentral.URL)
-	if err != nil {
-		return fmt.Errorf("prism_central.url: %w", err)
-	}
 	kcURL, err := url.Parse(cfg.Keycloak.URL)
 	if err != nil {
 		return fmt.Errorf("keycloak.url: %w", err)
@@ -185,17 +181,6 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("oidc.issuer: %w", err)
 	}
-	var pcTLS *tls.Config
-	if pcURL.Scheme == "https" {
-		if !cfg.PrismCentral.TLSVerify {
-			log.Warn("prism_central.tls_verify is false: the certificate of Prism Central is not checked")
-		}
-		pcTLS, err = proxy.PrismTLSPEM(pcURL.Hostname(), caPEM, cfg.PrismCentral.TLSVerify)
-		if err != nil {
-			return fmt.Errorf("prism_central ca: %w", err)
-		}
-	}
-
 	sessions := auth.NewMemoryStore(cfg.Session.MaxAge, cfg.Session.Idle)
 	// Keycloak's admin client: tenant provisioning, and the tenant of a
 	// user at login (design sites §4.3).
@@ -214,7 +199,6 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}, sessions, &http.Client{Timeout: 15 * time.Second}, log)
 
 	stripped := auth.PorticoCookies()
-	prismUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: pcURL, HostHeader: cfg.Public.PrismHost, TLS: pcTLS, StripCookies: stripped, Log: log, ErrorPage: pages.Error})
 	kcUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: kcURL, HostHeader: cfg.Public.IDHost, StripCookies: stripped, Log: log, ErrorPage: pages.Error})
 	// The pass-through keeps the caller's Host so Prism Central builds its
 	// redirects for the address the administrator used. It serves one
@@ -227,18 +211,14 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}
 	passthrough := proxy.NewPassthrough(proxy.NewUpstream(proxy.UpstreamOptions{Target: ptURL, HostHeader: "", TLS: ptTLS, Log: log}), log)
 
-	// Tenant provisioning: Prism Central through the service account,
-	// Keycloak through the admin client on the backchannel.
-	pcClient, err := nutanix.New(cfg.PrismCentral.URL, apiKey, pcTLS, log)
-	if err != nil {
-		return err
-	}
-	// One Prism Central client per site, through that site's service
-	// account (design sites §4.1).
+	// One Prism Central per site (design sites §4.1): the client of its
+	// service account for tenant provisioning and the probe, and the
+	// upstream and landing parts the public path routes to.
 	var tenantSites []tenant.Site
 	probes := map[string]sites.Prober{}
+	backends := map[string]*proxy.SiteBackend{}
 	for _, site := range runDoc.OrderedSites() {
-		_, siteTLS, err := siteTarget(site, log)
+		siteURL, siteTLS, err := siteTarget(site, log)
 		if err != nil {
 			return fmt.Errorf("site %s: %w", site.ID, err)
 		}
@@ -251,6 +231,16 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		probes[site.ID] = func(ctx context.Context) error {
 			_, err := c.PrismCentralVersion(ctx)
 			return err
+		}
+		backends[site.ID] = &proxy.SiteBackend{ID: site.ID, Code: site.Code, Name: site.Name, Order: site.Order,
+			Upstream: proxy.NewUpstream(proxy.UpstreamOptions{Target: siteURL, HostHeader: cfg.Public.PrismHost, TLS: siteTLS, StripCookies: stripped, Log: log, ErrorPage: pages.Error}),
+			PrismHTTP: &http.Client{
+				Transport:     &http.Transport{TLSClientConfig: siteTLS, ForceAttemptHTTP2: false},
+				Timeout:       30 * time.Second,
+				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+			},
+			PrismBase: &url.URL{Scheme: siteURL.Scheme, Host: siteURL.Host},
+			IdPExtID:  cachedIdPLookup(c, site.SAMLIdPName, 10*time.Minute),
 		}
 	}
 	tenants := tenant.NewService(st, tenantSites, kcClient, tenant.Config{
@@ -312,19 +302,19 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			b := brand.Get(ctx)
 			return b.LogoData, b.LogoType, b.HasLogo()
 		},
-		PrismHTTP: &http.Client{
-			Transport:     &http.Transport{TLSClientConfig: pcTLS, ForceAttemptHTTP2: false},
-			Timeout:       30 * time.Second,
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		},
-		PrismBase: &url.URL{Scheme: pcURL.Scheme, Host: pcURL.Host},
 		PrismHost: cfg.Public.PrismHost,
-		IdPExtID:  cachedIdPLookup(pcClient, cfg.PrismCentral.SAMLIdPName, 10*time.Minute),
 		Log:       log,
 	}
 	public := proxy.NewPublic(proxy.PublicOptions{
 		PrismHost: cfg.Public.PrismHost, IDHost: cfg.Public.IDHost,
-		Prism: prismUp, Keycloak: kcUp, Auth: authn,
+		Sites: &proxy.SiteRouting{
+			Backends:   backends,
+			Placements: placements.Sites,
+			Status:     monitor.Status,
+			SetSite:    sessions.SetSite,
+			Pages:      pages,
+		},
+		Keycloak: kcUp, Auth: authn,
 		Policy: proxy.PrismPolicy{AllowPrefixes: cfg.Policy.AllowPrefixes}, Log: log,
 		Landing: landing,
 	})

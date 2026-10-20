@@ -110,3 +110,28 @@ func TestPagesWearTheLoginPageLook(t *testing.T) {
 		t.Errorf("no-logo lockup:\n%s", rec.Body.String())
 	}
 }
+
+// The site page, variant B of the mockup: one tile per site with code,
+// name and status; a tile that is not available cannot be chosen.
+func TestSitesTemplateVariantB(t *testing.T) {
+	b := Default()
+	b.MSPName, b.AccentColor = "ACME Cloud", "#1f5f8b"
+	rec := httptest.NewRecorder()
+	pagesFor(b).Sites(rec, httptest.NewRequest("GET", "https://prism.test/.portico/sites", nil), []SiteTile{
+		{ID: "mi1", Code: "AZ-IT-MI1", Name: "Milan", Status: "available", Selectable: true, Current: true},
+		{ID: "nyc1", Code: "AZ-US-NYC1", Name: "New York", Status: "maintenance"},
+	}, "carol@acme.example")
+	body := rec.Body.String()
+	for _, want := range []string{
+		"Choose a site", "background: #1f5f8b", `<form method="post" action="/.portico/sites/select">`,
+		`name="site" value="mi1">`, `name="site" value="nyc1" disabled>`, "AZ-IT-MI1", "Milan", "Available · current",
+		"In maintenance", "carol@acme.example", `href="/.portico/logout"`, "Powered by Portico",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("site page lacks %q", want)
+		}
+	}
+	if rec.Header().Get("Content-Security-Policy") == "" || strings.Contains(body, "<script") {
+		t.Fatal("the site page must keep the CSP and carry no script")
+	}
+}

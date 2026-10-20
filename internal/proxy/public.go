@@ -16,13 +16,16 @@ const sessionCookieName = auth.SessionCookie
 type PublicOptions struct {
 	PrismHost string
 	IDHost    string
-	Prism     http.Handler // upstream to Prism Central
-	Keycloak  http.Handler // upstream to Keycloak
-	Auth      *auth.Authenticator
-	Policy    PrismPolicy
-	Log       *slog.Logger
+	// Sites routes every tenant request on the Prism Central host to the
+	// Prism Central of the session's site (design sites §4.3).
+	Sites    *SiteRouting
+	Keycloak http.Handler // upstream to Keycloak
+	Auth     *auth.Authenticator
+	Policy   PrismPolicy
+	Log      *slog.Logger
 	// Landing enables the branded landing page and the SAML start on the
-	// Prism Central host; nil keeps the Milestone 1 behaviour.
+	// Prism Central host; nil keeps the Milestone 1 behaviour. Its
+	// Prism Central fields come from the request's site.
 	Landing *LandingOptions
 }
 
@@ -51,11 +54,20 @@ func NewPublic(o PublicOptions) http.Handler {
 	portico.Handle("GET /.portico/login", o.Auth.Login())
 	portico.Handle("GET /.portico/callback", o.Auth.Callback())
 	portico.Handle("GET /.portico/logout", o.Auth.Logout())
+	portico.Handle("GET "+sitesPath, o.Auth.Require(http.HandlerFunc(o.Sites.sitesPage)))
+	portico.Handle("POST "+selectPath, o.Auth.Require(http.HandlerFunc(o.Sites.selectSite)))
 	if o.Landing != nil {
 		if o.Landing.Log == nil {
 			o.Landing.Log = log
 		}
-		portico.Handle("GET "+samlStartPath, o.Auth.Require(http.HandlerFunc(o.Landing.samlStart)))
+		portico.Handle("GET "+samlStartPath, o.Auth.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			sess, _ := auth.SessionFromContext(r.Context())
+			b, ok := o.Sites.route(w, r, sess)
+			if !ok {
+				return
+			}
+			o.Landing.forSite(b).samlStart(w, r)
+		})))
 		// The logo is a public asset (it is on the Keycloak login page too):
 		// the error pages need it on both hosts and before any session.
 		portico.Handle("GET "+logoPath, http.HandlerFunc(o.Landing.logo))
@@ -65,15 +77,25 @@ func NewPublic(o PublicOptions) http.Handler {
 		Refuse(w, http.StatusNotFound, "portico-unknown", "not found")
 	})
 
-	// After the session check: the landing page in place of Prism Central's
-	// provider page (Milestone 2c), then allow-list, then proxy.
+	// After the session check: the session's site (design sites §4.3),
+	// the landing page in place of that Prism Central's provider page
+	// (Milestone 2c), then allow-list, then proxy.
 	prismAllowed := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if o.Landing.interceptsProviders(r) {
-			o.Landing.landing(w, r)
+		sess, _ := auth.SessionFromContext(r.Context())
+		b, ok := o.Sites.route(w, r, sess)
+		if !ok {
 			return
 		}
-		if o.Landing.interceptsSignOut(r) {
-			o.Landing.signOut(w, r)
+		l := o.Landing.forSite(b)
+		if l.interceptsProviders(r) {
+			if o.Sites.multiple(r.Context(), sess.Tenant) {
+				l.SwitchURL = sitesPath
+			}
+			l.landing(w, r)
+			return
+		}
+		if l.interceptsSignOut(r) {
+			l.signOut(w, r)
 			return
 		}
 		if rule, ok := o.Policy.Allowed(r); !ok {
@@ -81,7 +103,7 @@ func NewPublic(o PublicOptions) http.Handler {
 			Refuse(w, http.StatusForbidden, rule, "path not allowed on the public listener")
 			return
 		}
-		o.Prism.ServeHTTP(w, r)
+		b.Upstream.ServeHTTP(w, r)
 	})
 	prismWithSession := o.Auth.Require(prismAllowed)
 

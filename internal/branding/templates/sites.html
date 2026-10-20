@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · {{.B.MSPName}}</title>
+<style>
+  /* The look of the landing page: one centred column on the accent
+     colour, the lockup in white, white tiles (design sites §2, B). */
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.5rem; padding: 2rem 1rem; box-sizing: border-box; background: {{.B.AccentColor}}; color: #fff; font: 16px/1.5 "RedHatText", "Red Hat Text", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .lockup { display: flex; align-items: center; gap: .6em; font-size: 2.25rem; line-height: 1; font-weight: 300; text-transform: uppercase; letter-spacing: .08em; }
+  .lockup .logo { height: 1em; width: auto; }
+  .lockup strong { font-weight: 700; }
+  .claim { margin: -.6rem 0 0; font-size: 1.05rem; opacity: .9; text-align: center; }
+  h1 { margin: 0; font-size: 1.1rem; font-weight: 500; opacity: .9; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; width: 100%; max-width: 640px; }
+  .tiles form { margin: 0; }
+  .tile { display: block; width: 100%; text-align: left; background: #fff; color: #1d1d1b; border: 0; border-radius: 14px; box-shadow: 0 12px 32px rgba(0, 0, 0, .28); padding: 1.1rem 1.2rem; font: inherit; cursor: pointer; }
+  .tile:hover:enabled { outline: 3px solid rgba(255, 255, 255, .6); }
+  .tile:disabled { opacity: .55; cursor: not-allowed; }
+  .tile .code { display: block; font-weight: 700; font-size: 1.1rem; letter-spacing: .04em; }
+  .tile .name { display: block; color: #6b6762; font-size: .9rem; }
+  .tile .state { display: flex; align-items: center; gap: .4rem; margin-top: .8rem; font-size: .8rem; color: #2e7d32; }
+  .tile .state::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: currentColor; }
+  .tile .state.maintenance { color: #9a6200; }
+  .tile .state.unreachable { color: #a73422; }
+  .who { font-size: .9rem; opacity: .85; }
+  .who a { color: #fff; }
+  .powered { display: flex; align-items: center; gap: .4rem; margin-top: 1.5rem; font-size: .8rem; opacity: .75; }
+  .powered svg { height: 1.2rem; width: auto; }
+</style>
+</head>
+<body>
+<div class="lockup">{{if .HasLogo}}<img class="logo" src="/.portico/logo" alt="">{{end}}<span class="name">{{.NameHead}}{{if .NameTail}}<strong>{{.NameTail}}</strong>{{end}}</span></div>
+{{if .B.Tagline}}<p class="claim">{{.B.Tagline}}</p>{{end}}
+<h1>Choose a site</h1>
+<main class="tiles">
+  {{range .Tiles}}
+  <form method="post" action="/.portico/sites/select">
+    <button class="tile" type="submit" name="site" value="{{.ID}}"{{if not .Selectable}} disabled{{end}}>
+      <span class="code">{{.Code}}</span>
+      {{if .Name}}<span class="name">{{.Name}}</span>{{end}}
+      <span class="state {{.Status}}">{{if eq .Status "available"}}Available{{else if eq .Status "maintenance"}}In maintenance{{else}}Unreachable{{end}}{{if .Current}} · current{{end}}</span>
+    </button>
+  </form>
+  {{end}}
+</main>
+<p class="who">{{.Email}} · <a href="/.portico/logout">Sign out</a></p>
+<div class="powered">{{.Mark}}<span>Powered by Portico</span></div>
+</body>
+</html>

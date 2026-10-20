@@ -33,6 +33,7 @@
   <div class="spinner" role="progressbar" aria-label="Signing you in"></div>
   <p>Signing you in…</p>
   <p><a href="{{.Next}}">Continue</a> if nothing happens.</p>
+  {{if .SwitchURL}}<p><a href="{{.SwitchURL}}">Switch site</a></p>{{end}}
 </main>
 <div class="powered">{{.Mark}}<span>Powered by Portico</span></div>
 </body>
