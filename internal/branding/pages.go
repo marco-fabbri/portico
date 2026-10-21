@@ -6,7 +6,6 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
-	"strings"
 )
 
 //go:embed templates/*.html
@@ -29,21 +28,19 @@ func NewPages(get func(ctx context.Context) Branding) *Pages {
 
 type pageData struct {
 	B Branding
-	// The lockup of the login page (theme.go): the name in two parts, the
-	// last word bold with no space before it (PORTICO**MSP**).
-	NameHead, NameTail string
-	Mark               template.HTML // Portico's mark in white, inline (CSP allows no other source)
-	IconVersion        string        // the icons' links carry it (Branding.IconVersion)
-	Delay              int           // seconds of the meta refresh
-	Next               string        // landing: where the refresh goes
-	Status             int
-	Title              string
-	Text               string
-	Retry              string
-	HasLogo            bool
-	SwitchURL          string     // landing: a "switch site" link when set
-	Tiles              []SiteTile // site page
-	Email              string     // site page: who is signed in
+	// Header is the top of the page, as on the login page (theme.go).
+	Header      Header
+	Mark        template.HTML // Portico's mark in the text colour, inline (CSP allows no other source)
+	IconVersion string        // the icons' links carry it (Branding.IconVersion)
+	Delay       int           // seconds of the meta refresh
+	Next        string        // landing: where the refresh goes
+	Status      int
+	Title       string
+	Text        string
+	Retry       string
+	SwitchURL   string     // landing: a "switch site" link when set
+	Tiles       []SiteTile // site page
+	Email       string     // site page: who is signed in
 }
 
 // SiteTile is one site on the site page (design sites §2, variant B).
@@ -52,18 +49,9 @@ type SiteTile struct {
 	Selectable, Current    bool
 }
 
-// lockup splits the MSP name as the login page does.
-func lockup(d *pageData) {
-	name := strings.TrimSpace(d.B.MSPName)
-	d.NameHead = name
-	if i := strings.LastIndex(name, " "); i > 0 {
-		d.NameHead, d.NameTail = name[:i], strings.TrimSpace(name[i+1:])
-	}
-	d.Mark = template.HTML(PorticoMark("#ffffff")) // #nosec: a constant of this package
-}
-
 func (p *Pages) write(w http.ResponseWriter, status int, name string, d pageData) {
-	lockup(&d)
+	d.Header = d.B.Header()
+	d.Mark = template.HTML(PorticoMark(d.B.TextColor)) // #nosec: a validated #rrggbb in a constant of this package
 	d.IconVersion = d.B.IconVersion()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -85,18 +73,18 @@ func (p *Pages) Landing(w http.ResponseWriter, r *http.Request, next string) {
 // tenant with several sites.
 func (p *Pages) LandingSwitch(w http.ResponseWriter, r *http.Request, next, switchURL string) {
 	b := p.get(r.Context())
-	p.write(w, http.StatusOK, "landing.html", pageData{B: b, Delay: b.MinDisplayMs / 1000, Next: next, HasLogo: b.HasLogo(), SwitchURL: switchURL})
+	p.write(w, http.StatusOK, "landing.html", pageData{B: b, Delay: b.MinDisplayMs / 1000, Next: next, SwitchURL: switchURL})
 }
 
 // Sites renders the site page: one tile per site, the user's email and a
 // sign-out link.
 func (p *Pages) Sites(w http.ResponseWriter, r *http.Request, tiles []SiteTile, email string) {
 	b := p.get(r.Context())
-	p.write(w, http.StatusOK, "sites.html", pageData{B: b, Title: "Choose a site", Tiles: tiles, Email: email, HasLogo: b.HasLogo()})
+	p.write(w, http.StatusOK, "sites.html", pageData{B: b, Title: "Choose a site", Tiles: tiles, Email: email})
 }
 
 // Error renders a branded error page; retry, when not empty, is a link.
 func (p *Pages) Error(w http.ResponseWriter, r *http.Request, status int, title, text, retry string) {
 	b := p.get(r.Context())
-	p.write(w, status, "error.html", pageData{B: b, Status: status, Title: title, Text: text, Retry: retry, HasLogo: b.HasLogo()})
+	p.write(w, status, "error.html", pageData{B: b, Status: status, Title: title, Text: text, Retry: retry})
 }
