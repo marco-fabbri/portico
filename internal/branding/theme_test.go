@@ -16,10 +16,17 @@ func readTheme(t *testing.T, dir, rel string) string {
 	return string(b)
 }
 
+// noLogo is the default branding without Portico's arch.
+func noLogo() Branding {
+	b := Default()
+	b.PorticoLogo = false
+	return b
+}
+
 func TestWriteThemeFiles(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "theme")
-	b := Default()
-	b.MSPName, b.Tagline, b.AccentColor = "ACME Cloud", "Your VMs", "#8b1f5f"
+	b := noLogo()
+	b.MSPName, b.HeaderText, b.Tagline, b.AccentColor = "ACME Cloud", "", "Your VMs", "#8b1f5f"
 	if err := WriteTheme(dir, b); err != nil {
 		t.Fatalf("WriteTheme: %v", err)
 	}
@@ -34,8 +41,14 @@ func TestWriteThemeFiles(t *testing.T) {
 		t.Errorf("css lacks the colour or the button rule: %s", css)
 	}
 	msgs := readTheme(t, dir, "login/messages/messages_en.properties")
-	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup"><span class\="portico-name">ACME<strong>Cloud</strong></span></span><span class\="portico-claim">Your VMs</span>`) || !strings.Contains(msgs, "loginAccountTitle=Sign in") {
-		t.Errorf("messages: %s", msgs)
+	for _, want := range []string{
+		`loginTitleHtml=<span class\="portico-text">ACME Cloud</span><span class\="portico-claim">Your VMs</span>` + "\n",
+		"loginTitle=Sign in to ACME Cloud\n",
+		"loginAccountTitle=Sign in\n",
+	} {
+		if !strings.Contains(msgs, want) {
+			t.Errorf("messages lack %q: %s", want, msgs)
+		}
 	}
 	for _, f := range []string{"login/theme.properties", "login/resources/css/portico.css", "login/messages/messages_en.properties"} {
 		if info, _ := os.Stat(filepath.Join(dir, f)); info.Mode().Perm() != 0o644 {
@@ -46,20 +59,20 @@ func TestWriteThemeFiles(t *testing.T) {
 
 func TestWriteThemeEscapesName(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "theme")
-	b := Default()
-	b.MSPName = "A=B:C <b>x</b>"
+	b := noLogo()
+	b.MSPName, b.HeaderText = "A=B:C <b>x</b>", ""
 	b.Tagline = "line one\nline two #tag"
 	if err := WriteTheme(dir, b); err != nil {
 		t.Fatal(err)
 	}
 	msgs := readTheme(t, dir, "login/messages/messages_en.properties")
-	if !strings.Contains(msgs, `<span class\="portico-lockup"><span class\="portico-name">A\=B\:C<strong>&lt;b&gt;x&lt;/b&gt;</strong></span></span>`) {
+	if !strings.Contains(msgs, `<span class\="portico-text">A\=B\:C &lt;b&gt;x&lt;/b&gt;</span>`) {
 		t.Errorf("name not escaped: %s", msgs)
 	}
 	if !strings.Contains(msgs, `<span class\="portico-claim">line one\nline two \#tag</span>`) {
 		t.Errorf("tagline not escaped: %s", msgs)
 	}
-	if strings.Count(msgs, "\n") != 2 {
+	if strings.Count(msgs, "\n") != 3 {
 		t.Errorf("a raw newline reached the properties file: %q", msgs)
 	}
 }
@@ -68,7 +81,7 @@ func TestWriteThemeLogoByType(t *testing.T) {
 	cases := []struct{ ctype, file string }{{"image/png", "logo.png"}, {"image/jpeg", "logo.jpg"}, {"image/svg+xml", "logo.svg"}}
 	for _, c := range cases {
 		dir := filepath.Join(t.TempDir(), "theme")
-		b := Default()
+		b := noLogo()
 		b.LogoType, b.LogoData = c.ctype, []byte("data")
 		if err := WriteTheme(dir, b); err != nil {
 			t.Fatal(err)
@@ -90,7 +103,7 @@ func TestWriteThemeLogoByType(t *testing.T) {
 		}
 	}
 	dir := filepath.Join(t.TempDir(), "theme")
-	if err := WriteTheme(dir, Default()); err != nil {
+	if err := WriteTheme(dir, noLogo()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "login/resources/img")); err == nil {
@@ -109,7 +122,7 @@ func TestWriteThemeLogoByType(t *testing.T) {
 
 func TestWriteThemeReplacesOldLogo(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "theme")
-	b := Default()
+	b := noLogo()
 	b.LogoType, b.LogoData = "image/png", []byte("png")
 	if err := WriteTheme(dir, b); err != nil {
 		t.Fatal(err)
@@ -158,58 +171,118 @@ func TestPropertiesEscape(t *testing.T) {
 // The login page is one centred column on the accent colour: the header
 // (logo left of the MSP name, white, Red Hat Display) above the card,
 // and a "Powered by Portico" line under it (layout pass after 2f).
-func TestThemeCSSCentresTheLoginUnderTheLockup(t *testing.T) {
+func TestThemeCSSUsesTheThreeColours(t *testing.T) {
 	b := Default()
-	b.LogoType, b.LogoData = "image/svg+xml", []byte("data")
+	b.BackgroundColor, b.TextColor, b.AccentColor = "#f5f5f7", "#222222", "#3b5bdb"
 	css := themeCSS(b)
 	for _, want := range []string{
-		"body#keycloak-bg { background: var(--portico-accent); }",
+		":root { --portico-bg: #f5f5f7; --portico-text: #222222; --portico-accent: #3b5bdb; }",
+		"body#keycloak-bg { background: var(--portico-bg); }",
 		".pf-v5-c-login__container { display: flex; flex-direction: column; align-items: center;",
-		"#kc-header-wrapper { display: flex; flex-direction: column; align-items: center;",
 		".pf-v5-c-login__main { order: 1; grid-area: auto; align-self: center;",
 		".pf-v5-c-login__main-header { border-top: 0; }",
-		`font-family: "RedHatDisplay"`,
-		"color: #fff;",
-		// The mark is as tall as the capitals, the name is uppercase.
-		".portico-lockup { display: flex; align-items: center; gap: 0.6em; font-size: 2.25rem; line-height: 1; text-transform: uppercase; letter-spacing: 0.08em; }",
-		`.portico-lockup::before { content: ""; width: 0.88em; height: 1em;`,
-		"url(../img/logo.svg)",
-		".portico-lockup strong { font-weight: 700; }",
-		".portico-claim { font-size: 1.05rem; font-weight: 400; opacity: 0.9; }",
+		"box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);",
+		".portico-text { font-size: 2.25rem; line-height: 1.1; font-weight: 700; text-align: center; overflow-wrap: anywhere; }",
+		".portico-claim { font-size: 1.05rem; font-weight: 400; opacity: 0.9; text-align: center; }",
 		`.pf-v5-c-login__container::after { content: "Powered by Portico";`,
 		"url(../img/portico-mark.svg)",
+		".pf-v5-c-button.pf-m-primary { background-color: var(--portico-accent);",
 	} {
 		if !strings.Contains(css, want) {
 			t.Fatalf("css lacks %q:\n%s", want, css)
 		}
 	}
-	if strings.Contains(css, "padding-top") || strings.Contains(css, "#1f2937") {
-		t.Fatalf("old header rules still there:\n%s", css)
+	for _, line := range strings.Split(css, "\n") {
+		if (strings.HasPrefix(line, "#kc-header-wrapper {") || strings.HasPrefix(line, ".pf-v5-c-login__container::after {")) && !strings.Contains(line, "color: var(--portico-text);") {
+			t.Errorf("not in the text colour: %s", line)
+		}
 	}
-	// Without a logo the lockup is the name alone.
-	if strings.Contains(themeCSS(Default()), ".portico-lockup::before") {
-		t.Fatal("a logo rule without a logo")
+	for _, old := range []string{"portico-lockup", "text-transform: uppercase", "rgba(0, 0, 0, 0.28)", "color: #fff"} {
+		if strings.Contains(css, old) {
+			t.Errorf("css still has %q:\n%s", old, css)
+		}
 	}
 }
 
-// The title is the lockup (name, last word bold) with the tagline as a
-// claim under it; the card itself says "Sign in". Everything is HTML,
-// escaped per piece.
-func TestThemeMessagesBuildTheLockupAndClaim(t *testing.T) {
-	b := Default()
-	b.MSPName, b.Tagline = "Portico MSP", "The single, authenticated entry point to your Nutanix services."
+func TestThemeCSSLogoBox(t *testing.T) {
+	b := noLogo()
+	b.LogoType, b.LogoData = "image/png", blankPNG(t, 167, 178)
+	if css := themeCSS(b); !strings.Contains(css, ".portico-logo { display: block; width: 90px; height: 96px; max-width: 100%; background: url(../img/logo.png) no-repeat center; background-size: contain; }") {
+		t.Errorf("uploaded logo box:\n%s", css)
+	}
+	if css := themeCSS(Default()); !strings.Contains(css, ".portico-logo { display: block; width: 85px; height: 96px; max-width: 100%; background: url(../img/logo.svg) no-repeat center; background-size: contain; }") {
+		t.Errorf("arch box:\n%s", css)
+	}
+	if css := themeCSS(noLogo()); strings.Contains(css, ".portico-logo") {
+		t.Errorf("a logo rule without a logo:\n%s", css)
+	}
+}
+
+func TestThemeMessagesHeaderPieces(t *testing.T) {
+	logo := blankPNG(t, 167, 178)
+	cases := []struct {
+		name string
+		mut  func(*Branding)
+		want string
+	}{
+		{"logo, text and claim", func(b *Branding) {
+			b.LogoType, b.LogoData, b.HeaderText, b.Tagline = "image/png", logo, "Portico MSP", "Claim"
+		},
+			`loginTitleHtml=<span class\="portico-logo" role\="img" aria-label\="Portico MSP"></span><span class\="portico-text">Portico MSP</span><span class\="portico-claim">Claim</span>` + "\n"},
+		{"logo only", func(b *Branding) { b.LogoType, b.LogoData, b.HeaderText, b.Tagline = "image/png", logo, "", "" },
+			`loginTitleHtml=<span class\="portico-logo" role\="img" aria-label\="Portico MSP"></span>` + "\n"},
+		{"text only", func(b *Branding) { b.HeaderText, b.Tagline = "Portico MSP", "Claim" },
+			`loginTitleHtml=<span class\="portico-text">Portico MSP</span><span class\="portico-claim">Claim</span>` + "\n"},
+		{"neither: the MSP name", func(b *Branding) { b.HeaderText, b.MSPName, b.Tagline = "", "ACME", "" },
+			`loginTitleHtml=<span class\="portico-text">ACME</span>` + "\n"},
+	}
+	for _, c := range cases {
+		b := noLogo()
+		b.MSPName = "Portico MSP"
+		c.mut(&b)
+		if msgs := themeMessages(b); !strings.Contains(msgs, c.want) {
+			t.Errorf("%s: messages %q, want %q", c.name, msgs, c.want)
+		}
+	}
+}
+
+// Keycloak formats every message with Java's MessageFormat, which eats
+// a single quote and reads {0} as an argument (Review Focus 1).
+func TestThemeMessagesSurviveMessageFormat(t *testing.T) {
+	b := noLogo()
+	b.MSPName, b.HeaderText, b.Tagline = "O'Brien {0} Cloud", "O'Brien {0} Cloud", "It's {1}"
 	msgs := themeMessages(b)
-	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup"><span class\="portico-name">Portico<strong>MSP</strong></span></span><span class\="portico-claim">The single, authenticated entry point to your Nutanix services.</span>`+"\n") || !strings.Contains(msgs, "loginAccountTitle=Sign in\n") {
-		t.Fatalf("messages: %q", msgs)
+	for _, want := range []string{
+		"loginTitle=Sign in to O''Brien '{'0'}' Cloud\n",
+		`<span class\="portico-text">O&\#39;Brien '{'0'}' Cloud</span><span class\="portico-claim">It&\#39;s '{'1'}'</span>`,
+	} {
+		if !strings.Contains(msgs, want) {
+			t.Errorf("messages lack %q: %q", want, msgs)
+		}
 	}
-	b.MSPName, b.Tagline = "A&B <x>", ""
-	msgs = themeMessages(b)
-	if !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup"><span class\="portico-name">A&amp;B<strong>&lt;x&gt;</strong></span></span>`+"\n") {
-		t.Fatalf("escaped, no claim: %q", msgs)
+}
+
+func TestWriteThemeDrawsTheArchInTheTextColour(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "theme")
+	b := Default()
+	b.TextColor = "#222222"
+	if err := WriteTheme(dir, b); err != nil {
+		t.Fatal(err)
 	}
-	b.MSPName = "Solo"
-	if msgs := themeMessages(b); !strings.Contains(msgs, `loginTitleHtml=<span class\="portico-lockup"><span class\="portico-name">Solo</span></span>`+"\n") {
-		t.Fatalf("one word: %q", msgs)
+	for _, f := range []string{"login/resources/img/logo.svg", "login/resources/img/portico-mark.svg"} {
+		if got := readTheme(t, dir, f); !strings.Contains(got, `fill="#222222"`) {
+			t.Errorf("%s not in the text colour: %q", f, got)
+		}
+	}
+	b.PorticoLogo, b.LogoType, b.LogoData = false, "image/png", blankPNG(t, 10, 10)
+	if err := WriteTheme(dir, b); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "login/resources/img/logo.svg")); err == nil {
+		t.Error("the arch was left behind after an upload")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "login/resources/img/logo.png")); err != nil {
+		t.Errorf("uploaded logo not written: %v", err)
 	}
 }
 
