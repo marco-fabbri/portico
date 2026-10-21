@@ -68,7 +68,7 @@ repository).
    white on the accent (the button label; the accent links on the white
    card are the same pair). Below 4.5:1 the branding is saved anyway and
    the answer carries a warning naming the pair and its ratio. Reference
-   values: white on `#3b5bdb` is about 5.3 (no warning), white on
+   values: white on `#3b5bdb` is about 5.7 (no warning), white on
    `#f165b0` about 2.9 (warning), white on `#a73422` about 6.6.
 6. **Live preview in the admin UI.** The Branding page shows, next to the
    fields, a drawing of the login page (header, claim, the white card with
@@ -209,9 +209,9 @@ and the readability warnings are reported together.
 ### 4.5 Demo
 
 On the lab appliance, after the upgrade: Marco's logo, header text and
-claim from him, background `#f5f5f7`, text `#222222`, accent `#3b5bdb`
-(colours taken from the logo, chosen by Marco on the mockup; `#222222` on
-`#f5f5f7` and white on `#3b5bdb` pass the 4.5:1 check). Applied with a lab
+claim from him, and a light palette he chose on the mockup (not recorded
+here; this document's examples use background `#f5f5f7`, text `#222222`,
+accent `#3b5bdb`, which pass the 4.5:1 check). Applied with a lab
 script that takes the logo path and the texts as arguments and leaves the
 rest of the branding unchanged, in the style of `lab/portico/tab-icons.sh`.
 
