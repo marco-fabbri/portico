@@ -57,6 +57,11 @@ func (h *Handler) brandingSave(w http.ResponseWriter, r *http.Request) {
 		LogoType:    cur.LogoType,
 		LogoData:    cur.LogoData,
 		IconData:    cur.IconData,
+		// Bridge until the form carries them (plan Task 6).
+		HeaderText:      cur.HeaderText,
+		BackgroundColor: cur.BackgroundColor,
+		TextColor:       cur.TextColor,
+		PorticoLogo:     cur.PorticoLogo,
 	}
 	if v := strings.TrimSpace(r.FormValue("min_display_ms")); v != "" {
 		n, err := strconv.Atoi(v)
@@ -67,7 +72,7 @@ func (h *Handler) brandingSave(w http.ResponseWriter, r *http.Request) {
 		b.MinDisplayMs = n
 	}
 	if r.FormValue("remove_logo") != "" {
-		b.LogoType, b.LogoData = "", nil
+		b.LogoType, b.LogoData, b.PorticoLogo = "", nil, false
 	}
 	if f, hdr, err := r.FormFile("logo"); err == nil {
 		defer f.Close()
@@ -76,7 +81,7 @@ func (h *Handler) brandingSave(w http.ResponseWriter, r *http.Request) {
 			h.renderBranding(w, r, http.StatusBadRequest, b, "logo could not be read", "")
 			return
 		}
-		b.LogoType, b.LogoData = hdr.Header.Get("Content-Type"), data
+		b.LogoType, b.LogoData, b.PorticoLogo = hdr.Header.Get("Content-Type"), data, false
 	}
 	if r.FormValue("remove_icon") != "" {
 		b.IconData = nil

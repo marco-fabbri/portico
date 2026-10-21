@@ -48,6 +48,7 @@ func (h *handler) putBranding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b := branding.Branding{MSPName: in.MSPName, Tagline: in.Tagline, AccentColor: in.AccentColor, LogoType: in.LogoType, LogoData: logo, IconData: icon, MinDisplayMs: in.MinDisplayMs}
+	b.FillMissing(branding.Missing{Background: true, Text: true, HeaderText: true})
 	err = h.brand.Set(r.Context(), b)
 	var ae *branding.ApplyError
 	switch {
