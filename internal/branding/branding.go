@@ -17,16 +17,28 @@ const (
 	MaxLogoBytes  = 256 << 10
 	MaxNameLen    = 80
 	MaxTaglineLen = 160
-	MaxDisplayMs  = 10000
+	// MaxHeaderTextLen bounds the free text under the logo.
+	MaxHeaderTextLen = 80
+	MaxDisplayMs     = 10000
 	// SettingKey is the store key of the JSON-encoded settings.
 	SettingKey = "branding"
 )
 
 // Branding is the MSP's identity on the tenant-facing pages.
 type Branding struct {
-	MSPName     string `json:"msp_name"`
-	Tagline     string `json:"tagline"`
-	AccentColor string `json:"accent_color"`
+	MSPName string `json:"msp_name"`
+	// HeaderText is the free text under the logo, shown as typed; the
+	// header falls back to MSPName with neither a logo nor a text.
+	HeaderText string `json:"header_text"`
+	Tagline    string `json:"tagline"`
+	// BackgroundColor paints the page, TextColor everything written on
+	// it, AccentColor the primary button and the links in the card.
+	BackgroundColor string `json:"background_color"`
+	TextColor       string `json:"text_color"`
+	AccentColor     string `json:"accent_color"`
+	// PorticoLogo shows Portico's arch, in the text colour, as the logo;
+	// it excludes an uploaded logo (LogoType, LogoData).
+	PorticoLogo bool   `json:"portico_logo"`
 	LogoType    string `json:"logo_type"`
 	LogoData    []byte `json:"logo_data"`
 	// IconData is the tab icon, a square PNG (icon.go); empty means
@@ -35,9 +47,18 @@ type Branding struct {
 	MinDisplayMs int    `json:"min_display_ms"`
 }
 
-// Default is what a fresh Portico shows.
+// Default is what a fresh Portico shows: a branding filled in with
+// Portico's own identity, drawn like any MSP's (design branding goal 4).
 func Default() Branding {
-	return Branding{MSPName: "Portico", AccentColor: "#1f5f8b"}
+	return Branding{
+		MSPName:         "Portico",
+		HeaderText:      "Portico",
+		Tagline:         "The single, authenticated entry point to your Nutanix services.",
+		BackgroundColor: "#a73422",
+		TextColor:       "#ffffff",
+		AccentColor:     "#a73422",
+		PorticoLogo:     true,
+	}
 }
 
 var (
@@ -72,8 +93,18 @@ func (b Branding) Validate() error {
 	if len(b.Tagline) > MaxTaglineLen {
 		errs = append(errs, fmt.Errorf("tagline must be at most %d characters", MaxTaglineLen))
 	}
-	if !reColor.MatchString(b.AccentColor) {
-		errs = append(errs, errors.New("accent_color must be #rrggbb"))
+	if len(b.HeaderText) > MaxHeaderTextLen || strings.ContainsAny(b.HeaderText, "\r\n") {
+		errs = append(errs, fmt.Errorf("header_text must be at most %d characters, on one line", MaxHeaderTextLen))
+	}
+	for _, c := range []struct{ field, value string }{
+		{"background_color", b.BackgroundColor}, {"text_color", b.TextColor}, {"accent_color", b.AccentColor},
+	} {
+		if !reColor.MatchString(c.value) {
+			errs = append(errs, fmt.Errorf("%s must be #rrggbb", c.field))
+		}
+	}
+	if b.PorticoLogo && (b.LogoType != "" || len(b.LogoData) > 0) {
+		errs = append(errs, errors.New("portico_logo and an uploaded logo are exclusive"))
 	}
 	switch {
 	case b.LogoType == "" && len(b.LogoData) == 0:

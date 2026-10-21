@@ -74,8 +74,8 @@ func (s *Service) load(ctx context.Context) Branding {
 		s.log.Warn("branding: read failed, using defaults", "err", err.Error())
 		return Default()
 	}
-	var b Branding
-	if err := json.Unmarshal(raw, &b); err != nil {
+	b, err := decodeStored(raw)
+	if err != nil {
 		s.log.Warn("branding: stored value unreadable, using defaults", "err", err.Error())
 		return Default()
 	}
@@ -104,6 +104,11 @@ func (s *Service) Icons(ctx context.Context) Icons {
 	s.icons, s.iconsFor = ic, v
 	s.mu.Unlock()
 	return ic
+}
+
+// LogoFile returns the current branding's logo file (Branding.LogoFile).
+func (s *Service) LogoFile(ctx context.Context) ([]byte, string, bool) {
+	return s.Get(ctx).LogoFile()
 }
 
 // Stored reports whether a branding has been saved (as opposed to the

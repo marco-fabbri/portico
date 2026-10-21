@@ -6,18 +6,26 @@ import (
 	"errors"
 	"log/slog"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/marco-fabbri/portico/internal/store"
 )
 
-func TestDefaultIsValid(t *testing.T) {
-	if err := Default().Validate(); err != nil {
+func TestDefaultIsThePrefilledPorticoBranding(t *testing.T) {
+	d := Default()
+	want := Branding{MSPName: "Portico", HeaderText: "Portico",
+		Tagline:     "The single, authenticated entry point to your Nutanix services.",
+		PorticoLogo: true, BackgroundColor: "#a73422", TextColor: "#ffffff", AccentColor: "#a73422"}
+	if !reflect.DeepEqual(d, want) {
+		t.Fatalf("Default() = %+v", d)
+	}
+	if err := d.Validate(); err != nil {
 		t.Fatalf("Default().Validate() = %v", err)
 	}
-	if Default().MSPName != "Portico" || Default().AccentColor != "#1f5f8b" || Default().HasLogo() {
-		t.Fatalf("Default() = %+v", Default())
+	if h := d.Header(); h != (Header{Logo: true, LogoW: 85, LogoH: 96, Text: "Portico"}) {
+		t.Fatalf("Default().Header() = %+v", h)
 	}
 }
 
@@ -38,6 +46,12 @@ func TestValidateRejects(t *testing.T) {
 		{"logo type without data", func(b *Branding) { b.LogoType = "image/png" }, "logo"},
 		{"display negative", func(b *Branding) { b.MinDisplayMs = -1 }, "min_display_ms"},
 		{"display huge", func(b *Branding) { b.MinDisplayMs = MaxDisplayMs + 1 }, "min_display_ms"},
+		{"background word", func(b *Branding) { b.BackgroundColor = "red" }, "background_color must be #rrggbb"},
+		{"text empty", func(b *Branding) { b.TextColor = "" }, "text_color must be #rrggbb"},
+		{"header text long", func(b *Branding) { b.HeaderText = strings.Repeat("a", MaxHeaderTextLen+1) }, "header_text must be at most 80 characters, on one line"},
+		{"header text two lines", func(b *Branding) { b.HeaderText = "a\nb" }, "header_text must be at most 80 characters, on one line"},
+		{"header text carriage return", func(b *Branding) { b.HeaderText = "a\rb" }, "header_text must be at most 80 characters, on one line"},
+		{"arch and upload", func(b *Branding) { b.LogoType, b.LogoData = "image/png", blankPNG(t, 10, 10) }, "portico_logo and an uploaded logo are exclusive"},
 	}
 	for _, c := range cases {
 		b := Default()
@@ -82,6 +96,7 @@ func TestServiceSetStoresAndCaches(t *testing.T) {
 	svc := NewService(cs, nil)
 	ctx := context.Background()
 	b := Default()
+	b.PorticoLogo = false
 	b.MSPName, b.AccentColor, b.LogoType, b.LogoData = "ACME Cloud", "#8b1f5f", "image/png", []byte("\x89PNG\r\n\x1a\n")
 	if err := svc.Set(ctx, b); err != nil {
 		t.Fatal(err)
@@ -106,7 +121,7 @@ func TestServiceSetValidates(t *testing.T) {
 	if err := svc.Set(context.Background(), b); err == nil || !strings.Contains(err.Error(), "accent_color") {
 		t.Fatalf("Set invalid = %v", err)
 	}
-	if svc.Get(context.Background()).AccentColor != "#1f5f8b" {
+	if svc.Get(context.Background()).AccentColor != Default().AccentColor {
 		t.Fatal("an invalid Set changed the value")
 	}
 }
@@ -153,6 +168,7 @@ func TestLogoSVGWithActiveContentIsRejected(t *testing.T) {
 		}
 	}
 	b := Default()
+	b.PorticoLogo = false
 	b.LogoType, b.LogoData = "image/svg+xml", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#8b1f5f"/><text x="1" y="8">on</text></svg>`)
 	if err := b.Validate(); err != nil {
 		t.Fatalf("Validate rejected an inert SVG: %v", err)

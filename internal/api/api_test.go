@@ -283,7 +283,7 @@ const pngBytes = "\x89PNG\r\n\x1a\n"
 func TestBrandingGetDefault(t *testing.T) {
 	e := newEnv(t)
 	rec, out := e.do("GET", "/api/v1/settings/branding", "", true)
-	if rec.Code != 200 || out["msp_name"] != "Portico" || out["accent_color"] != "#1f5f8b" {
+	if rec.Code != 200 || out["msp_name"] != "Portico" || out["accent_color"] != "#a73422" {
 		t.Fatalf("GET branding: %d %v", rec.Code, out)
 	}
 	rec, _ = e.do("GET", "/api/v1/settings/branding/logo", "", true)
