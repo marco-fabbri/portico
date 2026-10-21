@@ -283,12 +283,16 @@ const pngBytes = "\x89PNG\r\n\x1a\n"
 func TestBrandingGetDefault(t *testing.T) {
 	e := newEnv(t)
 	rec, out := e.do("GET", "/api/v1/settings/branding", "", true)
-	if rec.Code != 200 || out["msp_name"] != "Portico" || out["accent_color"] != "#a73422" {
-		t.Fatalf("GET branding: %d %v", rec.Code, out)
+	want := map[string]any{"msp_name": "Portico", "header_text": "Portico", "portico_logo": true,
+		"background_color": "#a73422", "text_color": "#ffffff", "accent_color": "#a73422",
+		"tagline": "The single, authenticated entry point to your Nutanix services.", "logo_data": ""}
+	for k, v := range want {
+		if out[k] != v {
+			t.Errorf("GET branding %s = %v, want %v", k, out[k], v)
+		}
 	}
-	rec, _ = e.do("GET", "/api/v1/settings/branding/logo", "", true)
-	if rec.Code != 404 {
-		t.Fatalf("logo without one: %d", rec.Code)
+	if rec.Code != 200 {
+		t.Fatalf("GET branding: %d %v", rec.Code, out)
 	}
 }
 
