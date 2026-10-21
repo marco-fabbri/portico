@@ -54,7 +54,8 @@ type Session struct {
 
 // ActiveWindow is how recent a session's last request must be for the
 // session to count as active on its site (design sites §4.1): an open
-// console tab polls more often than this (decision D4 of write-up 20).
+// console tab polls more often than this (write-up 21: at least once a
+// minute from a hidden tab).
 const ActiveWindow = 2 * time.Minute
 
 // Store keeps sessions. The memory implementation is used now; Milestone 2

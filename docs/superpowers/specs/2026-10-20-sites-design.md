@@ -144,8 +144,11 @@ since when on the site, last activity. Two levels:
 
 - **Active**: a request in the last two minutes. An open console tab
   counts as active, because the console polls Prism Central in the
-  background (to measure: the polling interval, section 6); that is what
-  the MSP needs to know, a tab still open is a person who may lose work.
+  background (measured in write-up 21: at least once a minute from a
+  hidden Chrome tab); that is what the MSP needs to know, a tab still
+  open is a person who may lose work. Prism Central signs such a tab
+  out after about 15 minutes without input, through Portico's logout,
+  so it leaves the count by itself.
 - **Idle**: a valid Portico session on the site with no request for
   longer, until the session's idle limit (15 minutes) ends it.
 

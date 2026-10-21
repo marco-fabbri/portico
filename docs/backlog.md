@@ -219,6 +219,18 @@ drawn across the logo on the Keycloak login page.
   where one-site sessions are re-attached at once; an upstream
   `Set-Cookie` carrying a stash or Portico cookie name is not filtered;
   the sites design §5 still says the site is held in a cookie.
+- The public names cannot change after setup: only the bootstraps write
+  them into Keycloak (the OIDC client's redirect and post-logout URIs,
+  each SAML client's ACS) and into each site's identity provider in
+  Prism Central, so a new name and Apply break the login. Apply should
+  carry a changed name there. With sites the tenant name leads to the
+  portal, not to a Prism Central: rename `public.prism_host` to a portal
+  name (old key accepted) before v0.1.0, and rename the lab's names as
+  the acceptance: `msp.portico.test` for the portal (Marco, 2026-10-20;
+  `portico.dev` is registered by someone else) and `id.portico.test` for
+  the identity provider, in place of `prism.lab.portico.test` and
+  `id.lab.portico.test` (`internal/settings`, `internal/config`,
+  `internal/web`, `lab/env.sh`, the lab certificate).
 - Minor findings of the appliance acceptance (write-up 21): the legacy
   adoption line ("the single Prism Central of the stored document is now
   site site-1") is written in plain text before the JSON logger exists;
