@@ -539,11 +539,14 @@ Portico, and both carry the MSP's identity, not Nutanix's or Portico's.
   180 px `apple-touch-icon` (Safari's favourites and pinned tabs, iOS),
   served without a session at `/.portico/favicon.ico` and
   `/.portico/apple-touch-icon.png` on both public names and written into
-  the Keycloak theme as `img/favicon.ico`. The pages link them with a
-  version of what they show, so a browser that keeps its own favicon
-  cache fetches the new icon after a change. The admin UI has its own:
-  the arch on dark grey. Prism Central's console keeps Nutanix's icon:
-  Portico does not change Prism Central's pages.
+  the Keycloak theme as `img/favicon.ico`. Portico's pages link them
+  with a version of what they show, so a browser that keeps its own
+  favicon cache fetches the new icon after a change. Keycloak's login
+  page links its copy at a fixed address: Safari keeps the icon it saw
+  there until its caches are emptied (write-up 22); a versioned link
+  would mean overriding Keycloak's whole page template. The admin UI
+  has its own: the arch on dark grey. Prism Central's console keeps
+  Nutanix's icon: Portico does not change Prism Central's pages.
 - **Host names.** Prism Central uses absolute paths from `/`, so it cannot
   live under a prefix. Decided with Marco on 2026-10-20 (Milestone 4,
   ADR 0004), replacing "one public host name per Prism Central": every
