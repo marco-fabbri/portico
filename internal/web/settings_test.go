@@ -134,9 +134,24 @@ func TestBrandingFormLogoSource(t *testing.T) {
 	}
 	e := newEnv(t, true)
 	e.login(t)
-	// An upload wins over the arch.
+	// A file left in the field while the arch or "none" is chosen is
+	// ignored: the preview shows the choice, the save stores it (final
+	// review: the preview never shows what the save would not store).
 	if rec := e.postMultipart(t, with("logo_source", "portico"), "logo.png", "image/png", png, true); rec.Code != 303 {
-		t.Fatalf("upload with portico chosen: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("file with portico chosen: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := e.brand.Get(context.Background()); got.HasLogo() || !got.PorticoLogo {
+		t.Fatalf("file with portico chosen stored %+v", got)
+	}
+	if rec := e.postMultipart(t, with("logo_source", "none"), "logo.png", "image/png", png, true); rec.Code != 303 {
+		t.Fatalf("file with none chosen: %d", rec.Code)
+	}
+	if got := e.brand.Get(context.Background()); got.HasLogo() || got.PorticoLogo {
+		t.Fatalf("file with none chosen stored %+v", got)
+	}
+	// "file", or a form without logo_source (older posts), uploads it.
+	if rec := e.postMultipart(t, with("logo_source", "file"), "logo.png", "image/png", png, true); rec.Code != 303 {
+		t.Fatalf("upload: %d %s", rec.Code, rec.Body.String())
 	}
 	if got := e.brand.Get(context.Background()); !got.HasLogo() || got.PorticoLogo {
 		t.Fatalf("after an upload: %+v", got)
