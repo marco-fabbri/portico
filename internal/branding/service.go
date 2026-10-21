@@ -26,6 +26,10 @@ type Service struct {
 	mu       sync.RWMutex
 	cached   *Branding
 	onChange func(ctx context.Context, b Branding) error
+	// icons are the tenant icons of the branding whose IconVersion is
+	// iconsFor: scaling an uploaded icon is done once, not per request.
+	icons    Icons
+	iconsFor string
 }
 
 // NewService returns a service over the store.
@@ -76,6 +80,30 @@ func (s *Service) load(ctx context.Context) Branding {
 		return Default()
 	}
 	return b
+}
+
+// Icons returns the tenant icons of the current branding. An icon that
+// cannot be drawn (it was validated at save) falls back to the arch.
+func (s *Service) Icons(ctx context.Context) Icons {
+	b := s.Get(ctx)
+	v := b.IconVersion()
+	s.mu.RLock()
+	if s.iconsFor == v {
+		ic := s.icons
+		s.mu.RUnlock()
+		return ic
+	}
+	s.mu.RUnlock()
+	ic, err := TenantIcons(b)
+	if err != nil {
+		s.log.Warn("branding: the icon could not be drawn, using the arch", "err", err.Error())
+		b.IconData = nil
+		ic, _ = TenantIcons(b)
+	}
+	s.mu.Lock()
+	s.icons, s.iconsFor = ic, v
+	s.mu.Unlock()
+	return ic
 }
 
 // Stored reports whether a branding has been saved (as opposed to the

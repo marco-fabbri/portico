@@ -13,8 +13,24 @@ import (
 	"github.com/marco-fabbri/portico/internal/branding"
 )
 
-// postMultipart sends the branding form with an optional file.
+// formFile is one file of the branding form.
+type formFile struct {
+	field, name, ctype string
+	data               []byte
+}
+
+// postMultipart sends the branding form with an optional logo file.
 func (e *env) postMultipart(t *testing.T, fields map[string]string, fileName, fileType string, file []byte, withCSRF bool) *httptest.ResponseRecorder {
+	t.Helper()
+	var files []formFile
+	if file != nil {
+		files = append(files, formFile{"logo", fileName, fileType, file})
+	}
+	return e.postBranding(t, fields, files, withCSRF)
+}
+
+// postBranding sends the branding form with any files.
+func (e *env) postBranding(t *testing.T, fields map[string]string, files []formFile, withCSRF bool) *httptest.ResponseRecorder {
 	t.Helper()
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
@@ -24,12 +40,12 @@ func (e *env) postMultipart(t *testing.T, fields map[string]string, fileName, fi
 	for k, v := range fields {
 		mw.WriteField(k, v)
 	}
-	if file != nil {
+	for _, f := range files {
 		h := make(map[string][]string)
-		h["Content-Disposition"] = []string{`form-data; name="logo"; filename="` + fileName + `"`}
-		h["Content-Type"] = []string{fileType}
+		h["Content-Disposition"] = []string{`form-data; name="` + f.field + `"; filename="` + f.name + `"`}
+		h["Content-Type"] = []string{f.ctype}
 		part, _ := mw.CreatePart(h)
-		part.Write(file)
+		part.Write(f.data)
 	}
 	mw.Close()
 	r := httptest.NewRequest("POST", "https://127.0.0.1:8443/settings/branding", &body)

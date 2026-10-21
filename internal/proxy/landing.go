@@ -23,6 +23,8 @@ import (
 type LandingOptions struct {
 	Pages *branding.Pages
 	Logo  func(ctx context.Context) (data []byte, ctype string, ok bool)
+	// Icons are the tenant tab icons (branding.Service.Icons).
+	Icons func(ctx context.Context) branding.Icons
 	// PrismHTTP, PrismBase and IdPExtID are the request's site's: forSite
 	// fills them from the SiteBackend.
 	PrismHTTP *http.Client // to Prism Central, same TLS as the upstream, no redirects
@@ -50,6 +52,8 @@ const (
 	manualMarker     = "manual"
 	samlStartPath    = "/.portico/saml-start"
 	logoPath         = "/.portico/logo"
+	faviconPath      = "/.portico/favicon.ico"
+	touchIconPath    = "/.portico/apple-touch-icon.png"
 	initiateLogin    = "/api/iam/authn/initiate-login"
 	loginRequestPath = "/api/iam/v4.1.b3/authn/login-requests/"
 	iamCookie        = "iam-sessionid"
@@ -169,6 +173,33 @@ func (l *LandingOptions) loginRequest(ctx context.Context, method, id string, bo
 		}
 	}
 	return resp.StatusCode, nil
+}
+
+// icon serves one of the tenant tab icons. The pages link them with the
+// icons' version, so "no-cache" only costs a small download.
+func (l *LandingOptions) icon(w http.ResponseWriter, r *http.Request) {
+	setRule(r, "icon")
+	if l.Icons == nil {
+		Refuse(w, http.StatusNotFound, "icon", "no icons")
+		return
+	}
+	ic := l.Icons(r.Context())
+	data, ctype := ic.ICO, "image/x-icon"
+	if NormalizePath(r.URL.Path) == touchIconPath {
+		data, ctype = ic.Touch, "image/png"
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Security-Policy", "default-src 'none'")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
+}
+
+// isIcon reports a GET of one of the tab icons.
+func isIcon(r *http.Request) bool {
+	p := NormalizePath(r.URL.Path)
+	return r.Method == http.MethodGet && (p == faviconPath || p == touchIconPath)
 }
 
 // logo serves the branding logo to the landing and error pages with the

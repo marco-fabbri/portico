@@ -276,14 +276,15 @@ func TestNoSecretInLog(t *testing.T) {
 	}
 }
 
-// Every page carries Portico's own mark: the favicon and the header
-// brand (black mark on the dark header is served white).
+// Every page carries Portico's own mark: the tab icons (the arch on dark
+// grey, branding.AdminIcons) and the header brand (black mark on the dark
+// header is served white).
 func TestLayoutCarriesThePorticoMark(t *testing.T) {
 	e := newEnv(t, true)
 	page := e.do("GET", "/login", nil, false).Body.String()
 	// Static URLs carry the binary's version: the assets are cached for
 	// a day, and a new binary must not run on the old stylesheet.
-	for _, want := range []string{`<link rel="icon" type="image/svg+xml" href="/static/portico-mark.svg?v=`, `<link rel="stylesheet" href="/static/portico.css?v=`, `<img class="mark-large" src="/static/portico-mark.svg?v=`} {
+	for _, want := range []string{`<link rel="icon" href="/static/favicon.ico?v=`, `<link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v=`, `<link rel="stylesheet" href="/static/portico.css?v=`, `<img class="mark-large" src="/static/portico-mark.svg?v=`} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("layout lacks %q:\n%s", want, page)
 		}
@@ -292,6 +293,16 @@ func TestLayoutCarriesThePorticoMark(t *testing.T) {
 		rec := e.do("GET", f, nil, false)
 		if rec.Code != 200 || !strings.Contains(rec.Body.String(), "<svg") {
 			t.Fatalf("%s: %d", f, rec.Code)
+		}
+	}
+	icons := branding.AdminIcons()
+	for f, want := range map[string]struct {
+		ctype string
+		body  []byte
+	}{"/static/favicon.ico": {"image/x-icon", icons.ICO}, "/static/apple-touch-icon.png": {"image/png", icons.Touch}} {
+		rec := e.do("GET", f, nil, false)
+		if rec.Code != 200 || rec.Header().Get("Content-Type") != want.ctype || !bytes.Equal(rec.Body.Bytes(), want.body) || rec.Header().Get("Cache-Control") != "public, max-age=86400" {
+			t.Fatalf("%s: %d %v", f, rec.Code, rec.Header())
 		}
 	}
 }

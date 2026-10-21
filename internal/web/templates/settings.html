@@ -10,6 +10,10 @@
       {{if .Data.HasLogo}}<img class="logo-preview" src="/settings/branding/logo" alt="current logo">{{end}}
       <input type="file" name="logo" accept="image/png,image/jpeg,image/svg+xml"></label>
     {{if .Data.HasLogo}}<label class="inline"><input type="checkbox" name="remove_logo" value="on"> remove the logo</label>{{end}}
+    <label>Tab icon (square PNG, {{.Data.MinIcon}} to {{.Data.MaxIcon}} px, up to 256 KiB; without one, Portico's arch on the accent colour)
+      {{if .Data.HasIcon}}<img class="logo-preview" src="/settings/branding/icon" alt="current tab icon">{{end}}
+      <input type="file" name="icon" accept="image/png"></label>
+    {{if .Data.HasIcon}}<label class="inline"><input type="checkbox" name="remove_icon" value="on"> remove the tab icon</label>{{end}}
     <label>Minimum landing page time (ms, 0 = none) <input type="number" name="min_display_ms" value="{{.Data.B.MinDisplayMs}}" min="0" max="10000"></label>
     <div class="actions"><button type="submit" class="primary">Save</button></div>
   </form>

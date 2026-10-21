@@ -33,7 +33,7 @@ flag is cleared by the password page and by `portico admin set-password`.
 | `/etc/portico/portico.yaml` | root:portico 0640 | Process settings: listeners, TLS files, logging. See `deploy/portico.yaml.example`; the runtime sections are read from here only until they are stored |
 | `/var/lib/portico/portico.db` | portico | SQLite store: settings, sealed secrets, tenants, provisioning steps, sessions, branding |
 | `/var/lib/portico/master.key` | portico 0600 | Created by the binary at first start; seals the secrets in the store. It never leaves the appliance. Without it the store's secrets are unreadable: back it up with the store, separately from any copy you hand around |
-| `/var/lib/portico/keycloak-theme/` | portico | The Keycloak login theme written from the branding; mounted into the Keycloak container as `/opt/keycloak/themes/portico` |
+| `/var/lib/portico/keycloak-theme/` | portico | The Keycloak login theme written from the branding (with the tab icon as `img/favicon.ico`); mounted into the Keycloak container as `/opt/keycloak/themes/portico` |
 | `deploy/portico.service` | | The unit: user `portico`, `CAP_NET_BIND_SERVICE` for port 443, hardened, `Restart=always`, no start limit |
 
 Backup: copy `/var/lib/portico` with the service stopped, or the `.db`

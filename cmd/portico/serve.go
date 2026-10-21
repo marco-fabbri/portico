@@ -307,6 +307,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			b := brand.Get(ctx)
 			return b.LogoData, b.LogoType, b.HasLogo()
 		},
+		Icons:     brand.Icons,
 		PrismHost: cfg.Public.PrismHost,
 		Log:       log,
 	}

@@ -11,16 +11,18 @@ import (
 	"github.com/marco-fabbri/portico/internal/branding"
 )
 
-// maxBrandingForm bounds the multipart body: the logo limit plus the fields.
-const maxBrandingForm = branding.MaxLogoBytes + 64<<10
+// maxBrandingForm bounds the multipart body: the logo and icon limits
+// plus the fields.
+const maxBrandingForm = 2*branding.MaxLogoBytes + 64<<10
 
 type brandingData struct {
-	B       branding.Branding
-	HasLogo bool
+	B                branding.Branding
+	HasLogo, HasIcon bool
+	MinIcon, MaxIcon int
 }
 
 func (h *Handler) renderBranding(w http.ResponseWriter, r *http.Request, status int, b branding.Branding, errMsg, warning string) {
-	p := page{Title: "Branding", Version: h.version, Section: section(r.URL.Path), Error: errMsg, Warning: warning, Data: brandingData{B: b, HasLogo: b.HasLogo()}}
+	p := page{Title: "Branding", Version: h.version, Section: section(r.URL.Path), Error: errMsg, Warning: warning, Data: brandingData{B: b, HasLogo: b.HasLogo(), HasIcon: b.HasIcon(), MinIcon: branding.MinIconSide, MaxIcon: branding.MaxIconSide}}
 	if s, ok := h.session(r); ok {
 		p.Admin, p.CSRF = "admin", s.CSRF
 	}
@@ -36,7 +38,8 @@ func (h *Handler) brandingPage(w http.ResponseWriter, r *http.Request) {
 }
 
 // brandingSave reads the multipart form: text fields, an optional logo
-// file (replaces the current one), a "remove_logo" checkbox.
+// and an optional tab icon (each replaces the current one), and the
+// "remove_logo" and "remove_icon" checkboxes.
 func (h *Handler) brandingSave(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBrandingForm)
 	if err := r.ParseMultipartForm(maxBrandingForm); err != nil {
@@ -53,6 +56,7 @@ func (h *Handler) brandingSave(w http.ResponseWriter, r *http.Request) {
 		AccentColor: strings.TrimSpace(r.FormValue("accent_color")),
 		LogoType:    cur.LogoType,
 		LogoData:    cur.LogoData,
+		IconData:    cur.IconData,
 	}
 	if v := strings.TrimSpace(r.FormValue("min_display_ms")); v != "" {
 		n, err := strconv.Atoi(v)
@@ -74,6 +78,18 @@ func (h *Handler) brandingSave(w http.ResponseWriter, r *http.Request) {
 		}
 		b.LogoType, b.LogoData = hdr.Header.Get("Content-Type"), data
 	}
+	if r.FormValue("remove_icon") != "" {
+		b.IconData = nil
+	}
+	if f, _, err := r.FormFile("icon"); err == nil {
+		defer f.Close()
+		data, err := io.ReadAll(io.LimitReader(f, branding.MaxLogoBytes+1))
+		if err != nil {
+			h.renderBranding(w, r, http.StatusBadRequest, b, "icon could not be read", "")
+			return
+		}
+		b.IconData = data
+	}
 	err := h.brand.Set(r.Context(), b)
 	var ae *branding.ApplyError
 	switch {
@@ -88,4 +104,8 @@ func (h *Handler) brandingSave(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) brandingLogo(w http.ResponseWriter, r *http.Request) {
 	api.ServeLogo(w, h.brand.Get(r.Context()))
+}
+
+func (h *Handler) brandingIcon(w http.ResponseWriter, r *http.Request) {
+	api.ServeIcon(w, h.brand.Get(r.Context()))
 }
