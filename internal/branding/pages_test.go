@@ -143,8 +143,11 @@ func TestPagesUseTheThreeColours(t *testing.T) {
 	}
 	for page, want := range map[string]string{
 		"landing": "border-top-color: #222222",
-		"sites":   "outline: 3px solid #3b5bdb",
-		"error":   "background: #3b5bdb",
+		// The hover outline is drawn on the background: in the text
+		// colour, since the default and every upgraded branding have
+		// background = accent (final review).
+		"sites": "outline: 3px solid #222222",
+		"error": "background: #3b5bdb",
 	} {
 		if !strings.Contains(pages[page], want) {
 			t.Errorf("%s page lacks %q", page, want)
