@@ -201,6 +201,9 @@ func TestServeOpensStoreAndMountsAPI(t *testing.T) {
 	if _, err := os.Stat(cfg.Store.Path); err != nil {
 		t.Errorf("store file: %v", err)
 	}
+	// A connection the client dialed and never used counts as busy for
+	// 5 s in http.Server.Shutdown: close the client's idle ones first.
+	http.DefaultClient.CloseIdleConnections()
 	cancel()
 	select {
 	case err := <-done:
