@@ -33,6 +33,7 @@ type pageData struct {
 	// last word bold with no space before it (PORTICO**MSP**).
 	NameHead, NameTail string
 	Mark               template.HTML // Portico's mark in white, inline (CSP allows no other source)
+	IconVersion        string        // the icons' links carry it (Branding.IconVersion)
 	Delay              int           // seconds of the meta refresh
 	Next               string        // landing: where the refresh goes
 	Status             int
@@ -63,6 +64,7 @@ func lockup(d *pageData) {
 
 func (p *Pages) write(w http.ResponseWriter, status int, name string, d pageData) {
 	lockup(&d)
+	d.IconVersion = d.B.IconVersion()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")

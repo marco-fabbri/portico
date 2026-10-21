@@ -24,11 +24,14 @@ const (
 
 // Branding is the MSP's identity on the tenant-facing pages.
 type Branding struct {
-	MSPName      string `json:"msp_name"`
-	Tagline      string `json:"tagline"`
-	AccentColor  string `json:"accent_color"`
-	LogoType     string `json:"logo_type"`
-	LogoData     []byte `json:"logo_data"`
+	MSPName     string `json:"msp_name"`
+	Tagline     string `json:"tagline"`
+	AccentColor string `json:"accent_color"`
+	LogoType    string `json:"logo_type"`
+	LogoData    []byte `json:"logo_data"`
+	// IconData is the tab icon, a square PNG (icon.go); empty means
+	// Portico's arch on the accent colour.
+	IconData     []byte `json:"icon_data"`
 	MinDisplayMs int    `json:"min_display_ms"`
 }
 
@@ -82,6 +85,11 @@ func (b Branding) Validate() error {
 		errs = append(errs, fmt.Errorf("logo must be at most %d bytes", MaxLogoBytes))
 	case b.LogoType == "image/svg+xml" && svgHasActiveContent(b.LogoData):
 		errs = append(errs, errors.New("logo SVG must not contain scripts, event handlers, javascript: links or foreignObject"))
+	}
+	if b.HasIcon() {
+		if err := validateIcon(b.IconData); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if b.MinDisplayMs < 0 || b.MinDisplayMs > MaxDisplayMs {
 		errs = append(errs, fmt.Errorf("min_display_ms must be between 0 and %d", MaxDisplayMs))

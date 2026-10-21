@@ -56,6 +56,7 @@ type Handler struct {
 	log      *slog.Logger
 	mux      *http.ServeMux
 	pages    map[string]*template.Template
+	icons    branding.Icons // the admin UI's tab icons, drawn once
 }
 
 // New builds the handler and parses the templates once.
@@ -74,6 +75,7 @@ func New(o Options) *Handler {
 	}
 	h := &Handler{st: o.Store, svc: o.Service, brand: o.Branding, sessions: o.Sessions, limiter: o.Limiter, setup: o.Setup, secure: o.Secure, version: o.Version, log: o.Log}
 	h.pages = parsePages()
+	h.icons = branding.AdminIcons()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", h.loginPage)
 	mux.HandleFunc("POST /login", h.loginSubmit)
@@ -81,6 +83,8 @@ func New(o Options) *Handler {
 	mux.HandleFunc("GET /password", h.passwordPage)
 	mux.HandleFunc("POST /password", h.passwordSubmit)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", h.static()))
+	mux.HandleFunc("GET /static/favicon.ico", h.icon)
+	mux.HandleFunc("GET /static/apple-touch-icon.png", h.icon)
 	mux.HandleFunc("GET /{$}", h.home)
 	h.routes(mux)
 	h.setupRoutes(mux)
@@ -181,6 +185,19 @@ func section(p string) string {
 
 // static serves the embedded assets with a day of caching; traversal
 // cannot escape the embedded directory.
+// icon serves the admin UI's tab icons; the layout links them with the
+// binary's version, like the other static files.
+func (h *Handler) icon(w http.ResponseWriter, r *http.Request) {
+	data, ctype := h.icons.ICO, "image/x-icon"
+	if strings.HasSuffix(r.URL.Path, ".png") {
+		data, ctype = h.icons.Touch, "image/png"
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(data)
+}
+
 func (h *Handler) static() http.Handler {
 	sub, err := fs.Sub(staticFS, "static")
 	if err != nil {

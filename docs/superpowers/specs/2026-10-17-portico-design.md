@@ -523,7 +523,9 @@ Portico, and both carry the MSP's identity, not Nutanix's or Portico's.
   MSP name, tagline, accent colour, logo (PNG, JPEG or SVG, at most
   256 KiB; an SVG with scripts, event handlers, `javascript:` links or
   `foreignObject` is refused, because Keycloak serves the theme's copy
-  from the login origin), minimum landing display time. Edited on the admin UI and the
+  from the login origin), tab icon (a square PNG of 180 to 1024 px, at
+  most 256 KiB; without one, Portico's arch in white on the accent
+  colour), minimum landing display time. Edited on the admin UI and the
   API; applied to Portico's pages at once and to the Keycloak theme on
   save. Several Prism Centrals (Milestone 4): after the Keycloak login a
   tenant with more than one site gets the **site page**, one tile per
@@ -531,6 +533,16 @@ Portico, and both carry the MSP's identity, not Nutanix's or Portico's.
   one site it goes straight on, and the landing page offers a "switch
   site" link when there are several. An optional banner is a link that
   opens in a new tab and never blocks the redirect.
+- **Tab icons.** From the tab icon Portico makes `favicon.ico` (16, 32
+  and 48 px PNGs inside, read by every browser, Safari included) and a
+  180 px `apple-touch-icon` (Safari's favourites and pinned tabs, iOS),
+  served without a session at `/.portico/favicon.ico` and
+  `/.portico/apple-touch-icon.png` on both public names and written into
+  the Keycloak theme as `img/favicon.ico`. The pages link them with a
+  version of what they show, so a browser that keeps its own favicon
+  cache fetches the new icon after a change. The admin UI has its own:
+  the arch on dark grey. Prism Central's console keeps Nutanix's icon:
+  Portico does not change Prism Central's pages.
 - **Host names.** Prism Central uses absolute paths from `/`, so it cannot
   live under a prefix. Decided with Marco on 2026-10-20 (Milestone 4,
   ADR 0004), replacing "one public host name per Prism Central": every
