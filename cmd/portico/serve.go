@@ -289,10 +289,10 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		}
 		return nil
 	})
-	if brand.Stored(ctx) {
-		if err := brand.Apply(ctx, brand.Hook(), brand.Get(ctx)); err != nil {
-			log.Warn("branding: theme not applied at start", "err", err.Error())
-		}
+	// At every start, also with nothing saved: a fresh appliance's login
+	// page wears the default branding (design branding goal 4).
+	if err := brand.Apply(ctx, brand.Hook(), brand.Get(ctx)); err != nil {
+		log.Warn("branding: theme not applied at start", "err", err.Error())
 	}
 	admin, limiter, adminSessions, err := adminListener(cfg, st, brand, tenants, setup, log)
 	if err != nil {
@@ -302,11 +302,8 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// provider page and starts the SAML login with the browser's own
 	// login-request cookie (write-ups 12 and 13).
 	landing := &proxy.LandingOptions{
-		Pages: pages,
-		Logo: func(ctx context.Context) ([]byte, string, bool) {
-			b := brand.Get(ctx)
-			return b.LogoData, b.LogoType, b.HasLogo()
-		},
+		Pages:     pages,
+		Logo:      brand.LogoFile,
 		Icons:     brand.Icons,
 		PrismHost: cfg.Public.PrismHost,
 		Log:       log,

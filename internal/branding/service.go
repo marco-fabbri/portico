@@ -111,13 +111,6 @@ func (s *Service) LogoFile(ctx context.Context) ([]byte, string, bool) {
 	return s.Get(ctx).LogoFile()
 }
 
-// Stored reports whether a branding has been saved (as opposed to the
-// defaults being in use).
-func (s *Service) Stored(ctx context.Context) bool {
-	_, err := s.st.GetSetting(ctx, SettingKey)
-	return err == nil
-}
-
 // Set validates and stores b, updates the cache, then runs the change
 // hook. A hook error comes back as *ApplyError: the save stands.
 func (s *Service) Set(ctx context.Context, b Branding) error {
