@@ -111,6 +111,15 @@ func themeCSS(b Branding) string {
 	sb.WriteString(".pf-v5-c-button.pf-m-primary:hover { filter: brightness(1.1); }\n")
 	sb.WriteString(".pf-v5-c-form-control { border-radius: 8px; }\n")
 	sb.WriteString("a, .pf-v5-c-button.pf-m-link { color: var(--portico-accent); }\n")
+	// Keycloak's SAML post page, shown while the assertion goes to Prism
+	// Central, looks like Portico's landing page that follows it: no
+	// card, a spinner, the text centred (write-up 23).
+	const samlPost = `body[data-page-id="login-saml-post-form"]`
+	sb.WriteString(samlPost + " .pf-v5-c-login__main { background: none; box-shadow: none; }\n")
+	sb.WriteString(samlPost + " .pf-v5-c-login__main-header { display: none; }\n")
+	sb.WriteString(samlPost + " .pf-v5-c-login__main-body { text-align: center; color: var(--portico-text); }\n")
+	sb.WriteString(samlPost + " .pf-v5-c-login__main-body::before { content: \"\"; display: block; width: 36px; height: 36px; margin: 0 auto 1rem; border: 4px solid color-mix(in srgb, var(--portico-text) 35%, transparent); border-top-color: var(--portico-text); border-radius: 50%; animation: portico-spin 1s linear infinite; }\n")
+	sb.WriteString("@keyframes portico-spin { to { transform: rotate(360deg); } }\n")
 	return sb.String()
 }
 
@@ -137,7 +146,9 @@ func themeMessages(b Branding) string {
 	msg := func(v string) string { return PropertiesEscape(messageFormatEscape(v)) }
 	return "loginTitleHtml=" + msg(title.String()) + "\n" +
 		"loginTitle=" + msg("Sign in to "+name) + "\n" +
-		"loginAccountTitle=Sign in\n"
+		"loginAccountTitle=Sign in\n" +
+		"saml.post-form.title=Signing you in\n" +
+		"saml.post-form.message=Signing you in\\u2026\n"
 }
 
 // messageFormatEscape quotes what Java's MessageFormat would read as

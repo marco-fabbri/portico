@@ -72,7 +72,7 @@ func TestWriteThemeEscapesName(t *testing.T) {
 	if !strings.Contains(msgs, `<span class\="portico-claim">line one\nline two \#tag</span>`) {
 		t.Errorf("tagline not escaped: %s", msgs)
 	}
-	if strings.Count(msgs, "\n") != 3 {
+	if strings.Count(msgs, "\n") != 5 { // one line per key
 		t.Errorf("a raw newline reached the properties file: %q", msgs)
 	}
 }
@@ -305,5 +305,32 @@ func TestWriteThemeShipsTheMarkAndTheParentStyles(t *testing.T) {
 	}
 	if props := readTheme(t, dir, "login/theme.properties"); !strings.Contains(props, "styles=css/styles.css css/portico.css") {
 		t.Fatalf("theme.properties: %q", props)
+	}
+}
+
+// Keycloak's SAML post page, shown while the assertion goes to Prism
+// Central, looks like Portico's landing page that follows it: no card,
+// a spinner and "Signing you in…" in the text colour, centred
+// (write-up 23, Marco: "continuity").
+func TestThemeSAMLPostPageLooksLikeTheLanding(t *testing.T) {
+	b := Default()
+	css := themeCSS(b)
+	const page = `body[data-page-id="login-saml-post-form"]`
+	for _, want := range []string{
+		page + " .pf-v5-c-login__main { background: none; box-shadow: none; }",
+		page + " .pf-v5-c-login__main-header { display: none; }",
+		page + " .pf-v5-c-login__main-body { text-align: center; color: var(--portico-text); }",
+		page + " .pf-v5-c-login__main-body::before { content: \"\"; display: block; width: 36px; height: 36px; margin: 0 auto 1rem; border: 4px solid color-mix(in srgb, var(--portico-text) 35%, transparent); border-top-color: var(--portico-text); border-radius: 50%; animation: portico-spin 1s linear infinite; }",
+		"@keyframes portico-spin { to { transform: rotate(360deg); } }",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("css lacks %q", want)
+		}
+	}
+	msgs := themeMessages(b)
+	for _, want := range []string{"saml.post-form.title=Signing you in\n", "saml.post-form.message=Signing you in\\u2026\n"} {
+		if !strings.Contains(msgs, want) {
+			t.Errorf("messages lack %q:\n%s", want, msgs)
+		}
 	}
 }
