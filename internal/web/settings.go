@@ -98,7 +98,11 @@ func (h *Handler) brandingSave(w http.ResponseWriter, r *http.Request) {
 		}
 		b.MinDisplayMs = n
 	}
-	if f, hdr, err := r.FormFile("logo"); err == nil {
+	// The file field counts only with "file" chosen (or no choice, as
+	// older form posts send): with the arch or "none" chosen the preview
+	// shows that choice, and the save stores it.
+	src := r.FormValue("logo_source")
+	if f, hdr, err := r.FormFile("logo"); err == nil && (src == "file" || src == "") {
 		defer f.Close()
 		data, err := io.ReadAll(io.LimitReader(f, branding.MaxLogoBytes+1))
 		if err != nil {
@@ -106,7 +110,7 @@ func (h *Handler) brandingSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		b.LogoType, b.LogoData, b.PorticoLogo = hdr.Header.Get("Content-Type"), data, false
-	} else if r.FormValue("logo_source") == "file" && !b.HasLogo() {
+	} else if src == "file" && !b.HasLogo() {
 		h.renderBranding(w, r, http.StatusBadRequest, b, "choose a logo file, or pick Portico's arch or no logo", "")
 		return
 	}
