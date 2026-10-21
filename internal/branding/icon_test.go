@@ -48,10 +48,13 @@ func TestValidateIcon(t *testing.T) {
 	}{
 		{"square PNG", pngOf(t, 256, 256, solid(red)), ""},
 		{"smallest", pngOf(t, MinIconSide, MinIconSide, solid(red)), ""},
+		{"an exported logo (write-up 22)", pngOf(t, 167, 178, solid(red)), ""},
+		{"wider than tall", pngOf(t, 300, 200, solid(red)), ""},
 		{"not a PNG", []byte("GIF89a not a png"), "icon must be a PNG"},
-		{"not square", pngOf(t, 300, 200, solid(red)), "icon must be square"},
-		{"too small", pngOf(t, 64, 64, solid(red)), "icon must be 180 to 1024 px"},
-		{"too large", pngOf(t, 1100, 1100, solid(red)), "icon must be 180 to 1024 px"},
+		{"too small", pngOf(t, 100, 64, solid(red)), "icon must be 128 to 1024 px on its longer side"},
+		{"too large", pngOf(t, 1100, 1000, solid(red)), "icon must be 128 to 1024 px on its longer side"},
+		{"a banner", pngOf(t, 400, 150, solid(red)), "icon's shorter side must be at least half its longer side"},
+		{"a column", pngOf(t, 150, 400, solid(red)), "icon's shorter side must be at least half its longer side"},
 		{"too many bytes", append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, MaxLogoBytes)...), "icon must be at most 262144 bytes"},
 	}
 	for _, c := range cases {
@@ -169,6 +172,62 @@ func TestTenantIconsAverageWhenScaling(t *testing.T) {
 	}
 	if c := nrgba(e.img, 12, 8); !near(c, color.NRGBA{255, 255, 255, 255}, 1) {
 		t.Errorf("right: %v", c)
+	}
+}
+
+// A PNG that is not square is centred on a transparent square: 300 by
+// 200 px at 48 px is 32 px tall, from row 8 to row 40.
+func TestTenantIconsCentreAnIconThatIsNotSquare(t *testing.T) {
+	b := Default()
+	b.IconData = pngOf(t, 300, 200, solid(red))
+	ic, err := TenantIcons(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := parseICO(t, ic.ICO)[2]
+	if c := nrgba(e.img, 24, 2); c.A != 0 {
+		t.Errorf("above the icon: %v, want transparent", c)
+	}
+	if c := nrgba(e.img, 24, 45); c.A != 0 {
+		t.Errorf("below the icon: %v, want transparent", c)
+	}
+	if c := nrgba(e.img, 2, 24); !near(c, red, 1) {
+		t.Errorf("left edge at mid height: %v, want red", c)
+	}
+	touch := decodePNG(t, ic.Touch)
+	if c := nrgba(touch, 90, 5); !near(c, color.NRGBA{255, 255, 255, 255}, 0) {
+		t.Errorf("touch icon above the icon: %v, want white", c)
+	}
+}
+
+// An icon smaller than 180 px is enlarged for the touch icon with a
+// smooth filter: a hard black-to-white edge becomes a short ramp, not a
+// step, and the halves keep their colour.
+func TestTouchIconOfASmallIconIsSmooth(t *testing.T) {
+	b := Default()
+	b.IconData = pngOf(t, 128, 128, func(x, y int) color.NRGBA {
+		if x < 64 {
+			return color.NRGBA{0, 0, 0, 255}
+		}
+		return color.NRGBA{255, 255, 255, 255}
+	})
+	ic, err := TenantIcons(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	touch := decodePNG(t, ic.Touch)
+	if c := nrgba(touch, 20, 90); !near(c, color.NRGBA{0, 0, 0, 255}, 1) {
+		t.Errorf("left: %v", c)
+	}
+	if c := nrgba(touch, 160, 90); !near(c, color.NRGBA{255, 255, 255, 255}, 1) {
+		t.Errorf("right: %v", c)
+	}
+	// The edge falls between pixels 89 and 90: both are grey (a nearest-
+	// neighbour enlargement would give pure black and pure white).
+	for _, x := range []int{89, 90} {
+		if c := nrgba(touch, x, 90); c.R <= 2 || c.R >= 253 {
+			t.Errorf("the edge pixel %d is %v: a step, not a ramp", x, c)
+		}
 	}
 }
 

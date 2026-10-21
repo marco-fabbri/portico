@@ -61,8 +61,8 @@ func TestBrandingFormSavesShowsAndRemovesTheIcon(t *testing.T) {
 func TestBrandingFormRejectsABadIcon(t *testing.T) {
 	e := newEnv(t, true)
 	e.login(t)
-	rec := e.postBranding(t, map[string]string{"msp_name": "ACME", "accent_color": "#000000"}, []formFile{{"icon", "wide.png", "image/png", squarePNG(t, 300, 200)}}, true)
-	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "icon must be square") {
+	rec := e.postBranding(t, map[string]string{"msp_name": "ACME", "accent_color": "#000000"}, []formFile{{"icon", "banner.png", "image/png", squarePNG(t, 400, 150)}}, true)
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "shorter side must be at least half") {
 		t.Fatalf("wide icon: %d %s", rec.Code, rec.Body.String())
 	}
 	// Both files at their limit still fit in the form.
