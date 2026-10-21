@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"html/template"
 	"io"
 	"net/http"
 	"strconv"
@@ -19,10 +20,28 @@ type brandingData struct {
 	B                branding.Branding
 	HasLogo, HasIcon bool
 	MinIcon, MaxIcon int
+	// LogoSource is the logo radio's value: portico, file or none.
+	LogoSource string
+	// SavedLogo: an uploaded logo is saved, the preview may show it.
+	SavedLogo bool
+	Arch      template.HTML // Portico's arch in currentColor, for the preview
+}
+
+func logoSource(b branding.Branding) string {
+	switch {
+	case b.PorticoLogo:
+		return "portico"
+	case b.HasLogo():
+		return "file"
+	}
+	return "none"
 }
 
 func (h *Handler) renderBranding(w http.ResponseWriter, r *http.Request, status int, b branding.Branding, errMsg, warning string) {
-	p := page{Title: "Branding", Version: h.version, Section: section(r.URL.Path), Error: errMsg, Warning: warning, Data: brandingData{B: b, HasLogo: b.HasLogo(), HasIcon: b.HasIcon(), MinIcon: branding.MinIconSide, MaxIcon: branding.MaxIconSide}}
+	data := brandingData{B: b, HasLogo: b.HasLogo(), HasIcon: b.HasIcon(), MinIcon: branding.MinIconSide, MaxIcon: branding.MaxIconSide,
+		LogoSource: logoSource(b), SavedLogo: h.brand.Get(r.Context()).HasLogo(),
+		Arch: template.HTML(branding.PorticoMark("currentColor"))} // #nosec: a constant of the branding package
+	p := page{Title: "Branding", Version: h.version, Section: section(r.URL.Path), Error: errMsg, Warning: warning, Data: data}
 	if s, ok := h.session(r); ok {
 		p.Admin, p.CSRF = "admin", s.CSRF
 	}
@@ -37,9 +56,12 @@ func (h *Handler) brandingPage(w http.ResponseWriter, r *http.Request) {
 	h.renderBranding(w, r, http.StatusOK, h.brand.Get(r.Context()), "", "")
 }
 
-// brandingSave reads the multipart form: text fields, an optional logo
+// brandingSave reads the multipart form: text and colour fields, the
+// logo source (Portico's arch, the uploaded file, none), an optional logo
 // and an optional tab icon (each replaces the current one), and the
-// "remove_logo" and "remove_icon" checkboxes.
+// "remove_icon" checkbox. A field missing from the form keeps its saved
+// value. A save that stands with warnings (readability, Keycloak) shows
+// them on the page instead of redirecting.
 func (h *Handler) brandingSave(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBrandingForm)
 	if err := r.ParseMultipartForm(maxBrandingForm); err != nil {
@@ -50,19 +72,24 @@ func (h *Handler) brandingSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cur := h.brand.Get(r.Context())
-	b := branding.Branding{
-		MSPName:     strings.TrimSpace(r.FormValue("msp_name")),
-		Tagline:     strings.TrimSpace(r.FormValue("tagline")),
-		AccentColor: strings.TrimSpace(r.FormValue("accent_color")),
-		LogoType:    cur.LogoType,
-		LogoData:    cur.LogoData,
-		IconData:    cur.IconData,
-		// Bridge until the form carries them (plan Task 6).
-		HeaderText:      cur.HeaderText,
-		BackgroundColor: cur.BackgroundColor,
-		TextColor:       cur.TextColor,
-		PorticoLogo:     cur.PorticoLogo,
+	b := cur
+	b.MSPName = strings.TrimSpace(r.FormValue("msp_name"))
+	b.Tagline = strings.TrimSpace(r.FormValue("tagline"))
+	b.AccentColor = strings.TrimSpace(r.FormValue("accent_color"))
+	for field, dst := range map[string]*string{"header_text": &b.HeaderText, "background_color": &b.BackgroundColor, "text_color": &b.TextColor} {
+		if v, ok := r.MultipartForm.Value[field]; ok && len(v) > 0 {
+			*dst = strings.TrimSpace(v[0])
+		}
 	}
+	switch r.FormValue("logo_source") {
+	case "portico":
+		b.PorticoLogo, b.LogoType, b.LogoData = true, "", nil
+	case "none":
+		b.PorticoLogo, b.LogoType, b.LogoData = false, "", nil
+	case "file":
+		b.PorticoLogo = false
+	}
+	b.MinDisplayMs = 0
 	if v := strings.TrimSpace(r.FormValue("min_display_ms")); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
@@ -70,9 +97,6 @@ func (h *Handler) brandingSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		b.MinDisplayMs = n
-	}
-	if r.FormValue("remove_logo") != "" {
-		b.LogoType, b.LogoData, b.PorticoLogo = "", nil, false
 	}
 	if f, hdr, err := r.FormFile("logo"); err == nil {
 		defer f.Close()
@@ -82,6 +106,9 @@ func (h *Handler) brandingSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		b.LogoType, b.LogoData, b.PorticoLogo = hdr.Header.Get("Content-Type"), data, false
+	} else if r.FormValue("logo_source") == "file" && !b.HasLogo() {
+		h.renderBranding(w, r, http.StatusBadRequest, b, "choose a logo file, or pick Portico's arch or no logo", "")
+		return
 	}
 	if r.FormValue("remove_icon") != "" {
 		b.IconData = nil
@@ -97,14 +124,16 @@ func (h *Handler) brandingSave(w http.ResponseWriter, r *http.Request) {
 	}
 	err := h.brand.Set(r.Context(), b)
 	var ae *branding.ApplyError
-	switch {
-	case errors.As(err, &ae):
-		h.renderBranding(w, r, http.StatusOK, h.brand.Get(r.Context()), "", "Saved. Applying the branding to Keycloak failed: "+ae.Err.Error())
-	case err != nil:
+	if err != nil && !errors.As(err, &ae) {
 		h.renderBranding(w, r, http.StatusBadRequest, b, err.Error(), "")
-	default:
-		http.Redirect(w, r, "/settings/branding", http.StatusSeeOther)
+		return
 	}
+	saved := h.brand.Get(r.Context())
+	if warn := branding.Warnings(saved, err); warn != "" {
+		h.renderBranding(w, r, http.StatusOK, saved, "", "Saved. "+warn)
+		return
+	}
+	http.Redirect(w, r, "/settings/branding", http.StatusSeeOther)
 }
 
 func (h *Handler) brandingLogo(w http.ResponseWriter, r *http.Request) {

@@ -1,15 +1,25 @@
 {{define "content"}}
 <div class="page-head"><div><h1>Branding</h1><p>What tenant users see on the Keycloak login page, on Portico's landing page and on its error pages.</p></div></div>
+<div class="branding-layout">
 <section class="card">
-  <form method="post" action="/settings/branding" enctype="multipart/form-data">
+  <form id="branding-form" method="post" action="/settings/branding" enctype="multipart/form-data">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
-    <label>MSP name <input type="text" name="msp_name" value="{{.Data.B.MSPName}}" maxlength="80" required></label>
-    <label>Tagline (the claim under your name on the login page) <input type="text" name="tagline" value="{{.Data.B.Tagline}}" maxlength="160"></label>
-    <label>Accent colour <input type="color" name="accent_color" value="{{.Data.B.AccentColor}}"></label>
-    <label>Logo (PNG, JPEG or SVG, up to 256 KiB)
-      {{if .Data.HasLogo}}<img class="logo-preview" src="/settings/branding/logo" alt="current logo">{{end}}
-      <input type="file" name="logo" accept="image/png,image/jpeg,image/svg+xml"></label>
-    {{if .Data.HasLogo}}<label class="inline"><input type="checkbox" name="remove_logo" value="on"> remove the logo</label>{{end}}
+    <label>MSP name (the browser tab's title; shown in the header when there is neither a logo nor a header text) <input type="text" name="msp_name" value="{{.Data.B.MSPName}}" maxlength="80" required></label>
+    <fieldset class="logo-source">
+      <legend>Logo (large and centred, at most 320 by 96 px)</legend>
+      <label class="inline"><input type="radio" name="logo_source" value="portico"{{if eq .Data.LogoSource "portico"}} checked{{end}}> Portico's arch, in the text colour</label>
+      <label class="inline"><input type="radio" name="logo_source" value="file"{{if eq .Data.LogoSource "file"}} checked{{end}}> Your logo (PNG, JPEG or SVG, up to 256 KiB)</label>
+      {{if .Data.SavedLogo}}<img class="logo-preview" src="/settings/branding/logo" alt="current logo">{{end}}
+      <input type="file" name="logo" accept="image/png,image/jpeg,image/svg+xml" aria-label="Logo file">
+      <label class="inline"><input type="radio" name="logo_source" value="none"{{if eq .Data.LogoSource "none"}} checked{{end}}> No logo</label>
+    </fieldset>
+    <label>Header text (under the logo, bold, as typed; may be empty) <input type="text" name="header_text" value="{{.Data.B.HeaderText}}" maxlength="80"></label>
+    <label>Tagline (the claim under the header) <input type="text" name="tagline" value="{{.Data.B.Tagline}}" maxlength="160"></label>
+    <div class="colours">
+      <label>Background colour <input type="color" name="background_color" value="{{.Data.B.BackgroundColor}}"></label>
+      <label>Text colour <input type="color" name="text_color" value="{{.Data.B.TextColor}}"></label>
+      <label>Accent colour (the Sign In button, with white text, and the links) <input type="color" name="accent_color" value="{{.Data.B.AccentColor}}"></label>
+    </div>
     <label>Tab icon (PNG, {{.Data.MinIcon}} to {{.Data.MaxIcon}} px on its longer side, up to 256 KiB, centred on a square; without one, Portico's arch on the accent colour)
       {{if .Data.HasIcon}}<img class="logo-preview" src="/settings/branding/icon" alt="current tab icon">{{end}}
       <input type="file" name="icon" accept="image/png"></label>
@@ -18,4 +28,24 @@
     <div class="actions"><button type="submit" class="primary">Save</button></div>
   </form>
 </section>
+<aside class="card brand-preview-card" aria-label="Preview of the login page">
+  <h2>Preview</h2>
+  <p class="muted small">The Keycloak login page, drawn by Portico as you change the fields; saving applies it.</p>
+  <div class="bp" id="brand-preview" data-saved-logo="{{if .Data.SavedLogo}}1{{end}}">
+    <div class="bp-arch">{{.Data.Arch}}</div>
+    <img class="bp-logo" alt="" hidden>
+    <p class="bp-text"></p>
+    <p class="bp-claim"></p>
+    <div class="bp-card">
+      <p class="bp-title">Sign in</p>
+      <span class="bp-label">Email</span><span class="bp-field"></span>
+      <span class="bp-label">Password</span><span class="bp-field"></span>
+      <span class="bp-button">Sign In</span>
+      <span class="bp-link">Forgot password?</span>
+    </div>
+    <p class="bp-powered">{{.Data.Arch}}<span>Powered by Portico</span></p>
+  </div>
+</aside>
+</div>
+<script src="/static/branding-preview.js?v={{.Version}}" defer></script>
 {{end}}
