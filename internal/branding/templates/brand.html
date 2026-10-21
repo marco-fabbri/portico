@@ -1,0 +1,16 @@
+{{/* What the tenant pages share with the Keycloak login page
+     (branding/theme.go, design branding §4.2): the page in the background
+     colour, the header in the text colour (logo, text, claim), cards with
+     a shadow that suits light and dark backgrounds, "Powered by Portico". */}}
+{{define "brand-css"}}
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.5rem; padding: 2rem 1rem; box-sizing: border-box; background: {{.B.BackgroundColor}}; color: {{.B.TextColor}}; font: 16px/1.5 "RedHatText", "Red Hat Text", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .brand { display: flex; flex-direction: column; align-items: center; gap: .7rem; max-width: 100%; text-align: center; }
+  .brand .logo { display: block; max-width: 100%; height: auto; }
+  .header-text { margin: 0; font-size: 2.25rem; line-height: 1.1; font-weight: 700; overflow-wrap: anywhere; }
+  .claim { margin: 0; font-size: 1.05rem; opacity: .9; }
+  .card, .tile { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16); }
+  .powered { display: flex; align-items: center; gap: .4rem; margin-top: 1.5rem; font-size: .8rem; opacity: .75; }
+  .powered svg { height: 1.2rem; width: auto; }
+{{end}}
+{{define "brand-header"}}<header class="brand">{{if .Header.Logo}}<img class="logo" src="/.portico/logo" width="{{.Header.LogoW}}" height="{{.Header.LogoH}}" alt="{{.B.MSPName}}">{{end}}{{if .Header.Text}}<p class="header-text">{{.Header.Text}}</p>{{end}}{{if .B.Tagline}}<p class="claim">{{.B.Tagline}}</p>{{end}}</header>{{end}}
+{{define "brand-powered"}}<div class="powered">{{.Mark}}<span>Powered by Portico</span></div>{{end}}

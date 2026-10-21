@@ -13,8 +13,8 @@ func pagesFor(b Branding) *Pages {
 }
 
 func TestLandingPageContent(t *testing.T) {
-	b := Default()
-	b.MSPName, b.Tagline = "ACME <b>Cloud</b>", "Your VMs & more"
+	b := noLogo()
+	b.MSPName, b.HeaderText, b.Tagline = "ACME <b>Cloud</b>", "", "Your VMs & more"
 	p := pagesFor(b)
 	rec := httptest.NewRecorder()
 	p.Landing(rec, httptest.NewRequest("GET", "https://prism.test/ui/iam/providers", nil), "/.portico/saml-start")
@@ -67,55 +67,100 @@ func TestErrorPageContent(t *testing.T) {
 	}
 }
 
-// The landing and error pages look like the Keycloak login page the user
-// just left (Marco, 2026-10-19: the landing page was a light grey page
-// with the white logo on it): the accent colour as background, the
-// lockup in white (logo left of the name, last word bold, the tagline
-// under it), the error in a white card, "Powered by Portico" at the foot.
-func TestPagesWearTheLoginPageLook(t *testing.T) {
-	b := Default()
-	b.MSPName, b.Tagline, b.AccentColor = "Portico MSP", "The single entry point.", "#a73422"
-	b.LogoType, b.LogoData = "image/svg+xml", []byte("<svg/>")
+// renderAll renders the landing page, the site page and an error page
+// with a retry link for b.
+func renderAll(t *testing.T, b Branding) map[string]string {
+	t.Helper()
 	p := pagesFor(b)
+	req := func() *http.Request { return httptest.NewRequest("GET", "https://prism.test/", nil) }
+	out := map[string]string{}
 	rec := httptest.NewRecorder()
-	p.Landing(rec, httptest.NewRequest("GET", "https://prism.test/", nil), "/.portico/saml-start")
-	landing := rec.Body.String()
+	p.Landing(rec, req(), "/.portico/saml-start")
+	out["landing"] = rec.Body.String()
 	rec = httptest.NewRecorder()
-	p.Error(rec, httptest.NewRequest("GET", "https://prism.test/", nil), http.StatusServiceUnavailable, "Identity provider unavailable", "Try again later.", "/.portico/login")
-	errPage := rec.Body.String()
-	for name, body := range map[string]string{"landing": landing, "error": errPage} {
-		for _, want := range []string{
-			"background: #a73422",
-			`<div class="lockup"><img class="logo" src="/.portico/logo" alt=""><span class="name">Portico<strong>MSP</strong></span></div>`,
-			`<p class="claim">The single entry point.</p>`,
-			`class="powered"`,
-			"Powered by Portico",
-		} {
-			if !strings.Contains(body, want) {
-				t.Errorf("%s page lacks %q:\n%s", name, want, body)
+	p.Sites(rec, req(), []SiteTile{{ID: "mi1", Code: "AZ-IT-MI1", Status: "available", Selectable: true}}, "carol@acme.example")
+	out["sites"] = rec.Body.String()
+	rec = httptest.NewRecorder()
+	p.Error(rec, req(), http.StatusServiceUnavailable, "Identity provider unavailable", "Try again later.", "/.portico/login")
+	out["error"] = rec.Body.String()
+	return out
+}
+
+// Every tenant page has the header of the login page: logo, text, claim
+// (design branding §4.2), and "Powered by Portico" at the foot.
+func TestPagesHeaderPieces(t *testing.T) {
+	logo := blankPNG(t, 167, 178)
+	img := `<img class="logo" src="/.portico/logo" width="90" height="96" alt="Portico MSP">`
+	cases := []struct {
+		name      string
+		mut       func(*Branding)
+		want, not []string
+	}{
+		{"logo and text", func(b *Branding) { b.LogoType, b.LogoData, b.HeaderText = "image/png", logo, "Portico MSP" },
+			[]string{img + `<p class="header-text">Portico MSP</p>`}, nil},
+		{"logo only", func(b *Branding) { b.LogoType, b.LogoData, b.HeaderText = "image/png", logo, "" },
+			[]string{img}, []string{`class="header-text"`}},
+		{"text only", func(b *Branding) { b.HeaderText = "Portico MSP" },
+			[]string{`<p class="header-text">Portico MSP</p>`}, []string{"<img"}},
+		{"neither: the MSP name", func(b *Branding) { b.HeaderText, b.MSPName = "", "ACME" },
+			[]string{`<p class="header-text">ACME</p>`}, []string{"<img"}},
+	}
+	for _, c := range cases {
+		b := noLogo()
+		b.MSPName, b.Tagline = "Portico MSP", "Claim"
+		c.mut(&b)
+		for page, body := range renderAll(t, b) {
+			for _, want := range append(c.want, `<p class="claim">Claim</p>`, "Powered by Portico") {
+				if !strings.Contains(body, want) {
+					t.Errorf("%s, %s page lacks %q", c.name, page, want)
+				}
+			}
+			for _, not := range append(c.not, "lockup", "uppercase") {
+				if strings.Contains(body, not) {
+					t.Errorf("%s, %s page has %q", c.name, page, not)
+				}
 			}
 		}
-		if strings.Contains(body, "#f4f6f8") {
-			t.Errorf("%s page still has the grey background", name)
-		}
-	}
-	if !strings.Contains(errPage, `<section class="card">`) {
-		t.Errorf("error text not in a card:\n%s", errPage)
-	}
-	// Without a logo the lockup is the name alone; one word is all bold-free.
-	b.LogoType, b.LogoData, b.MSPName = "", nil, "Solo"
-	rec = httptest.NewRecorder()
-	pagesFor(b).Landing(rec, httptest.NewRequest("GET", "https://prism.test/", nil), "/x")
-	if !strings.Contains(rec.Body.String(), `<div class="lockup"><span class="name">Solo</span></div>`) {
-		t.Errorf("no-logo lockup:\n%s", rec.Body.String())
 	}
 }
 
-// The site page, variant B of the mockup: one tile per site with code,
-// name and status; a tile that is not available cannot be chosen.
+func TestPagesUseTheThreeColours(t *testing.T) {
+	b := Default()
+	b.BackgroundColor, b.TextColor, b.AccentColor = "#f5f5f7", "#222222", "#3b5bdb"
+	pages := renderAll(t, b)
+	for page, body := range pages {
+		for _, want := range []string{"background: #f5f5f7", "color: #222222", `fill="#222222"`, "overflow-wrap: anywhere", "0 8px 24px rgba(0, 0, 0, 0.16)",
+			`<img class="logo" src="/.portico/logo" width="85" height="96" alt="Portico">`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s page lacks %q", page, want)
+			}
+		}
+		for _, old := range []string{"rgba(0, 0, 0, .28)", "rgba(255, 255, 255", `fill="#ffffff"`} {
+			if strings.Contains(body, old) {
+				t.Errorf("%s page still has %q", page, old)
+			}
+		}
+	}
+	for page, want := range map[string]string{
+		"landing": "border-top-color: #222222",
+		"sites":   "outline: 3px solid #3b5bdb",
+		"error":   "background: #3b5bdb",
+	} {
+		if !strings.Contains(pages[page], want) {
+			t.Errorf("%s page lacks %q", page, want)
+		}
+	}
+	if !strings.Contains(pages["landing"], ".status a { color: #222222; }") || !strings.Contains(pages["sites"], ".who a { color: #222222; }") {
+		t.Error("the links outside the cards are not in the text colour")
+	}
+	if !strings.Contains(pages["error"], `<section class="card">`) {
+		t.Errorf("error text not in a card:\n%s", pages["error"])
+	}
+}
+
 func TestSitesTemplateVariantB(t *testing.T) {
 	b := Default()
-	b.MSPName, b.AccentColor = "ACME Cloud", "#1f5f8b"
+	b.MSPName, b.BackgroundColor = "ACME Cloud", "#1f5f8b"
 	rec := httptest.NewRecorder()
 	pagesFor(b).Sites(rec, httptest.NewRequest("GET", "https://prism.test/.portico/sites", nil), []SiteTile{
 		{ID: "mi1", Code: "AZ-IT-MI1", Name: "Milan", Status: "available", Selectable: true, Current: true},

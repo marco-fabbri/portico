@@ -6,36 +6,26 @@
 <title>{{.Title}} · {{.B.MSPName}}</title>
 <link rel="icon" href="/.portico/favicon.ico?v={{.IconVersion}}" sizes="16x16 32x32 48x48">
 <link rel="apple-touch-icon" href="/.portico/apple-touch-icon.png?v={{.IconVersion}}">
-<style>
-  /* The look of the Keycloak login page (branding/theme.go): one centred
-     column on the accent colour, the lockup in white, a white card. */
-  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.5rem; padding: 2rem 1rem; box-sizing: border-box; background: {{.B.AccentColor}}; color: #fff; font: 16px/1.5 "RedHatText", "Red Hat Text", system-ui, -apple-system, "Segoe UI", sans-serif; }
-  .lockup { display: flex; align-items: center; gap: .6em; font-size: 2.25rem; line-height: 1; font-weight: 300; text-transform: uppercase; letter-spacing: .08em; }
-  .lockup .logo { height: 1em; width: auto; }
-  .lockup strong { font-weight: 700; }
-  .claim { margin: -.6rem 0 0; font-size: 1.05rem; opacity: .9; text-align: center; }
-  .card { background: #fff; color: #1d1d1b; border-radius: 14px; box-shadow: 0 12px 32px rgba(0, 0, 0, .28); padding: 1.6rem 2rem; max-width: 440px; width: 100%; box-sizing: border-box; text-align: center; }
+<style>{{template "brand-css" .}}
+  .card { background: #fff; color: #1d1d1b; border-radius: 14px; padding: 1.6rem 2rem; max-width: 440px; width: 100%; box-sizing: border-box; text-align: center; }
   .card h1 { font-size: 1.3rem; margin: 0 0 .5rem; }
   .card p { color: #6b6762; margin: .3rem 0; }
   .card .code { color: #8a867f; font-size: .85rem; margin-top: 1rem; }
   a.button { display: inline-block; margin-top: 1rem; padding: .55rem 1.1rem; border-radius: 8px; background: {{.B.AccentColor}}; color: #fff; text-decoration: none; font-weight: 600; }
   .status { text-align: center; }
-  .status a { color: #fff; }
-  .spinner { width: 36px; height: 36px; margin: 0 auto 1rem; border: 4px solid rgba(255, 255, 255, .35); border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; }
+  .status a { color: {{.B.TextColor}}; }
+  .spinner { width: 36px; height: 36px; margin: 0 auto 1rem; border: 4px solid color-mix(in srgb, {{.B.TextColor}} 35%, transparent); border-top-color: {{.B.TextColor}}; border-radius: 50%; animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .powered { display: flex; align-items: center; gap: .4rem; margin-top: 1.5rem; font-size: .8rem; opacity: .75; }
-  .powered svg { height: 1.2rem; width: auto; }
 </style>
 </head>
 <body>
-<div class="lockup">{{if .HasLogo}}<img class="logo" src="/.portico/logo" alt="">{{end}}<span class="name">{{.NameHead}}{{if .NameTail}}<strong>{{.NameTail}}</strong>{{end}}</span></div>
-{{if .B.Tagline}}<p class="claim">{{.B.Tagline}}</p>{{end}}
+{{template "brand-header" .}}
 <section class="card">
   <h1>{{.Title}}</h1>
   <p>{{.Text}}</p>
   {{if .Retry}}<a class="button" href="{{.Retry}}">Try again</a>{{end}}
   <p class="code">{{.Status}}</p>
 </section>
-<div class="powered">{{.Mark}}<span>Powered by Portico</span></div>
+{{template "brand-powered" .}}
 </body>
 </html>
