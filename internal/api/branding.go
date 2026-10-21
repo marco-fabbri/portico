@@ -9,20 +9,29 @@ import (
 )
 
 // brandingJSON is the wire shape of the branding settings; the logo and
-// the tab icon travel as base64.
+// the tab icon travel as base64. The colours and the header text are
+// pointers so a request without them is told apart from an empty value:
+// an older client gets them as an old document reads (design branding
+// §4.1).
 type brandingJSON struct {
-	MSPName      string `json:"msp_name"`
-	Tagline      string `json:"tagline"`
-	AccentColor  string `json:"accent_color"`
-	LogoType     string `json:"logo_type"`
-	LogoData     string `json:"logo_data"`
-	IconData     string `json:"icon_data"`
-	MinDisplayMs int    `json:"min_display_ms"`
-	Warning      string `json:"warning,omitempty"`
+	MSPName         string  `json:"msp_name"`
+	HeaderText      *string `json:"header_text"`
+	Tagline         string  `json:"tagline"`
+	BackgroundColor *string `json:"background_color"`
+	TextColor       *string `json:"text_color"`
+	AccentColor     string  `json:"accent_color"`
+	PorticoLogo     bool    `json:"portico_logo"`
+	LogoType        string  `json:"logo_type"`
+	LogoData        string  `json:"logo_data"`
+	IconData        string  `json:"icon_data"`
+	MinDisplayMs    int     `json:"min_display_ms"`
+	Warning         string  `json:"warning,omitempty"`
 }
 
 func toBrandingJSON(b branding.Branding, warning string) brandingJSON {
-	return brandingJSON{MSPName: b.MSPName, Tagline: b.Tagline, AccentColor: b.AccentColor, LogoType: b.LogoType,
+	return brandingJSON{MSPName: b.MSPName, HeaderText: &b.HeaderText, Tagline: b.Tagline,
+		BackgroundColor: &b.BackgroundColor, TextColor: &b.TextColor, AccentColor: b.AccentColor,
+		PorticoLogo: b.PorticoLogo, LogoType: b.LogoType,
 		LogoData: base64.StdEncoding.EncodeToString(b.LogoData), IconData: base64.StdEncoding.EncodeToString(b.IconData),
 		MinDisplayMs: b.MinDisplayMs, Warning: warning}
 }
@@ -47,18 +56,26 @@ func (h *handler) putBranding(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "icon_data must be base64")
 		return
 	}
-	b := branding.Branding{MSPName: in.MSPName, Tagline: in.Tagline, AccentColor: in.AccentColor, LogoType: in.LogoType, LogoData: logo, IconData: icon, MinDisplayMs: in.MinDisplayMs}
-	b.FillMissing(branding.Missing{Background: true, Text: true, HeaderText: true})
+	b := branding.Branding{MSPName: in.MSPName, Tagline: in.Tagline, AccentColor: in.AccentColor, PorticoLogo: in.PorticoLogo,
+		LogoType: in.LogoType, LogoData: logo, IconData: icon, MinDisplayMs: in.MinDisplayMs}
+	if in.BackgroundColor != nil {
+		b.BackgroundColor = *in.BackgroundColor
+	}
+	if in.TextColor != nil {
+		b.TextColor = *in.TextColor
+	}
+	if in.HeaderText != nil {
+		b.HeaderText = *in.HeaderText
+	}
+	b.FillMissing(branding.Missing{Background: in.BackgroundColor == nil, Text: in.TextColor == nil, HeaderText: in.HeaderText == nil})
 	err = h.brand.Set(r.Context(), b)
 	var ae *branding.ApplyError
-	switch {
-	case errors.As(err, &ae):
-		writeJSON(w, http.StatusOK, toBrandingJSON(h.brand.Get(r.Context()), ae.Err.Error()))
-	case err != nil:
+	if err != nil && !errors.As(err, &ae) {
 		writeError(w, http.StatusBadRequest, err.Error())
-	default:
-		writeJSON(w, http.StatusOK, toBrandingJSON(h.brand.Get(r.Context()), ""))
+		return
 	}
+	saved := h.brand.Get(r.Context())
+	writeJSON(w, http.StatusOK, toBrandingJSON(saved, branding.Warnings(saved, err)))
 }
 
 func (h *handler) getLogo(w http.ResponseWriter, r *http.Request) {
@@ -84,18 +101,19 @@ func ServeIcon(w http.ResponseWriter, b branding.Branding) {
 	w.Write(b.IconData)
 }
 
-// ServeLogo writes the logo with headers that keep an SVG inert: no
+// ServeLogo writes the logo (an upload or Portico's arch) with headers that keep an SVG inert: no
 // scripts, no sniffing, no caching. Shared with the UI and the public
 // landing page.
 func ServeLogo(w http.ResponseWriter, b branding.Branding) {
-	if !b.HasLogo() {
+	data, ctype, ok := b.LogoFile()
+	if !ok {
 		writeError(w, http.StatusNotFound, "no logo")
 		return
 	}
-	w.Header().Set("Content-Type", b.LogoType)
+	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Content-Security-Policy", "default-src 'none'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	w.Write(b.LogoData)
+	w.Write(data)
 }

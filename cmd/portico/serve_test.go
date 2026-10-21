@@ -470,3 +470,29 @@ func TestServeSkipsAnIncompleteSite(t *testing.T) {
 	cancel()
 	<-done
 }
+
+// A fresh appliance's login page wears the default branding: the theme
+// is written at every start, also with no branding saved (design
+// branding goal 4).
+func TestServeAppliesTheDefaultBrandingAtStart(t *testing.T) {
+	prism := httptest.NewServer(http.NotFoundHandler())
+	defer prism.Close()
+	cfg, logBuf := storeServeConfig(t, prism.URL, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runServe(ctx, cfg, slog.New(slog.NewJSONHandler(logBuf, nil))) }()
+	waitHealthy(t, cfg.Internal.AdminListen)
+	css, err := os.ReadFile(filepath.Join(cfg.Keycloak.ThemeDir, "login/resources/css/portico.css"))
+	if err != nil || !strings.Contains(string(css), "--portico-bg: #a73422") {
+		t.Errorf("theme at start: %v %s", err, css)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Keycloak.ThemeDir, "login/resources/img/logo.svg")); err != nil {
+		t.Errorf("the arch is not in the theme: %v", err)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("runServe did not stop within 2s")
+	}
+}
