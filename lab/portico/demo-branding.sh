@@ -52,7 +52,7 @@ echo "saved the current branding to $backup"
 
 if [ -n "$restore" ]; then
   jq 'del(.warning)' "$restore" > "$tmp/put.json" || { echo "demo-branding.sh: $restore is not JSON" >&2; exit 1; }
-  cp "$tmp/put.json" "$tmp/want.json"; keep="$FIELDS"
+  cp "$tmp/put.json" "$tmp/want.json"; keep=   # a restore gives every field
 else
   case "$logo_mode" in
     file)
@@ -79,7 +79,7 @@ warning=$(jq -r '.warning // empty' "$tmp/after.json")
 [ -n "$warning" ] && echo "warning: $warning"
 # The fields not given keep their values; the given ones take what was passed.
 sum() { jq -c --argjson f "$1" '[$f[] as $k | {($k): .[$k]}] | add' "$2" | shasum | cut -c1-12; }
-line "fields not given unchanged" "$(sum "$keep" "$tmp/after.json")" "$(sum "$keep" "$tmp/before.json")"
+[ -n "$keep" ] && line "fields not given unchanged" "$(sum "$keep" "$tmp/after.json")" "$(sum "$keep" "$tmp/before.json")"
 line "fields given saved as passed" "$(sum "$FIELDS" "$tmp/after.json")" "$(sum "$FIELDS" "$tmp/want.json")"
 
 # The login page: the header text Keycloak shows, or none. Portico's
