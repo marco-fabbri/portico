@@ -154,6 +154,23 @@ func TestSelectRefusesForeignSite(t *testing.T) {
 	}
 }
 
+// A site that becomes unreachable between the site page and the click:
+// the browser's form POST gets the branded page, not the JSON refusal
+// (write-up 23); a script's POST still gets JSON.
+func TestSelectUnreachableSiteAnswersTheBrowserWithAPage(t *testing.T) {
+	h := newSitesHarness(t)
+	h.session("s1", "acme", "")
+	h.status["site-b"] = sites.Unreachable
+	rec := h.do("POST", "/.portico/sites/select", "s1", nav, url.Values{"site": {"site-b"}})
+	if rec.Code != 503 || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html") || !strings.Contains(rec.Body.String(), "is unreachable right now") {
+		t.Fatalf("browser POST: %d %q %s", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+	rec = h.do("POST", "/.portico/sites/select", "s1", map[string]string{"Accept": "application/json"}, url.Values{"site": {"site-b"}})
+	if rec.Code != 503 || !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") {
+		t.Fatalf("script POST: %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
+}
+
 func TestSelectRefusesCrossSite(t *testing.T) {
 	h := newSitesHarness(t)
 	h.session("s1", "acme", "")
