@@ -11,7 +11,8 @@ import (
 // WriteTheme writes the Keycloak login theme for b into dir: the file set
 // measured in docs/lab write-up 13 on Keycloak 26.3 (parent keycloak.v2).
 // Files are written atomically (temp file, rename) with mode 0644; a logo
-// of another type left by a previous save is removed.
+// of another type left by a previous save is removed. The tab icon goes
+// in as img/favicon.ico, the file keycloak.v2's template links.
 func WriteTheme(dir string, b Branding) error {
 	for _, d := range []string{"login", "login/resources/css", "login/resources/img", "login/messages"} {
 		if err := os.MkdirAll(filepath.Join(dir, d), 0o755); err != nil {
@@ -28,6 +29,14 @@ func WriteTheme(dir string, b Branding) error {
 		if err := writeAtomic(filepath.Join(dir, rel), []byte(content)); err != nil {
 			return fmt.Errorf("theme: %s: %w", dir, err)
 		}
+	}
+	// keycloak.v2's template links img/favicon.ico: the tenant icon.
+	icons, err := TenantIcons(b)
+	if err != nil {
+		return fmt.Errorf("theme: %w", err)
+	}
+	if err := writeAtomic(filepath.Join(dir, "login/resources/img/favicon.ico"), icons.ICO); err != nil {
+		return fmt.Errorf("theme: %s: %w", dir, err)
 	}
 	// One logo file at most, named by type.
 	for _, ext := range []string{"png", "jpg", "svg"} {

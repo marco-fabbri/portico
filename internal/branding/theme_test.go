@@ -94,10 +94,12 @@ func TestWriteThemeLogoByType(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "login/resources/img")); err == nil {
-		// Only Portico's own mark, never a logo file.
+		// Portico's own mark and the tab icon, never a logo file.
 		entries, _ := os.ReadDir(filepath.Join(dir, "login/resources/img"))
-		if len(entries) != 1 || entries[0].Name() != "portico-mark.svg" {
-			t.Errorf("logo files without a logo: %v", entries)
+		for _, e := range entries {
+			if strings.HasPrefix(e.Name(), "logo.") {
+				t.Errorf("logo file without a logo: %s", e.Name())
+			}
 		}
 	}
 	if css := readTheme(t, dir, "login/resources/css/portico.css"); strings.Contains(css, "img/logo") {

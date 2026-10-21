@@ -75,6 +75,7 @@ func New(svc *tenant.Service, st store.Store, brand *branding.Service, so *Setti
 	mux.HandleFunc("GET "+Prefix+"settings/branding", h.getBranding)
 	mux.HandleFunc("PUT "+Prefix+"settings/branding", h.putBranding)
 	mux.HandleFunc("GET "+Prefix+"settings/branding/logo", h.getLogo)
+	mux.HandleFunc("GET "+Prefix+"settings/branding/icon", h.getIcon)
 	mux.HandleFunc("GET "+Prefix+"tenants", h.running(h.listTenants))
 	mux.HandleFunc("POST "+Prefix+"tenants", h.running(h.createTenant))
 	mux.HandleFunc("GET "+Prefix+"tenants/{id}", h.running(h.getTenant))

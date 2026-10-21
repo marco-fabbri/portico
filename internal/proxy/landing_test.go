@@ -66,6 +66,9 @@ func newLandingHarness(t *testing.T) *landingHarness {
 			Logo: func(ctx context.Context) ([]byte, string, bool) {
 				return lh.logoData, "image/svg+xml", lh.logoData != nil
 			},
+			Icons: func(ctx context.Context) branding.Icons {
+				return branding.Icons{ICO: []byte("ico-bytes"), Touch: []byte("touch-bytes")}
+			},
 			PrismHTTP: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 			PrismBase: base,
 			PrismHost: "prism.test",
@@ -242,6 +245,40 @@ func TestLogoIsPublicOnBothHosts(t *testing.T) {
 	}
 	if len(*lh.keycloak) != 0 {
 		t.Fatal("the logo request reached Keycloak")
+	}
+}
+
+// The tab icons are public assets like the logo: the pages before any
+// session and the Keycloak login page link them on both hosts.
+func TestIconsArePublicOnBothHosts(t *testing.T) {
+	lh := newLandingHarness(t)
+	for _, host := range []string{"prism.test", "id.test"} {
+		for path, want := range map[string][2]string{
+			"/.portico/favicon.ico":          {"image/x-icon", "ico-bytes"},
+			"/.portico/apple-touch-icon.png": {"image/png", "touch-bytes"},
+		} {
+			rec := lh.do("GET", "https://"+host+path+"?v=abc", map[string]string{"Accept": "image/*"}, false)
+			if rec.Code != 200 || rec.Header().Get("Content-Type") != want[0] || rec.Body.String() != want[1] ||
+				rec.Header().Get("X-Content-Type-Options") != "nosniff" || rec.Header().Get("Content-Security-Policy") != "default-src 'none'" {
+				t.Errorf("%s%s without session: %d %v %q", host, path, rec.Code, rec.Header(), rec.Body.String())
+			}
+		}
+	}
+	if len(*lh.keycloak) != 0 || len(*lh.pc) != 0 {
+		t.Fatal("an icon request reached Keycloak or Prism Central")
+	}
+}
+
+// Landing options without icons (a caller that does not wire them)
+// answer 404, not a panic.
+func TestIconsWithoutSourceAnswer404(t *testing.T) {
+	lh := newLandingHarness(t)
+	lh.publicHarness = newPublicHarnessWith(t, "http://127.0.0.1:1", func(o *PublicOptions) {
+		o.Landing = &LandingOptions{Pages: branding.NewPages(func(context.Context) branding.Branding { return branding.Default() }), Log: o.Log}
+	})
+	rec := lh.do("GET", "https://prism.test/.portico/favicon.ico", nil, false)
+	if rec.Code != 404 {
+		t.Fatalf("favicon without an icon source: %d", rec.Code)
 	}
 }
 

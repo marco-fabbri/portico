@@ -27,6 +27,7 @@ func (h *Handler) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings/branding", h.brandingPage)
 	mux.HandleFunc("POST /settings/branding", h.brandingSave)
 	mux.HandleFunc("GET /settings/branding/logo", h.brandingLogo)
+	mux.HandleFunc("GET /settings/branding/icon", h.brandingIcon)
 }
 
 // running renders the setup-mode page with 503 while the tenant service

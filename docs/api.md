@@ -82,9 +82,10 @@ live calls (maintenance, sessions) take effect at once.
 
 | Method and path | What it does | Answers |
 |---|---|---|
-| `GET /api/v1/settings/branding` | `{"msp_name", "tagline", "accent_color", "logo_type", "logo_data", "min_display_ms"}`, the logo base64-encoded | 200 |
-| `PUT /api/v1/settings/branding` | Replace the branding; the logo is PNG, JPEG or SVG up to 256 KiB, the SVG is checked for scripts and external references. Writes the Keycloak login theme | 200, with `warning` when the theme directory could not be written; 400 |
+| `GET /api/v1/settings/branding` | `{"msp_name", "tagline", "accent_color", "logo_type", "logo_data", "icon_data", "min_display_ms"}`, the logo and the tab icon base64-encoded | 200 |
+| `PUT /api/v1/settings/branding` | Replace the branding; the logo is PNG, JPEG or SVG up to 256 KiB, the SVG is checked for scripts and external references; the tab icon is a square PNG of 180 to 1024 px, up to 256 KiB (empty: Portico's arch on the accent colour). Writes the Keycloak login theme | 200, with `warning` when the theme directory could not be written; 400 |
 | `GET /api/v1/settings/branding/logo` | The logo as an image | 200; 404 |
+| `GET /api/v1/settings/branding/icon` | The uploaded tab icon (PNG) | 200; 404 |
 
 `lab/tenants/api.sh METHOD PATH [JSON]` calls this API on the lab VM with
 the credentials in a curl config file.
