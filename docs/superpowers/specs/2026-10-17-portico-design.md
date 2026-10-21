@@ -523,8 +523,9 @@ Portico, and both carry the MSP's identity, not Nutanix's or Portico's.
   MSP name, tagline, accent colour, logo (PNG, JPEG or SVG, at most
   256 KiB; an SVG with scripts, event handlers, `javascript:` links or
   `foreignObject` is refused, because Keycloak serves the theme's copy
-  from the login origin), tab icon (a square PNG of 180 to 1024 px, at
-  most 256 KiB; without one, Portico's arch in white on the accent
+  from the login origin), tab icon (a PNG of 128 to 1024 px on its
+  longer side, the shorter at least half of it, at most 256 KiB, centred
+  on a square; without one, Portico's arch in white on the accent
   colour), minimum landing display time. Edited on the admin UI and the
   API; applied to Portico's pages at once and to the Keycloak theme on
   save. Several Prism Centrals (Milestone 4): after the Keycloak login a

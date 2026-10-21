@@ -17,11 +17,14 @@ import (
 	"strings"
 )
 
-// Limits of the tab icon: Portico scales it down to 16, 32 and 48 px for
-// favicon.ico and to 180 px for the apple-touch-icon, so it is at least
-// that large; the upper bound keeps the decoded image small.
+// Limits of the tab icon, on its longer side: Portico centres it on a
+// transparent square, scales that down to 16, 32 and 48 px for
+// favicon.ico and to 180 px for the apple-touch-icon (enlarged smoothly
+// below 180 px, which looks soft under 128); the upper bound keeps the
+// decoded image small. An MSP's exported logo is rarely square (167 by
+// 178 px in write-up 22).
 const (
-	MinIconSide = 180
+	MinIconSide = 128
 	MaxIconSide = 1024
 	touchSide   = 180
 	// iconRev changes when the drawing of the icons changes, so the
@@ -56,8 +59,9 @@ func (b Branding) IconVersion() string {
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
-// validateIcon checks an uploaded tab icon: a square PNG within the
-// limits. The size is read from the header before the image is decoded.
+// validateIcon checks an uploaded tab icon: a PNG within the limits, not
+// so long that it becomes a line once centred on a square. The size is
+// read from the header before the image is decoded.
 func validateIcon(data []byte) error {
 	if len(data) > MaxLogoBytes {
 		return fmt.Errorf("icon must be at most %d bytes", MaxLogoBytes)
@@ -66,11 +70,12 @@ func validateIcon(data []byte) error {
 	if err != nil {
 		return errors.New("icon must be a PNG")
 	}
-	if cfg.Width != cfg.Height {
-		return fmt.Errorf("icon must be square (it is %dx%d px)", cfg.Width, cfg.Height)
+	long, short := max(cfg.Width, cfg.Height), min(cfg.Width, cfg.Height)
+	if long < MinIconSide || long > MaxIconSide {
+		return fmt.Errorf("icon must be %d to %d px on its longer side (it is %dx%d)", MinIconSide, MaxIconSide, cfg.Width, cfg.Height)
 	}
-	if cfg.Width < MinIconSide || cfg.Width > MaxIconSide {
-		return fmt.Errorf("icon must be %d to %d px a side (it is %d)", MinIconSide, MaxIconSide, cfg.Width)
+	if 2*short < long {
+		return fmt.Errorf("icon's shorter side must be at least half its longer side (it is %dx%d): upload the mark, not the wordmark", cfg.Width, cfg.Height)
 	}
 	if _, err := png.Decode(bytes.NewReader(data)); err != nil {
 		return errors.New("icon must be a PNG (it could not be decoded)")
@@ -79,20 +84,20 @@ func validateIcon(data []byte) error {
 }
 
 // TenantIcons returns the icons of the tenant-facing pages and of the
-// Keycloak login page: the uploaded icon scaled down, or Portico's arch
-// in white on a rounded square of the accent colour.
+// Keycloak login page: the uploaded icon centred on a square and resized,
+// or Portico's arch in white on a rounded square of the accent colour.
 func TenantIcons(b Branding) (Icons, error) {
 	if b.HasIcon() {
 		src, err := png.Decode(bytes.NewReader(b.IconData))
 		if err != nil {
 			return Icons{}, fmt.Errorf("icon: %w", err)
 		}
-		n := toNRGBA(src)
+		n := squared(toNRGBA(src))
 		var imgs []*image.NRGBA
 		for _, s := range icoSides {
-			imgs = append(imgs, scale(n, s))
+			imgs = append(imgs, resize(n, s))
 		}
-		return encodeIcons(imgs, onWhite(scale(n, touchSide)))
+		return encodeIcons(imgs, onWhite(resize(n, touchSide)))
 	}
 	return archIcons(parseColor(b.AccentColor, parseColor(Default().AccentColor, adminIconColor))), nil
 }
@@ -161,6 +166,64 @@ func toNRGBA(src image.Image) *image.NRGBA {
 	n := image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
 	draw.Draw(n, n.Bounds(), src, b.Min, draw.Src)
 	return n
+}
+
+// squared centres img on a transparent square as large as its longer
+// side.
+func squared(img *image.NRGBA) *image.NRGBA {
+	w, h := img.Bounds().Dx(), img.Bounds().Dy()
+	if w == h {
+		return img
+	}
+	side := max(w, h)
+	out := image.NewNRGBA(image.Rect(0, 0, side, side))
+	at := image.Pt((side-w)/2, (side-h)/2)
+	draw.Draw(out, image.Rectangle{at, at.Add(image.Pt(w, h))}, img, img.Bounds().Min, draw.Src)
+	return out
+}
+
+// resize returns a square image at n by n px: averaged when it shrinks,
+// interpolated when it grows.
+func resize(src *image.NRGBA, n int) *image.NRGBA {
+	if src.Bounds().Dx() < n {
+		return enlarge(src, n)
+	}
+	return scale(src, n)
+}
+
+// enlarge resizes a square image up to n by n px by bilinear
+// interpolation (alpha premultiplied), so an edge becomes a ramp.
+func enlarge(src *image.NRGBA, n int) *image.NRGBA {
+	side := src.Bounds().Dx()
+	dst := image.NewNRGBA(image.Rect(0, 0, n, n))
+	f := float64(side) / float64(n)
+	at := func(x, y int) [4]float64 {
+		x, y = min(max(x, 0), side-1), min(max(y, 0), side-1)
+		p := src.Pix[y*src.Stride+x*4:]
+		a := float64(p[3]) / 255
+		return [4]float64{float64(p[0]) * a, float64(p[1]) * a, float64(p[2]) * a, a}
+	}
+	for dy := 0; dy < n; dy++ {
+		sy := (float64(dy)+0.5)*f - 0.5
+		y0 := int(math.Floor(sy))
+		ty := sy - float64(y0)
+		for dx := 0; dx < n; dx++ {
+			sx := (float64(dx)+0.5)*f - 0.5
+			x0 := int(math.Floor(sx))
+			tx := sx - float64(x0)
+			p00, p10, p01, p11 := at(x0, y0), at(x0+1, y0), at(x0, y0+1), at(x0+1, y0+1)
+			var v [4]float64
+			for c := range v {
+				v[c] = (p00[c]*(1-tx)+p10[c]*tx)*(1-ty) + (p01[c]*(1-tx)+p11[c]*tx)*ty
+			}
+			if v[3] == 0 {
+				continue
+			}
+			o := dst.Pix[dy*dst.Stride+dx*4:]
+			o[0], o[1], o[2], o[3] = clamp8(v[0]/v[3]), clamp8(v[1]/v[3]), clamp8(v[2]/v[3]), clamp8(v[3]*255)
+		}
+	}
+	return dst
 }
 
 // scale resizes a square image to n by n px by averaging the source

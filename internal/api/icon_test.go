@@ -23,9 +23,9 @@ func TestBrandingIconRoundTrip(t *testing.T) {
 	if rec, _ := e.do("GET", "/api/v1/settings/branding/icon", "", true); rec.Code != 404 {
 		t.Fatalf("icon without one: %d", rec.Code)
 	}
-	wide := base64.StdEncoding.EncodeToString(iconPNG(t, 300, 200))
+	wide := base64.StdEncoding.EncodeToString(iconPNG(t, 400, 150))
 	rec, out := e.do("PUT", "/api/v1/settings/branding", `{"msp_name":"ACME","accent_color":"#000000","icon_data":"`+wide+`"}`, true)
-	if rec.Code != 400 || !strings.Contains(out["error"].(string), "icon must be square") {
+	if rec.Code != 400 || !strings.Contains(out["error"].(string), "shorter side must be at least half") {
 		t.Fatalf("wide icon: %d %v", rec.Code, out)
 	}
 	icon := iconPNG(t, 180, 180)

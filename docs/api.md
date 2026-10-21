@@ -83,7 +83,7 @@ live calls (maintenance, sessions) take effect at once.
 | Method and path | What it does | Answers |
 |---|---|---|
 | `GET /api/v1/settings/branding` | `{"msp_name", "tagline", "accent_color", "logo_type", "logo_data", "icon_data", "min_display_ms"}`, the logo and the tab icon base64-encoded | 200 |
-| `PUT /api/v1/settings/branding` | Replace the branding; the logo is PNG, JPEG or SVG up to 256 KiB, the SVG is checked for scripts and external references; the tab icon is a square PNG of 180 to 1024 px, up to 256 KiB (empty: Portico's arch on the accent colour). Writes the Keycloak login theme | 200, with `warning` when the theme directory could not be written; 400 |
+| `PUT /api/v1/settings/branding` | Replace the branding; the logo is PNG, JPEG or SVG up to 256 KiB, the SVG is checked for scripts and external references; the tab icon is a PNG of 128 to 1024 px on its longer side, the shorter at least half of it, up to 256 KiB, centred on a square (empty: Portico's arch on the accent colour). Writes the Keycloak login theme | 200, with `warning` when the theme directory could not be written; 400 |
 | `GET /api/v1/settings/branding/logo` | The logo as an image | 200; 404 |
 | `GET /api/v1/settings/branding/icon` | The uploaded tab icon (PNG) | 200; 404 |
 
