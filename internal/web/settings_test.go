@@ -108,25 +108,111 @@ func TestBrandingFormRejectsBadInput(t *testing.T) {
 	}
 }
 
-func TestBrandingFormRemoveLogo(t *testing.T) {
+func TestBrandingFormSavesColoursAndHeaderText(t *testing.T) {
 	e := newEnv(t, true)
 	e.login(t)
-	e.postMultipart(t, map[string]string{"msp_name": "ACME", "accent_color": "#000000"}, "logo.png", "image/png", png, true)
-	if rec := e.do("GET", "/settings/branding/logo", nil, true); rec.Code != 200 {
-		t.Fatalf("logo before removal: %d", rec.Code)
-	}
-	rec := e.postMultipart(t, map[string]string{"msp_name": "ACME", "accent_color": "#000000", "remove_logo": "on"}, "", "", nil, true)
+	rec := e.postMultipart(t, map[string]string{"msp_name": "Portico MSP", "header_text": "Portico MSP", "background_color": "#f5f5f7",
+		"text_color": "#222222", "accent_color": "#3b5bdb", "logo_source": "portico"}, "", "", nil, true)
 	if rec.Code != 303 {
-		t.Fatalf("remove: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("save: %d %s", rec.Code, rec.Body.String())
+	}
+	got := e.brand.Get(context.Background())
+	if got.HeaderText != "Portico MSP" || got.BackgroundColor != "#f5f5f7" || got.TextColor != "#222222" || got.AccentColor != "#3b5bdb" || !got.PorticoLogo {
+		t.Fatalf("stored = %+v", got)
+	}
+}
+
+func TestBrandingFormLogoSource(t *testing.T) {
+	base := map[string]string{"msp_name": "ACME", "accent_color": "#000000"}
+	with := func(k, v string) map[string]string {
+		m := map[string]string{}
+		for a, b := range base {
+			m[a] = b
+		}
+		m[k] = v
+		return m
+	}
+	e := newEnv(t, true)
+	e.login(t)
+	// An upload wins over the arch.
+	if rec := e.postMultipart(t, with("logo_source", "portico"), "logo.png", "image/png", png, true); rec.Code != 303 {
+		t.Fatalf("upload with portico chosen: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := e.brand.Get(context.Background()); !got.HasLogo() || got.PorticoLogo {
+		t.Fatalf("after an upload: %+v", got)
+	}
+	// "file" without a file keeps the saved upload.
+	if rec := e.postMultipart(t, with("logo_source", "file"), "", "", nil, true); rec.Code != 303 || !e.brand.Get(context.Background()).HasLogo() {
+		t.Fatalf("keep the upload: %d", rec.Code)
+	}
+	// "none" removes it.
+	if rec := e.postMultipart(t, with("logo_source", "none"), "", "", nil, true); rec.Code != 303 {
+		t.Fatalf("none: %d", rec.Code)
+	}
+	if got := e.brand.Get(context.Background()); got.HasLogo() || got.PorticoLogo {
+		t.Fatalf("after none: %+v", got)
 	}
 	if rec := e.do("GET", "/settings/branding/logo", nil, true); rec.Code != 404 {
-		t.Fatalf("logo after removal: %d", rec.Code)
+		t.Fatalf("logo after none: %d", rec.Code)
 	}
-	// Saving without a file and without the checkbox keeps the logo.
-	e.postMultipart(t, map[string]string{"msp_name": "ACME", "accent_color": "#000000"}, "logo.png", "image/png", png, true)
-	e.postMultipart(t, map[string]string{"msp_name": "ACME 2", "accent_color": "#000000"}, "", "", nil, true)
-	if rec := e.do("GET", "/settings/branding/logo", nil, true); rec.Code != 200 {
-		t.Fatalf("logo after a save without a file: %d", rec.Code)
+	// "file" without a file and nothing saved.
+	rec := e.postMultipart(t, with("logo_source", "file"), "", "", nil, true)
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "choose a logo file") {
+		t.Fatalf("file without one: %d %s", rec.Code, rec.Body.String())
+	}
+	// "portico" puts the arch back.
+	if rec := e.postMultipart(t, with("logo_source", "portico"), "", "", nil, true); rec.Code != 303 || !e.brand.Get(context.Background()).PorticoLogo {
+		t.Fatalf("arch back: %d", rec.Code)
+	}
+}
+
+func TestBrandingFormShowsReadabilityWarning(t *testing.T) {
+	e := newEnv(t, true)
+	e.login(t)
+	rec := e.postMultipart(t, map[string]string{"msp_name": "ACME", "accent_color": "#f165b0"}, "", "", nil, true)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Saved. White button text on accent colour #f165b0 has contrast 2.91:1, below 4.5:1") {
+		t.Fatalf("readability warning: %d %s", rec.Code, rec.Body.String())
+	}
+	if e.brand.Get(context.Background()).AccentColor != "#f165b0" {
+		t.Fatal("the accent was not saved")
+	}
+}
+
+// A form re-rendered after an error keeps what was typed, so the fields
+// and the preview do not jump back to the saved branding (Review Focus 4).
+func TestBrandingFormKeepsSubmittedValuesOnError(t *testing.T) {
+	e := newEnv(t, true)
+	e.login(t)
+	rec := e.postMultipart(t, map[string]string{"msp_name": "ACME", "accent_color": "#3b5bdb", "background_color": "#f5f5f7", "text_color": "#222222",
+		"header_text": "Portico MSP", "logo_source": "none", "min_display_ms": "abc"}, "", "", nil, true)
+	body := rec.Body.String()
+	if rec.Code != 400 {
+		t.Fatalf("bad min_display_ms: %d", rec.Code)
+	}
+	for _, want := range []string{`value="#f5f5f7"`, `value="#222222"`, `value="Portico MSP"`, `value="none" checked`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("re-rendered form lacks %q", want)
+		}
+	}
+}
+
+func TestBrandingPageHasThePreview(t *testing.T) {
+	e := newEnv(t, true)
+	e.login(t)
+	rec := e.do("GET", "/settings/branding", nil, true)
+	body := rec.Body.String()
+	for _, want := range []string{`id="brand-preview"`, `src="/static/branding-preview.js?v=`, `fill="currentColor"`,
+		`name="header_text"`, `name="background_color"`, `name="text_color"`, `name="logo_source" value="portico" checked`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("branding page lacks %q", want)
+		}
+	}
+	if strings.Contains(body, `style="`) || strings.Contains(body, "<style") {
+		t.Error("inline styles are blocked by the admin CSP")
+	}
+	rec = e.do("GET", "/static/branding-preview.js", nil, true)
+	if rec.Code != 200 || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/javascript") {
+		t.Fatalf("preview script: %d %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
 }
 
