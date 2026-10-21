@@ -71,8 +71,10 @@ each has its own page.
   `PUT /api/v1/sites/{id}/maintenance`) takes effect at once: no new
   tenant session enters the site; those already on it keep working. The
   page shows how many users are still connected through Portico, active
-  (a request in the last two minutes; an open console tab polls) or
-  idle, and refreshes every 10 s. When the count does not drop,
+  (a request in the last two minutes: an open console tab, even hidden,
+  polls at least once a minute) or idle, and refreshes every 10 s. A
+  console left open leaves the count when Prism Central signs it out
+  after about 15 minutes without input. When the count does not drop,
   "Disconnect the remaining users" ends their routing to the site: their
   next request lands on the maintenance page. Administrators working on
   Prism Central directly are not counted.
