@@ -143,5 +143,14 @@ if grep -nE '\$S/carol' lab/tenants/acceptance.sh | grep -q .; then ko "tenants/
 if grep -q '^gone()' lab/tenants/acceptance.sh && ! grep -q 'absent || echo present)" absent' lab/tenants/acceptance.sh; then ok "tenants/acceptance.sh: a failed lookup is not absent"; else ko "tenants/acceptance.sh reads a failed lookup as absent"; fi
 if grep -q 'realm="${LAB_REALM:-portico-lab}"' lab/auth/probe-local-login.sh && grep -q 'LAB_PASSTHROUGH:-exposed' lab/auth/probe-local-login.sh && ! grep -q 'realms/portico-lab/' lab/auth/probe-local-login.sh; then ok "probe-local-login.sh: realm and pass-through from LAB_*"; else ko "probe-local-login.sh hardcodes the lab VM"; fi
 
+# Branding (write-up 23): the demo script prints its usage, refuses
+# exclusive logo options before any call, and knows the new fields like the
+# bootstrap and tab icon scripts.
+out=$(env -i PATH="$PATH" HOME="$HOME" bash lab/portico/demo-branding.sh --help 2>&1); rc=$?
+if [ "$rc" -eq 0 ] && grep -q -- '--restore FILE' <<<"$out"; then ok "demo-branding.sh --help"; else ko "demo-branding.sh --help (rc=$rc)"; fi
+out=$(env -i PATH="$PATH" HOME="$HOME" bash lab/portico/demo-branding.sh --arch --no-logo 2>&1); rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'exclusive' <<<"$out"; then ok "demo-branding.sh refuses two logo choices"; else ko "demo-branding.sh accepted two logo choices (rc=$rc)"; fi
+if grep -q 'text_color:"#ffffff"' lab/portico/bootstrap-acceptance.sh && grep -q 'portico_logo,logo_type' lab/portico/tab-icons.sh; then ok "bootstrap and tab icon scripts know the new branding fields"; else ko "a lab script ignores the new branding fields"; fi
+
 if shellcheck -x lab/*.sh lab/*/*.sh deploy/install.sh; then ok "shellcheck"; else ko "shellcheck"; fi
 if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi
