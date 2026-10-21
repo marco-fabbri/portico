@@ -38,8 +38,8 @@ well?
 - `lab/portico/tab-icons.sh` (checks only) after the upgrade.
 - The demo: a 167×178 RGBA PNG mark (not in the repository), an MSP
   name and header text given by Marco (not in the repository), the
-  default claim, background `#f5f5f7`, text `#222222`, accent
-  `#3b5bdb`.
+  default claim, and a light palette Marco chose (dark text on a light
+  background, a mid-tone accent; not in the repository).
 - In the browsers: the tenant login, the site page, a tenant sign-in
   through to each site's console, and the admin Branding page with its
   preview, changing fields without saving.
@@ -157,7 +157,7 @@ lab/portico/demo-branding.sh --restore "$PORTICO_SECRETS"/branding-before-<time>
 lab/portico/demo-branding.sh --accent "#f165b0"    # expect the 2.91:1 warning
 lab/portico/demo-branding.sh --restore "$PORTICO_SECRETS"/branding-before-<time>.json
 lab/portico/demo-branding.sh --logo MARK.png --msp-name NAME --header-text NAME \
-  --background "#f5f5f7" --text "#222222" --accent "#3b5bdb"
+  --background "#f5f5f7" --text "#222222" --accent "#3b5bdb"   # any light palette
 # in Chrome and Safari: the login, a tenant sign-in through the site page,
 # the admin Branding page's preview without saving
 ```

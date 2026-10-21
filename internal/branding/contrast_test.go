@@ -12,8 +12,8 @@ func TestContrastReferenceValues(t *testing.T) {
 		fg, bg string
 		want   float64
 	}{
-		{"#ffffff", "#3b5bdb", 5.298}, {"#ffffff", "#f165b0", 2.905},
-		{"#ffffff", "#a73422", 6.651}, {"#222222", "#f5f5f7", 12.018},
+		{"#ffffff", "#3b5bdb", 5.668}, {"#ffffff", "#f165b0", 2.905},
+		{"#ffffff", "#a73422", 6.651}, {"#222222", "#f5f5f7", 14.612},
 		{"#000000", "#ffffff", 21}, {"#777777", "#ffffff", 4.478},
 		{"#ffffff", "#777777", 4.478},
 	} {
