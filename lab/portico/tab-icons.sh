@@ -44,7 +44,7 @@ if [ -n "$set_png" ] || [ "$remove" = 1 ]; then
   code=$(lab/tenants/api.sh PUT /api/v1/settings/branding "$tmp/put.json" 2>&1 >"$tmp/after.json" | tail -1)
   line "PUT /api/v1/settings/branding" "${code#HTTP }" 200
   line "warning on save" "$(jq -r '.warning // "none"' "$tmp/after.json")" none
-  line "rest of the branding unchanged" "$(jq -c '{msp_name,tagline,accent_color,logo_type,logo_data,min_display_ms}' "$tmp/after.json" | shasum | cut -c1-12)" "$(jq -c '{msp_name,tagline,accent_color,logo_type,logo_data,min_display_ms}' "$tmp/before.json" | shasum | cut -c1-12)"
+  line "rest of the branding unchanged" "$(jq -c '{msp_name,header_text,tagline,background_color,text_color,accent_color,portico_logo,logo_type,logo_data,min_display_ms}' "$tmp/after.json" | shasum | cut -c1-12)" "$(jq -c '{msp_name,header_text,tagline,background_color,text_color,accent_color,portico_logo,logo_type,logo_data,min_display_ms}' "$tmp/before.json" | shasum | cut -c1-12)"
 fi
 
 for h in "$LAB_PRISM_HOST" "$LAB_ID_HOST"; do
