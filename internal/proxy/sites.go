@@ -95,8 +95,14 @@ func (s *SiteRouting) page(w http.ResponseWriter, r *http.Request, status int, r
 	Refuse(w, status, rule, strings.ToLower(title[:1])+title[1:]+": "+text)
 }
 
+// isNavigation: a page load or a form submit of a browser (the site
+// page's choice is a POST), told apart from scripts by the Accept header.
 func isNavigation(r *http.Request) bool {
-	return (r.Method == http.MethodGet || r.Method == http.MethodHead) && strings.Contains(r.Header.Get("Accept"), "text/html")
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodPost:
+		return strings.Contains(r.Header.Get("Accept"), "text/html")
+	}
+	return false
 }
 
 func (s *SiteRouting) noSite(w http.ResponseWriter, r *http.Request) {
