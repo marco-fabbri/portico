@@ -98,7 +98,7 @@ func themeCSS(b Branding) string {
 	sb.WriteString(".pf-v5-c-login__main-header { border-top: 0; }\n")
 	// The header is a column: logo, text, claim. No height on the
 	// wrapper: it clipped the title under the logo (write-up 13).
-	sb.WriteString("#kc-header-wrapper { display: flex; flex-direction: column; align-items: center; gap: 0.7rem; padding: 0; text-transform: none; letter-spacing: normal; color: var(--portico-text); font-family: \"RedHatDisplay\", \"Helvetica Neue\", Arial, sans-serif; font-weight: 300; }\n")
+	sb.WriteString("#kc-header-wrapper { display: flex; flex-direction: column; align-items: center; gap: 0.7rem; padding: 0; text-transform: none; letter-spacing: normal; color: var(--portico-text) !important; font-family: \"RedHatDisplay\", \"Helvetica Neue\", Arial, sans-serif; font-weight: 300; }\n")
 	if h := b.Header(); h.Logo {
 		// The logo is a background so any image type works (write-up
 		// 13); its box is computed from the image (header.go).

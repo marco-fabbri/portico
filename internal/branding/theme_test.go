@@ -193,8 +193,14 @@ func TestThemeCSSUsesTheThreeColours(t *testing.T) {
 		}
 	}
 	for _, line := range strings.Split(css, "\n") {
-		if (strings.HasPrefix(line, "#kc-header-wrapper {") || strings.HasPrefix(line, ".pf-v5-c-login__container::after {")) && !strings.Contains(line, "color: var(--portico-text);") {
+		if (strings.HasPrefix(line, "#kc-header-wrapper {") || strings.HasPrefix(line, ".pf-v5-c-login__container::after {")) && !strings.Contains(line, "color: var(--portico-text)") {
 			t.Errorf("not in the text colour: %s", line)
+		}
+		// keycloak.v2's styles.css sets #kc-header-wrapper's colour to
+		// white with !important; only an !important rule of the same
+		// selector, loaded later, wins (write-up 23).
+		if strings.HasPrefix(line, "#kc-header-wrapper {") && !strings.Contains(line, "color: var(--portico-text) !important;") {
+			t.Errorf("the header colour loses to Keycloak's !important white: %s", line)
 		}
 	}
 	for _, old := range []string{"portico-lockup", "text-transform: uppercase", "rgba(0, 0, 0, 0.28)", "color: #fff"} {
