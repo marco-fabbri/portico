@@ -501,10 +501,14 @@ Portico, and both carry the MSP's identity, not Nutanix's or Portico's.
 
 - **Keycloak login theme.** Portico generates a Keycloak login theme
   (login, OTP, update-password, reset-password pages) from its branding
-  settings: MSP name, tagline, logo, background image, accent colour. The
-  theme directory is mounted into the Keycloak container; Portico writes it
-  and sets it as the realm's login theme through the admin API. The MSP
-  never edits Keycloak.
+  settings: MSP name, header text, claim (the tagline), logo, and three
+  colours (background, text, accent). The theme directory is mounted into
+  the Keycloak container; Portico writes it and sets it as the realm's
+  login theme through the admin API at every start and on every save,
+  also when no branding was ever saved (the default below). The MSP never
+  edits Keycloak. The theme sets CSS and messages only (the header is
+  Keycloak's `loginTitleHtml` message, the tab title "Sign in to <MSP
+  name>" its `loginTitle`); no page template is overridden (ADR 0005).
 - **Landing page.** After the Keycloak login Portico shows its own page
   with logo and a progress indicator while the SAML round trip runs
   (section 4.3 step 5). One Prism Central: the redirect starts at once, no
@@ -520,15 +524,41 @@ Portico, and both carry the MSP's identity, not Nutanix's or Portico's.
   with a one-shot marker so Portico forwards it unchanged (no loop) and
   the user clicks as in Milestone 1.
 - **Branding settings** are the first store-held settings (section 4.7):
-  MSP name, tagline, accent colour, logo (PNG, JPEG or SVG, at most
-  256 KiB; an SVG with scripts, event handlers, `javascript:` links or
-  `foreignObject` is refused, because Keycloak serves the theme's copy
-  from the login origin), tab icon (a PNG of 128 to 1024 px on its
-  longer side, the shorter at least half of it, at most 256 KiB, centred
-  on a square; without one, Portico's arch in white on the accent
-  colour), minimum landing display time. Edited on the admin UI and the
-  API; applied to Portico's pages at once and to the Keycloak theme on
-  save. Several Prism Centrals (Milestone 4): after the Keycloak login a
+  MSP name (required: tab title, landing title, the logo's alternative
+  text, the fallback header), header text (at most 80 characters, one
+  line, may be empty), claim (the tagline, at most 160), three colours
+  as `#rrggbb` (background of the page; text, i.e. everything written on
+  the background; accent, i.e. the primary button and the links inside
+  the white card, which stays white), logo (Portico's arch drawn in the
+  text colour, an uploaded image, or none; an upload is PNG, JPEG or
+  SVG, at most 256 KiB; an SVG with scripts, event handlers,
+  `javascript:` links or `foreignObject` is refused, because Keycloak
+  serves the theme's copy from the login origin), tab icon (a PNG of 128
+  to 1024 px on its longer side, the shorter at least half of it, at
+  most 256 KiB, centred on a square; without one, Portico's arch in
+  white on the accent colour), minimum landing display time. Edited on
+  the admin UI and the API; applied to Portico's pages at once and to
+  the Keycloak theme on save.
+  Every tenant-facing page (Keycloak's login, OTP, update-password,
+  reset-password and error pages; Portico's landing, site and error
+  pages) has one header in a centred column: the logo, at most 96 px
+  tall and 320 px wide with its aspect ratio kept; the header text, bold
+  and exactly as typed; the claim under them. With neither a logo nor a
+  header text, the MSP name takes the header text's place. A fresh
+  Portico is a pre-filled branding drawn with the same layout: MSP name
+  and header text `Portico`, the claim "The single, authenticated entry
+  point to your Nutanix services.", the arch, background and accent
+  `#a73422`, text `#ffffff`. A branding stored before the colours and
+  the header text existed (and a `PUT` that omits them) reads as
+  background = its accent, text `#ffffff`, header text = its MSP name
+  when it has a logo, so an upgrade keeps an MSP's identity.
+  On save the admin UI and the API compute the WCAG 2 contrast of the
+  text on the background and of white on the accent: below 4.5:1 the
+  branding is saved and the answer carries a warning naming the pair
+  and its ratio. The admin Branding page shows a live preview of the
+  login page, drawn by Portico from the fields being edited (a logo
+  chosen and not yet uploaded included), not the real Keycloak page in
+  a frame (ADR 0005). Several Prism Centrals (Milestone 4): after the Keycloak login a
   tenant with more than one site gets the **site page**, one tile per
   site with its code, name and status (design sites §2, variant B); with
   one site it goes straight on, and the landing page offers a "switch
