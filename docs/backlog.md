@@ -51,15 +51,13 @@ it; the Milestone 2f sweep closed the 2d and 2e items listed at the end.
   (`internal/idp/keycloak`).
 - A Keycloak token invalidated server-side is reused until local expiry:
   clear on 401 and retry once (`internal/idp/keycloak`).
-- `delete_project` accepts only `true`: use `ParseBool`, 400 on garbage
-  (`internal/api`).
 - Deletion steps vanish with the row (tombstone or events table).
 - `Disable` does not end an existing Prism Central session (document in
   the API doc).
 - `UNIQUE` violation detected by error-text substring (`internal/store`).
 - `PoliciesMentioning` substring-matches the group extId in the policy
   JSON (measured ok on pc.7.6, re-measure after an upgrade).
-- Deleting a tenant right after its role membership: Prism Central
+- Disconnecting a tenant right after its role membership: Prism Central
   refused to delete the resource group ("not empty", 10018) for between
   3 and 10 minutes on 2026-10-20 (write-up 21; on 2026-10-18 the whole
   deletion took 28 s). The resource-group step should retry that refusal
@@ -70,6 +68,11 @@ it; the Milestone 2f sweep closed the 2d and 2e items listed at the end.
   then records the 504, not the task's reason. Look the entity's latest
   task up on a 504 and report its `legacyErrorMessage`
   (`internal/nutanix`).
+- A "danger zone" that deletes a tenant's resources (VMs, images, volume
+  groups) from Portico so a non-empty project can be disconnected: kept
+  out with Marco on 2026-10-22 (sites usability design 4.6, ADR 0006);
+  emptying the project stays the MSP's work in Prism Central. Reconsider
+  only if MSPs ask for it.
 
 ## Admin UI, branding, settings
 
