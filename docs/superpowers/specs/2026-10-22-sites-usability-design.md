@@ -358,7 +358,10 @@ today).
   session left usable. The builder chooses the fix after measuring
   (section 6, item 4): make the name resolvable from the container, or
   stop Keycloak from attempting a logout that the cookie expiry already
-  makes unnecessary.
+  makes unnecessary. Chosen (write-up 24): the second. The failing call
+  was a SAML backchannel logout to the client's admin URL; a resolvable
+  name would only reach Portico's public listener without a session and
+  be refused. Portico's SAML clients carry no admin URL.
 
 ### 4.8 A slow Prism Central at sign-in
 
