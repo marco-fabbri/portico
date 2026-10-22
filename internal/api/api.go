@@ -10,7 +10,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -222,9 +221,9 @@ func (h *handler) fail(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "counts": ne.Contents.Counts})
 	case errors.Is(err, tenant.ErrCount):
 		writeError(w, http.StatusServiceUnavailable, err.Error())
-	case errors.Is(err, tenant.ErrBusy), errors.Is(err, tenant.ErrState), errors.Is(err, tenant.ErrPlacementExists):
+	case errors.Is(err, tenant.ErrBusy), errors.Is(err, tenant.ErrState), errors.Is(err, tenant.ErrPlacementExists), errors.Is(err, tenant.ErrHasSites):
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, tenant.ErrInvalidSlug), errors.Is(err, tenant.ErrUnknownSite), errors.Is(err, tenant.ErrNoSites), errors.Is(err, tenant.ErrNoPlacementTarget):
+	case errors.Is(err, tenant.ErrInvalidSlug), errors.Is(err, tenant.ErrUnknownSite), errors.Is(err, tenant.ErrNoPlacementTarget):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
 		h.log.Error("api request failed", "err", err.Error())
@@ -275,8 +274,13 @@ func (h *handler) createTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := tenant.CreateRequest{Slug: in.Slug, DisplayName: strings.TrimSpace(in.DisplayName), Contacts: strings.TrimSpace(in.Contacts)}
-	for _, p := range in.Sites {
-		req.Sites = append(req.Sites, p.request())
+	// No "sites" key: the service's default (the only site when there is
+	// one); "sites": [] creates a tenant connected to no site.
+	if in.Sites != nil {
+		req.Sites = make([]tenant.PlacementRequest, 0, len(in.Sites))
+		for _, p := range in.Sites {
+			req.Sites = append(req.Sites, p.request())
+		}
 	}
 	t, err := h.svc.Create(r.Context(), req)
 	if err != nil {
@@ -325,21 +329,14 @@ func (h *handler) retry(w http.ResponseWriter, r *http.Request) {
 	h.writeTenant(w, r, http.StatusAccepted, t)
 }
 
+// deleteTenant deletes a tenant connected to no site: its Keycloak
+// users, its group and its row.
 func (h *handler) deleteTenant(w http.ResponseWriter, r *http.Request) {
-	deleteProject := false
-	if v := r.URL.Query().Get("delete_project"); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "delete_project must be true or false")
-			return
-		}
-		deleteProject = b
-	}
-	if err := h.svc.Delete(r.Context(), r.PathValue("id"), deleteProject); err != nil {
+	if err := h.svc.Delete(r.Context(), r.PathValue("id")); err != nil {
 		h.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"id": r.PathValue("id"), "status": string(store.StatusDeleting), "delete_project": deleteProject})
+	writeJSON(w, http.StatusAccepted, map[string]any{"id": r.PathValue("id"), "status": string(store.StatusDeleting)})
 }
 
 func (h *handler) disable(w http.ResponseWriter, r *http.Request) {

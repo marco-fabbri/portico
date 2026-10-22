@@ -16,7 +16,6 @@
     {{if not .Data.Polling}}
     <form method="post" action="/tenants/{{$t.ID}}/delete" class="inline">
       <input type="hidden" name="_csrf" value="{{.CSRF}}">
-      <label class="inline"><input type="checkbox" name="delete_project" value="on"> delete the project too</label>
       <button type="submit" class="danger">Delete tenant</button>
     </form>
     {{end}}
@@ -56,8 +55,7 @@
   {{if .Removable}}
   <form method="post" action="/tenants/{{$t.ID}}/sites/{{.SiteID}}/remove" class="inline">
     <input type="hidden" name="_csrf" value="{{$.CSRF}}">
-    <label class="inline"><input type="checkbox" name="delete_project" value="on"> delete the project too</label>
-    <button type="submit" class="danger">Remove from this site</button>
+    <button type="submit" class="danger">Disconnect from this site</button>
   </form>
   {{end}}
 </section>

@@ -445,6 +445,30 @@ func (k *KC) DeleteGroup(ctx context.Context, id string) error {
 	return nil // absent is not an error, like the real client
 }
 
+func (k *KC) DeleteUser(ctx context.Context, id string) error {
+	if err := k.call("DeleteUser"); err != nil {
+		return err
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	for i := range k.Users {
+		if k.Users[i].ID == id {
+			k.Users = append(k.Users[:i], k.Users[i+1:]...)
+			break
+		}
+	}
+	for g, ids := range k.Members {
+		var keep []string
+		for _, u := range ids {
+			if u != id {
+				keep = append(keep, u)
+			}
+		}
+		k.Members[g] = keep
+	}
+	return nil
+}
+
 func (k *KC) FindUserByEmail(ctx context.Context, email string) (*keycloak.User, error) {
 	if err := k.call("FindUserByEmail"); err != nil {
 		return nil, err

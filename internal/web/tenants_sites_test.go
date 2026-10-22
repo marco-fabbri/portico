@@ -44,8 +44,12 @@ func TestNewTenantFormHasOneRowPerSite(t *testing.T) {
 		t.Fatalf("placements = %+v", ps)
 	}
 	rec = e.do("POST", "/tenants", e.form("slug", "beta", "display_name", "B"), true)
-	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "sites") {
+	if rec.Code != 303 {
 		t.Fatalf("create without a site: %d", rec.Code)
+	}
+	e.svc.Wait()
+	if ps, _ := e.st.ListPlacements(context.Background(), "beta"); len(ps) != 0 {
+		t.Fatalf("no box checked placed beta on %+v", ps)
 	}
 }
 
@@ -75,7 +79,7 @@ func TestTenantDetailPerSiteAddAndRemove(t *testing.T) {
 	if !strings.Contains(body, `action="/tenants/acme/sites/site-b/remove"`) || !strings.Contains(body, "AZ-US-NYC1") {
 		t.Fatalf("detail with two sites:\n%s", body)
 	}
-	if rec := e.do("POST", "/tenants/acme/sites/site-b/remove", e.form("delete_project", "on"), true); rec.Code != 303 {
+	if rec := e.do("POST", "/tenants/acme/sites/site-b/remove", e.form(), true); rec.Code != 303 {
 		t.Fatalf("remove site: %d %s", rec.Code, rec.Body.String())
 	}
 	e.svc.Wait()

@@ -20,7 +20,7 @@ a key or a token, except the one-time temporary password of a new user.
 | Method and path | What it does | Answers |
 |---|---|---|
 | `GET /api/v1/tenants` | List tenants | 200, array of tenants |
-| `POST /api/v1/tenants` | Create a tenant and start provisioning on its sites. Body: `{"slug": "acme", "display_name": "ACME Cloud", "contacts": "ops@acme.example", "sites": [{"site": "az-it-mi1"}, {"site": "az-us-nyc1", "cluster_ext_id": "…", "storage_container_ext_id": "…"}]}`; the slug is lower-case letters, digits and dashes, 1 to 32 characters; a placement without cluster or container takes the site's defaults; `sites` may be left out when exactly one site is configured | 202 with the tenant in status `creating`; 400 on a bad slug, an unknown site or no placement target; 409 when it exists |
+| `POST /api/v1/tenants` | Create a tenant and start provisioning on its sites. Body: `{"slug": "acme", "display_name": "ACME Cloud", "contacts": "ops@acme.example", "sites": [{"site": "az-it-mi1"}, {"site": "az-us-nyc1", "cluster_ext_id": "…", "storage_container_ext_id": "…"}]}`; the slug is lower-case letters, digits and dashes, 1 to 32 characters; a placement without cluster or container takes the site's defaults; without the `sites` key the tenant goes on the only site when exactly one is configured and on none otherwise; `"sites": []` creates a tenant connected to no site, to connect later | 202 with the tenant in status `creating`; 400 on a bad slug, an unknown site or no placement target; 409 when it exists |
 | `GET /api/v1/tenants/{id}` | One tenant | 200; 404 |
 | `GET /api/v1/tenants/{id}/steps` | The recorded provisioning steps (`site`, `name`, `ok`, `detail`, `at`; `site` is empty for the Keycloak group) | 200 |
 | `GET /api/v1/tenants/{id}/visibility` | The static visibility check on every site, read back from each Prism Central: the group holds one project-scoped role in its project and nothing else | 200 `{"sites": {"<site>": {"ok": true, "findings": []}}}`; 404 |
@@ -33,7 +33,7 @@ a key or a token, except the one-time temporary password of a new user.
 | `POST /api/v1/tenants/{id}/sites/{site}/resume` | Resume a suspended connection: the same project serves again, nothing is re-created | 200 with the connection (`status: active`); 409 unless suspended |
 | `POST /api/v1/tenants/{id}/disable` | Disable the Keycloak group: its users cannot log in | 202 |
 | `POST /api/v1/tenants/{id}/enable` | Enable it again | 202 |
-| `DELETE /api/v1/tenants/{id}?delete_project=true` | Delete the tenant on every site: role membership, SAML group, then the Keycloak group; the projects too only with `delete_project=true`. Portico never deletes VMs | 202 with `{"id", "status": "deleting", "delete_project"}` |
+| `DELETE /api/v1/tenants/{id}` | Delete a tenant connected to no site: its Keycloak users, its Keycloak group, then the tenant itself. Disconnect it from every site first (`DELETE …/sites/{site}`), which is where projects are deleted | 202 with `{"id", "status": "deleting"}`; 409 while it is still connected to a site |
 | `POST /api/v1/tenants/{id}/users` | Create the tenant's user in Keycloak. Body: `{"email", "first_name", "last_name"}`; the email is the username and the SAML `NameID` | 201 `{"id", "email", "temporary_password"}`, shown once; the user must change it at the first login; 409 when the email exists |
 
 A connection's `status` is `creating`, `active`, `suspended`, `failed`,

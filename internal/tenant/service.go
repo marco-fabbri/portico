@@ -29,8 +29,9 @@ var (
 	ErrExists = errors.New("tenant: already exists")
 	// ErrUnknownSite: the request names a site that is not configured.
 	ErrUnknownSite = errors.New("tenant: no such site")
-	// ErrNoSites: no site named while several are configured.
-	ErrNoSites = errors.New("tenant: name the sites to place the tenant on")
+	// ErrHasSites: a tenant is deleted only when it is connected to no
+	// site (design sites usability 4.6).
+	ErrHasSites = errors.New("tenant: the tenant is still connected to a site; disconnect it from every site first")
 	// ErrCount: the project's contents could not be counted, so a
 	// disconnect is refused (an unknown is not an empty).
 	ErrCount = errors.New("the project's contents could not be counted")
@@ -96,6 +97,7 @@ type Keycloak interface {
 	AddUserToGroup(ctx context.Context, userID, groupID string) error
 	GroupMembers(ctx context.Context, groupID string) ([]keycloak.User, error)
 	SetUserEnabled(ctx context.Context, userID string, enabled bool) error
+	DeleteUser(ctx context.Context, id string) error
 }
 
 // Config holds the naming settings of the service; placement lives on
@@ -275,11 +277,8 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*store.Tenant,
 		return nil, ErrInvalidSlug
 	}
 	reqs := req.Sites
-	if len(reqs) == 0 {
-		if len(s.order) != 1 {
-			return nil, ErrNoSites
-		}
-		reqs = []PlacementRequest{{Site: s.order[0]}}
+	if reqs == nil {
+		reqs = s.DefaultSites()
 	}
 	var ps []*store.Placement
 	seen := map[string]bool{}
@@ -449,7 +448,7 @@ func (s *Service) Disconnect(ctx context.Context, id, siteID string) error {
 	s.changed(id)
 	s.background(id, "disconnect", func(ctx context.Context) error {
 		defer s.changed(id)
-		return s.removePlacement(ctx, id, siteID, true)
+		return s.removePlacement(ctx, id, siteID)
 	})
 	return nil
 }
@@ -606,13 +605,22 @@ func (s *Service) isRunning(id string) bool {
 
 // Delete removes the tenant's access objects in the background, the
 // project too when deleteProject is set, then the row.
-func (s *Service) Delete(ctx context.Context, id string, deleteProject bool) error {
+func (s *Service) Delete(ctx context.Context, id string) error {
 	t, err := s.st.GetTenant(ctx, id)
 	if err != nil {
 		return err
 	}
 	if !s.acquire(id) {
 		return ErrBusy
+	}
+	ps, err := s.st.ListPlacements(ctx, id)
+	if err != nil {
+		s.release(id)
+		return err
+	}
+	if len(ps) > 0 {
+		s.release(id)
+		return ErrHasSites
 	}
 	t.Status, t.LastOp = store.StatusDeleting, store.OpDelete
 	if err := s.st.UpdateTenant(ctx, t); err != nil {
@@ -621,9 +629,19 @@ func (s *Service) Delete(ctx context.Context, id string, deleteProject bool) err
 	}
 	s.background(id, store.OpDelete, func(ctx context.Context) error {
 		defer s.changed(id)
-		return s.remove(ctx, id, deleteProject)
+		return s.remove(ctx, id)
 	})
 	return nil
+}
+
+// DefaultSites is where a tenant goes when a request names no sites: the
+// only site when exactly one is configured, otherwise none (the tenant
+// is connected later, design sites usability 4.4).
+func (s *Service) DefaultSites() []PlacementRequest {
+	if len(s.order) == 1 {
+		return []PlacementRequest{{Site: s.order[0]}}
+	}
+	return []PlacementRequest{}
 }
 
 // Disable disables every Keycloak user of the tenant group: no login, no
