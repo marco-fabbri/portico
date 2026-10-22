@@ -32,6 +32,12 @@ a project that still holds a VM.
    that still holds something is the safety net: the connection then
    ends `remove-failed` with Retry. The last site can be disconnected
    too.
+   Disconnect deletes only what Portico created: provisioning adopts an
+   existing project or SAML group of the right name, so a project whose
+   description does not start with "Portico tenant " (made by hand) is
+   kept with its resource groups, and a SAML group Prism Central reports
+   bound to another identity provider is kept; the tenant's access is
+   removed either way and the step says what was kept.
 2. **No deletion of resources by Portico.** Portico never deletes a VM,
    an image or any other thing a tenant made; emptying a project is the
    MSP's work in Prism Central. A "danger zone" that would do it was
