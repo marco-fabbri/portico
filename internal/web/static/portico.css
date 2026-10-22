@@ -73,6 +73,10 @@ button.primary, .button.primary { background: var(--accent); border-color: var(-
 button.primary:hover, .button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
 button.danger { color: var(--bad); border-color: var(--bad-line); }
 button.danger:hover { border-color: var(--bad); }
+.button.danger { color: var(--bad); border-color: var(--bad-line); }
+.button.danger:hover { border-color: var(--bad); color: var(--bad); }
+.row-actions { white-space: nowrap; }
+.row-actions .button, .row-actions button { padding: .35rem .7rem; margin: 0 .2rem .3rem 0; }
 button.link { background: none; border: none; color: var(--accent); text-decoration: underline; padding: 0; }
 form.inline { display: inline; }
 .actions { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; margin-top: .8rem; }
@@ -85,14 +89,14 @@ form.inline { display: inline; }
 
 table { width: 100%; border-collapse: collapse; }
 th { text-align: left; padding: .6rem .7rem; font-size: .75rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: var(--surface-soft); border-bottom: 1px solid var(--line); }
-td { text-align: left; padding: .7rem .7rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+td { text-align: left; padding: .9rem .7rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
 tbody tr:last-child td { border-bottom: 0; }
 
 .status { display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .status-creating, .status-deleting, .status-removing { background: var(--neutral-bg); color: var(--neutral); }
 .status-active, .status-available { background: var(--ok-bg); color: var(--ok); }
 .status-failed, .status-unreachable, .status-remove-failed { background: var(--bad-bg); color: var(--bad); }
-.status-disabled, .status-maintenance { background: var(--warn-bg); color: var(--warn); }
+.status-disabled, .status-maintenance, .status-suspended { background: var(--warn-bg); color: var(--warn); }
 h1 .status { vertical-align: middle; margin-left: .3rem; }
 .ok, .step-ok { color: var(--ok); font-weight: 600; } .bad, .step-failed { color: var(--bad); font-weight: 600; }
 
@@ -152,3 +156,5 @@ fieldset.logo-source input[type="file"] { display: block; margin: .2rem 0 .4rem 
 .bp-link { display: block; margin-top: .4rem; font-size: .6rem; color: var(--bp-accent); }
 .bp-powered { display: flex; align-items: center; gap: .3rem; margin: .5rem 0 0; font-size: .6rem; opacity: .75; }
 .bp-powered svg { height: .8rem; width: auto; }
+.site-row { padding: .6rem 0 .2rem; border-top: 1px solid var(--line-soft); }
+.site-row > div { margin-left: 1.6rem; }

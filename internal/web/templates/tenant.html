@@ -13,12 +13,8 @@
     {{if .Data.Retry}}
     <form method="post" action="/tenants/{{$t.ID}}/provision" class="inline"><input type="hidden" name="_csrf" value="{{.CSRF}}"><button type="submit" class="primary">Retry provisioning</button></form>
     {{end}}
-    {{if not .Data.Polling}}
-    <form method="post" action="/tenants/{{$t.ID}}/delete" class="inline">
-      <input type="hidden" name="_csrf" value="{{.CSRF}}">
-      <button type="submit" class="danger">Delete tenant</button>
-    </form>
-    {{end}}
+    {{if .Data.Placements}}<span class="muted small">Disconnect it from every site to delete it.</span>
+    {{else if not .Data.Polling}}<a class="button danger" href="/tenants/{{$t.ID}}/delete">Delete tenant</a>{{end}}
   </div>
 </div>
 {{if $t.LastError}}<div class="banner error">{{$t.LastError}}</div>{{end}}
@@ -33,9 +29,38 @@
   </dl>
 </section>
 
+<section class="card" id="card-sites">
+  <h2>Sites</h2>
+  {{if .Data.Connections}}
+  <table>
+    <thead><tr><th>Site</th><th>Cluster</th><th>Storage container</th><th>Status</th><th>Users now</th><th></th></tr></thead>
+    <tbody>{{range .Data.Connections}}<tr>
+      <td><a href="#site-{{.SiteID}}"><strong>{{.Code}}</strong></a>{{with .SiteName}}<br><span class="muted small">{{.}}</span>{{end}}</td>
+      <td class="muted small">{{.ClusterExtID}}</td><td class="muted small">{{.StorageContainerExtID}}</td>
+      {{template "connection-cells" .}}
+    </tr>{{end}}</tbody>
+  </table>
+  {{else}}<p class="muted">Not connected to any site: its users can sign in but have nowhere to go.</p>{{end}}
+</section>
+
+{{if and (eq $t.Status "active") .Data.Addable}}
+<section class="card">
+  <h2>Connect this tenant to a site</h2>
+  <form method="post" action="/tenants/{{$t.ID}}/sites">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <label>Site <select name="site" id="site">{{range .Data.Addable}}<option value="{{.ID}}">{{.Code}}{{with .Name}} · {{.}}{{end}}</option>{{end}}</select></label>
+    <div id="targets" hx-get="/targets?form=connect" hx-trigger="load, change from:#site" hx-include="#site">
+      <label>Cluster (optional) <input type="text" name="cluster_ext_id" placeholder="the site's default"></label>
+      <label>Storage container (optional) <input type="text" name="storage_container_ext_id" placeholder="the site's default"></label>
+    </div>
+    <div class="actions"><button type="submit" class="primary">Connect</button></div>
+  </form>
+</section>
+{{end}}
+
 {{range .Data.Placements}}
 <section class="card" id="site-{{.SiteID}}">
-  <h2>{{.Code}} <span class="status status-{{.Status}}">{{.Status}}</span></h2>
+  <h2>On {{.Code}} <span class="status status-{{.Status}}">{{.Status}}</span></h2>
   {{if .LastError}}<div class="banner error">{{.LastError}}</div>{{end}}
   <dl>
     <dt>Project</dt><dd><code>{{.ProjectID}}</code> {{if .ProjectExtID}}<span class="muted">{{.ProjectExtID}}</span>{{end}}</dd>
@@ -52,25 +77,6 @@
     {{else}}<ul>{{range .Visibility.Findings}}<li class="bad">{{.}}</li>{{end}}</ul>{{end}}
   {{else if $.Data.VisError}}<p class="bad">{{$.Data.VisError}}</p>
   {{else}}<p class="muted">Available once the tenant is active on this site.</p>{{end}}
-  {{if .Removable}}
-  <form method="post" action="/tenants/{{$t.ID}}/sites/{{.SiteID}}/remove" class="inline">
-    <input type="hidden" name="_csrf" value="{{$.CSRF}}">
-    <button type="submit" class="danger">Disconnect from this site</button>
-  </form>
-  {{end}}
-</section>
-{{end}}
-
-{{if and (eq $t.Status "active") .Data.Addable}}
-<section class="card">
-  <h2>Add a site</h2>
-  <form method="post" action="/tenants/{{$t.ID}}/sites">
-    <input type="hidden" name="_csrf" value="{{.CSRF}}">
-    <label>Site <select name="site">{{range .Data.Addable}}<option value="{{.ID}}">{{.Code}}</option>{{end}}</select></label>
-    <label>Cluster (optional) <input type="text" name="cluster_ext_id" placeholder="the site's default"></label>
-    <label>Storage container (optional) <input type="text" name="storage_container_ext_id" placeholder="the site's default"></label>
-    <div class="actions"><button type="submit" class="primary">Add the site</button></div>
-  </form>
 </section>
 {{end}}
 

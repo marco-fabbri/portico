@@ -16,7 +16,7 @@ func withTwoSites(t *testing.T, e *env) *tenanttest.PC {
 	t.Helper()
 	pcB := tenanttest.NewPC("portico-idp")
 	sites := []tenant.Site{
-		{ID: "site-a", Code: "AZ-IT-MI1", PC: e.pc, SAMLIdPName: "portico-idp", ClusterExtID: "cl-a", StorageContainerExtID: "sc-a"},
+		{ID: "site-a", Code: "AZ-IT-MI1", Name: "Milan", URL: "https://pc-a.test:9440", PC: e.pc, SAMLIdPName: "portico-idp", ClusterExtID: "cl-a", StorageContainerExtID: "sc-a"},
 		{ID: "site-b", Code: "AZ-US-NYC1", PC: pcB, SAMLIdPName: "portico-idp", ClusterExtID: "cl-b", StorageContainerExtID: "sc-b"},
 	}
 	e.svc = tenant.NewService(e.st, sites, e.kc, tenant.Config{OperationTimeout: 5 * time.Second}, nil)
@@ -53,7 +53,7 @@ func TestNewTenantFormHasOneRowPerSite(t *testing.T) {
 	}
 }
 
-func TestTenantDetailPerSiteAddAndRemove(t *testing.T) {
+func TestTenantDetailPerSiteConnectAndDisconnect(t *testing.T) {
 	e := newEnv(t, true)
 	pcB := withTwoSites(t, e)
 	e.login(t)
@@ -65,9 +65,6 @@ func TestTenantDetailPerSiteAddAndRemove(t *testing.T) {
 			t.Fatalf("detail lacks %q:\n%s", want, body)
 		}
 	}
-	if strings.Contains(body, `action="/tenants/acme/sites/site-a/remove"`) {
-		t.Fatal("the last site offers a removal")
-	}
 	if rec := e.do("POST", "/tenants/acme/sites", e.form("site", "site-b"), true); rec.Code != 303 {
 		t.Fatalf("add site: %d %s", rec.Code, rec.Body.String())
 	}
@@ -76,23 +73,23 @@ func TestTenantDetailPerSiteAddAndRemove(t *testing.T) {
 		t.Fatal("site-b not provisioned")
 	}
 	body = e.do("GET", "/tenants/acme", nil, true).Body.String()
-	if !strings.Contains(body, `action="/tenants/acme/sites/site-b/remove"`) || !strings.Contains(body, "AZ-US-NYC1") {
+	if !strings.Contains(body, `href="/tenants/acme/sites/site-b/disconnect"`) || !strings.Contains(body, "AZ-US-NYC1") {
 		t.Fatalf("detail with two sites:\n%s", body)
 	}
-	if rec := e.do("POST", "/tenants/acme/sites/site-b/remove", e.form(), true); rec.Code != 303 {
-		t.Fatalf("remove site: %d %s", rec.Code, rec.Body.String())
+	if rec := e.do("POST", "/tenants/acme/sites/site-b/disconnect", e.form(), true); rec.Code != 303 {
+		t.Fatalf("disconnect site-b: %d %s", rec.Code, rec.Body.String())
 	}
 	e.svc.Wait()
 	if len(pcB.Memberships) != 0 || len(pcB.Projects) != 1 {
 		t.Fatal("site-b objects left")
 	}
-	for _, path := range []string{"/tenants/acme/sites", "/tenants/acme/sites/site-a/remove"} {
+	for _, path := range []string{"/tenants/acme/sites", "/tenants/acme/sites/site-a/disconnect", "/tenants/acme/sites/site-a/retry", "/tenants/acme/sites/site-a/resume", "/setup/sites/site-a/tenants"} {
 		if rec := e.do("POST", path, map[string][]string{"site": {"site-b"}}, true); rec.Code != 403 {
 			t.Fatalf("%s without CSRF: %d", path, rec.Code)
 		}
 	}
 	// The last site can be disconnected too (design sites usability 4.6).
-	if rec := e.do("POST", "/tenants/acme/sites/site-a/remove", e.form(), true); rec.Code != 303 {
+	if rec := e.do("POST", "/tenants/acme/sites/site-a/disconnect", e.form(), true); rec.Code != 303 {
 		t.Fatalf("disconnect the last site: %d", rec.Code)
 	}
 }
