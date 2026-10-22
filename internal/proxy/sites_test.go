@@ -475,3 +475,28 @@ func TestSAMLStartFailureWithSeveralSitesLinksSitePage(t *testing.T) {
 		t.Fatalf("slow page with two sites: %d %s", rec.Code, body)
 	}
 }
+
+// The console's idle sign-out with several sites lands on the site page;
+// left open, the page signs out of everything before the Portico session
+// would expire, as the idle sign-out does with one site (Keycloak too).
+func TestSitePageSignsOutOfEverythingWhenIdle(t *testing.T) {
+	h := newSitesHarness(t)
+	h.routing.SignOutAfter = 14 * time.Minute
+	h.session("s1", "acme", "")
+	rec := h.do("GET", "/.portico/sites", "s1", nav, nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `content="840;url=/.portico/logout"`) {
+		t.Fatalf("site page without the idle sign-out: %d\n%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSitePageSignOutDelay(t *testing.T) {
+	for idle, want := range map[time.Duration]time.Duration{
+		15 * time.Minute: 14 * time.Minute,
+		2 * time.Minute:  time.Minute,
+		90 * time.Second: 45 * time.Second,
+	} {
+		if got := SitePageSignOut(idle); got != want {
+			t.Errorf("SitePageSignOut(%v) = %v, want %v", idle, got, want)
+		}
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"time"
 )
 
 //go:embed templates/*.html
@@ -33,7 +34,7 @@ type pageData struct {
 	Mark        template.HTML // Portico's mark in the text colour, inline (CSP allows no other source)
 	IconVersion string        // the icons' links carry it (Branding.IconVersion)
 	Delay       int           // seconds of the meta refresh
-	Next        string        // landing: where the refresh goes
+	Next        string        // where the refresh goes (landing, site page)
 	Status      int
 	Title       string
 	Text        string
@@ -78,9 +79,11 @@ func (p *Pages) LandingSwitch(w http.ResponseWriter, r *http.Request, next, swit
 
 // Sites renders the site page: one tile per site, the user's email and a
 // sign-out link.
-func (p *Pages) Sites(w http.ResponseWriter, r *http.Request, tiles []SiteTile, email string) {
+// signOutAfter, when not zero, sends a page left open to the full sign-out.
+func (p *Pages) Sites(w http.ResponseWriter, r *http.Request, tiles []SiteTile, email string, signOutAfter time.Duration) {
 	b := p.get(r.Context())
-	p.write(w, http.StatusOK, "sites.html", pageData{B: b, Title: "Choose a site", Tiles: tiles, Email: email})
+	p.write(w, http.StatusOK, "sites.html", pageData{B: b, Title: "Choose a site", Tiles: tiles, Email: email,
+		Delay: int(signOutAfter / time.Second), Next: "/.portico/logout"})
 }
 
 // Error renders a branded error page; retry, when not empty, is a link.

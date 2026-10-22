@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func pagesFor(b Branding) *Pages {
@@ -78,7 +79,7 @@ func renderAll(t *testing.T, b Branding) map[string]string {
 	p.Landing(rec, req(), "/.portico/saml-start")
 	out["landing"] = rec.Body.String()
 	rec = httptest.NewRecorder()
-	p.Sites(rec, req(), []SiteTile{{ID: "mi1", Code: "AZ-IT-MI1", Status: "available", Selectable: true}}, "carol@acme.example")
+	p.Sites(rec, req(), []SiteTile{{ID: "mi1", Code: "AZ-IT-MI1", Status: "available", Selectable: true}}, "carol@acme.example", 0)
 	out["sites"] = rec.Body.String()
 	rec = httptest.NewRecorder()
 	p.Error(rec, req(), http.StatusServiceUnavailable, "Identity provider unavailable", "Try again later.", "/.portico/login")
@@ -168,7 +169,7 @@ func TestSitesTemplateVariantB(t *testing.T) {
 	pagesFor(b).Sites(rec, httptest.NewRequest("GET", "https://prism.test/.portico/sites", nil), []SiteTile{
 		{ID: "mi1", Code: "AZ-IT-MI1", Name: "Milan", Status: "available", Selectable: true, Current: true},
 		{ID: "nyc1", Code: "AZ-US-NYC1", Name: "New York", Status: "maintenance"},
-	}, "carol@acme.example")
+	}, "carol@acme.example", 0)
 	body := rec.Body.String()
 	for _, want := range []string{
 		"Choose a site", "background: #1f5f8b", `<form method="post" action="/.portico/sites/select">`,
@@ -195,5 +196,20 @@ func TestErrorPageSwitchLink(t *testing.T) {
 	p.Error(rec, httptest.NewRequest("GET", "https://prism.test/", nil), http.StatusServiceUnavailable, "Site responding slowly", "x", "/")
 	if strings.Contains(rec.Body.String(), "/.portico/sites") || strings.Contains(rec.Body.String(), "Choose another site") {
 		t.Fatalf("switch link without a URL: %s", rec.Body.String())
+	}
+}
+
+func TestSitesPageSignsOutWhenIdle(t *testing.T) {
+	p := pagesFor(Default())
+	tiles := []SiteTile{{ID: "mi1", Code: "AZ-IT-MI1", Status: "available", Selectable: true}}
+	rec := httptest.NewRecorder()
+	p.Sites(rec, httptest.NewRequest("GET", "https://prism.test/.portico/sites", nil), tiles, "carol@acme.example", 14*time.Minute)
+	if !strings.Contains(rec.Body.String(), `<meta http-equiv="refresh" content="840;url=/.portico/logout">`) {
+		t.Fatalf("no idle sign-out: %s", rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	p.Sites(rec, httptest.NewRequest("GET", "https://prism.test/.portico/sites", nil), tiles, "carol@acme.example", 0)
+	if strings.Contains(rec.Body.String(), "http-equiv") {
+		t.Fatalf("idle sign-out without a delay: %s", rec.Body.String())
 	}
 }
