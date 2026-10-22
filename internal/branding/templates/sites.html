@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+{{if .Delay}}<meta http-equiv="refresh" content="{{.Delay}};url={{.Next}}">{{end}}
 <title>{{.Title}} · {{.B.MSPName}}</title>
 <link rel="icon" href="/.portico/favicon.ico?v={{.IconVersion}}" sizes="16x16 32x32 48x48">
 <link rel="apple-touch-icon" href="/.portico/apple-touch-icon.png?v={{.IconVersion}}">

@@ -98,8 +98,9 @@ needed for Disconnect.
 
 ### 2. An administrator's own rights
 
-- MEASURED: no "who am I" endpoint: `authn/users/$me`, `users/current`
-  (iam v4.0 and v4.1.b3) answer 400.
+- MEASURED: no "who am I" endpoint: `authn/users/$me` (iam v4.0 and
+  v4.1.b3), `authn/users/current` (v4.1.b3) and a policy filter on
+  `identities ... eq 'me'` (v4.1.b3) answer 400.
 - MEASURED: an administrator can find itself by name
   (`authn/users?$filter=username eq '<name>'`), list the authorization
   policies and read its roles' operations (1397 operations listed). The
@@ -122,8 +123,9 @@ refusal leaves nothing behind, remain the authoritative check.
 ### 3. Nutanix Objects containers
 
 - MEASURED: no field marks the Objects container on NTNX-01: owner,
-  internal, shared, encryption flags are the same as the
-  `default-container`'s; it has compression on and the name
+  internal, encryption, removal, erasure coding, replication and NFS
+  whitelist are the same as the `default-container`'s; it has compression
+  on and the name
   `objectsl889411dccd9a44125aa3e31c2596dcf9`. The system containers carry
   `isInternal=true` (`NutanixManagementShare`, `NutanixMetadataContainer`);
   `SelfServiceContainer` does not.
@@ -179,6 +181,13 @@ Details, SHA-256 fingerprint).
   returns to the site page with the Portico session still valid;
   `AZ-US-NYC1` then opens with no password asked; the site page's Sign
   out ends on Keycloak's login page.
+- Found by the branch review: Prism Central's idle sign-out (about 15
+  minutes, write-up 21) ends at the same `/redirect?logout`, so with
+  several sites it now leaves the tenant on the site page with its
+  Portico and Keycloak sessions. The site page therefore signs out of
+  everything when left open a minute less than the Portico session's
+  idle limit (14 minutes by default), as that sign-out does with one
+  site. NOT MEASURED in the browser (unit tests only).
 - NOT MEASURED: going back to `AZ-IT-MI1` after `AZ-US-NYC1` (the
   silent SAML round trip to the site that was signed out; unit test of
   the stash only); the console's sign-out with one site (the lab has one

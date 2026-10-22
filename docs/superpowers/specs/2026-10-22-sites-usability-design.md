@@ -352,6 +352,12 @@ today).
   no password; the site page's Sign out ends everything.
 - **One site**: it ends everything, as today (Portico session, every
   cookie, Keycloak's end-session).
+- Prism Central's idle sign-out (about 15 minutes, write-up 21) arrives
+  the same way, so with several sites it too ends at the site page. The
+  site page, which sends no requests, signs out of everything when left
+  open a minute less than the Portico session's idle limit: an
+  unattended browser ends with no session, as with one site (builder's
+  call from the branch review).
 - Keycloak's SAML logout towards Prism Central fails today because the
   Keycloak container cannot resolve the public Prism Central name. A full
   sign-out must end without an error page and without a Prism Central
@@ -370,8 +376,10 @@ lookup, login request) sends the tenant to Prism Central's own provider
 page, which reads "Authentication providers not registered yet".
 
 - Instead, Portico shows a branded page: "This site is responding
-  slowly", a **Retry** button to the SAML start, and with several sites
-  a link to the site page. The reason is logged, as today.
+  slowly", a **Retry** link to the public address `/` (it restarts the
+  flow with a new login request; the SAML start alone would fail again
+  on the same request), and with several sites a link to the site page.
+  The reason is logged, as today.
 - The identity provider's id is stored at site setup, so the sign-in no
   longer lists providers on every cache miss (builder's call if a
   measurement shows the id can change).
