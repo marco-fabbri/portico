@@ -1,0 +1,11 @@
+{{define "content"}}{{end}}
+{{/* The cluster and storage container menus of one site, loaded into the connect and new-tenant forms. */}}
+{{define "targets"}}{{with .Data}}
+{{if .Failed}}<p class="banner warning">Prism Central did not answer: the site's defaults are offered.</p>{{end}}
+<label>Cluster <select name="{{.ClusterField}}">
+  {{range .Clusters}}<option value="{{.ExtID}}"{{if .Selected}} selected{{end}}>{{or .Name .ExtID}}{{if .SiteDefault}} (site default){{end}}</option>{{else}}<option value="" disabled selected>none found</option>{{end}}
+</select></label>
+<label>Storage container <select name="{{.ContainerField}}">
+  {{range .Containers}}<option value="{{.ExtID}}"{{if .Selected}} selected{{end}}>{{or .Name .ExtID}}{{with .ClusterName}} on {{.}}{{end}}{{if .SiteDefault}} (site default){{end}}</option>{{else}}<option value="" disabled selected>none found</option>{{end}}
+</select></label>
+{{end}}{{end}}

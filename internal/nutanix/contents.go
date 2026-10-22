@@ -48,14 +48,30 @@ func (c Contents) Empty() bool {
 }
 
 // String names what is there, "VMs: 2, images: 1".
-func (c Contents) String() string {
-	var parts []string
+func (c Contents) String() string { return strings.Join(c.Lines(), ", ") }
+
+// Lines names what is there, one kind per line: "VMs: 2".
+func (c Contents) Lines() []string {
+	var out []string
 	for _, k := range contentKinds {
 		if n := c.Counts[k.key]; n > 0 {
-			parts = append(parts, fmt.Sprintf("%s: %d", k.name, n))
+			out = append(out, fmt.Sprintf("%s: %d", k.name, n))
 		}
 	}
-	return strings.Join(parts, ", ")
+	return out
+}
+
+// UncountedNames names the kinds that could not be counted.
+func (c Contents) UncountedNames() []string {
+	var out []string
+	for _, k := range contentKinds {
+		for _, u := range c.Uncounted {
+			if u == k.key {
+				out = append(out, k.name)
+			}
+		}
+	}
+	return out
 }
 
 // ProjectContents counts what the project holds, every kind in parallel.

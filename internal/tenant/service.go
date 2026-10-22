@@ -46,7 +46,7 @@ var (
 // §4.1), with its client, its SAML identity provider and the default
 // placement of new tenants.
 type Site struct {
-	ID, Code                            string
+	ID, Code, Name                      string
 	URL                                 string // Prism Central's address, for links in the admin UI
 	PC                                  PrismCentral
 	SAMLIdPName                         string
@@ -635,6 +635,20 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		return s.remove(ctx, id)
 	})
 	return nil
+}
+
+// UserCount is the number of users in the tenant's Keycloak group, the
+// users Delete removes.
+func (s *Service) UserCount(ctx context.Context, id string) (int, error) {
+	t, err := s.st.GetTenant(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	if t.KeycloakGroupID == "" {
+		return 0, nil
+	}
+	users, err := s.kc.GroupMembers(ctx, t.KeycloakGroupID)
+	return len(users), err
 }
 
 // DefaultSites is where a tenant goes when a request names no sites: the

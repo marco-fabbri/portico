@@ -23,7 +23,6 @@ func (h *Handler) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /tenants/{id}/provision", h.running(h.tenantAction("provision")))
 	mux.HandleFunc("POST /tenants/{id}/delete", h.running(h.tenantDelete))
 	mux.HandleFunc("POST /tenants/{id}/sites", h.running(h.tenantAddSite))
-	mux.HandleFunc("POST /tenants/{id}/sites/{site}/remove", h.running(h.tenantRemoveSite))
 	mux.HandleFunc("GET /settings/branding", h.brandingPage)
 	mux.HandleFunc("POST /settings/branding", h.brandingSave)
 	mux.HandleFunc("GET /settings/branding/logo", h.brandingLogo)
@@ -165,11 +164,14 @@ type detailData struct {
 	Tenant     *store.Tenant
 	Steps      []stepRow
 	Placements []placementView
+	// Connections are the rows of the Sites table.
+	Connections []connectionRow
 	// Addable are the configured sites the tenant is not on.
 	Addable  []tenant.Site
 	VisError string
 	Polling  bool
-	// Retry offers the retry button: a failed tenant, or a failed site.
+	// Retry offers the tenant-wide retry: the tenant's own step failed; a
+	// failed connection has its own Retry in the Sites table.
 	Retry bool
 }
 
@@ -184,7 +186,6 @@ type placementView struct {
 	store.Placement
 	Code       string
 	Visibility *tenant.Visibility
-	Removable  bool
 }
 
 // detail gathers the detail page; withVisibility calls each site's Prism
@@ -212,15 +213,13 @@ func (h *Handler) detail(r *http.Request, t *store.Tenant, withVisibility bool) 
 	for _, p := range ps {
 		on[p.SiteID] = true
 		d.Polling = d.Polling || placementInProgress(p.Status)
-		if p.Status == store.PlacementFailed && t.Status == store.StatusActive {
-			d.Retry = true
-		}
-		pv := placementView{Placement: p, Code: h.svc.SiteCode(p.SiteID), Removable: len(ps) > 1 && !placementInProgress(p.Status)}
+		pv := placementView{Placement: p, Code: h.svc.SiteCode(p.SiteID)}
 		if p.Status == store.PlacementActive {
 			pv.Visibility = vis[p.SiteID]
 		}
 		d.Placements = append(d.Placements, pv)
 	}
+	d.Connections = h.connectionRows(r, ps, "", func(string) string { return t.DisplayNameOr() })
 	for _, s := range h.svc.Sites() {
 		if !on[s.ID] {
 			d.Addable = append(d.Addable, s)
@@ -337,7 +336,7 @@ func (h *Handler) detailWithError(w http.ResponseWriter, r *http.Request, t *sto
 	h.render(w, r, status, "tenant", t.DisplayNameOr(), h.detail(r, t, false), msg)
 }
 
-// tenantAddSite places the tenant on one more site (design sites §4.2).
+// tenantAddSite connects the tenant to one more site (design sites §4.2).
 func (h *Handler) tenantAddSite(w http.ResponseWriter, r *http.Request) {
 	if !h.requireCSRF(w, r) {
 		return
@@ -352,24 +351,6 @@ func (h *Handler) tenantAddSite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.log.Info("tenant site added", "via", "ui", "tenant", t.ID, "site", req.Site)
-	http.Redirect(w, r, "/tenants/"+url.PathEscape(t.ID), http.StatusSeeOther)
-}
-
-// tenantRemoveSite disconnects the tenant from one site.
-func (h *Handler) tenantRemoveSite(w http.ResponseWriter, r *http.Request) {
-	if !h.requireCSRF(w, r) {
-		return
-	}
-	t, ok := h.loadTenant(w, r)
-	if !ok {
-		return
-	}
-	site := r.PathValue("site")
-	if err := h.svc.Disconnect(r.Context(), t.ID, site); err != nil {
-		h.detailWithError(w, r, t, statusOf(err), err.Error())
-		return
-	}
-	h.log.Info("tenant disconnect started", "via", "ui", "tenant", t.ID, "site", site)
 	http.Redirect(w, r, "/tenants/"+url.PathEscape(t.ID), http.StatusSeeOther)
 }
 
