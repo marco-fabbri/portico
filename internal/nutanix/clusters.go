@@ -16,9 +16,10 @@ type Cluster struct {
 
 // StorageContainer is a storage container of some cluster.
 type StorageContainer struct {
-	ExtID    string
-	Name     string
-	IsSystem bool // SelfServiceContainer, NutanixManagementShare, NutanixMetadata
+	ExtID        string
+	Name         string
+	ClusterExtID string
+	IsSystem     bool // SelfServiceContainer, NutanixManagementShare, NutanixMetadata
 }
 
 // ListClusters returns the clusters with their function.
@@ -58,6 +59,7 @@ func (c *Client) ListStorageContainers(ctx context.Context) ([]StorageContainer,
 		ContainerExtID string `json:"containerExtId"`
 		ExtID          string `json:"extId"`
 		Name           string `json:"name"`
+		ClusterExtID   string `json:"clusterExtId"`
 	}
 	if err := c.listAll(ctx, PathClusterMgmt+"/config/storage-containers", nil, &raw); err != nil {
 		return nil, err
@@ -68,7 +70,7 @@ func (c *Client) ListStorageContainers(ctx context.Context) ([]StorageContainer,
 		if id == "" {
 			id = r.ExtID
 		}
-		sc := StorageContainer{ExtID: id, Name: r.Name}
+		sc := StorageContainer{ExtID: id, Name: r.Name, ClusterExtID: r.ClusterExtID}
 		switch r.Name {
 		case "SelfServiceContainer", "NutanixManagementShare", "NutanixMetadata":
 			sc.IsSystem = true

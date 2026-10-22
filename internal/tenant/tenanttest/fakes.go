@@ -59,6 +59,8 @@ type PC struct {
 	Creates     map[string]int      // method → count
 	Calls       int
 	FailOnce    map[string]error            // method → error returned once
+	Clusters    []nutanix.Cluster           // ListClusters
+	Containers  []nutanix.StorageContainer  // ListStorageContainers
 	GateCreate  *Gate                       // held by CreateProject when set
 	GateDelete  *Gate                       // held by DeleteUserGroup when set
 	RGCluster   map[string]string           // resource group extId → the cluster it was created on
@@ -559,4 +561,22 @@ func (k *KC) UserEnabled(id string) bool {
 		}
 	}
 	return false
+}
+
+func (p *PC) ListClusters(ctx context.Context) ([]nutanix.Cluster, error) {
+	if err := p.call("ListClusters"); err != nil {
+		return nil, err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]nutanix.Cluster(nil), p.Clusters...), nil
+}
+
+func (p *PC) ListStorageContainers(ctx context.Context) ([]nutanix.StorageContainer, error) {
+	if err := p.call("ListStorageContainers"); err != nil {
+		return nil, err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]nutanix.StorageContainer(nil), p.Containers...), nil
 }

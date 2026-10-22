@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -73,6 +74,8 @@ type PrismCentral interface {
 	DeleteRoleMembership(ctx context.Context, extID string) error
 	PoliciesMentioning(ctx context.Context, extID string) ([]string, error)
 	ProjectContents(ctx context.Context, projectExtID string) (nutanix.Contents, error)
+	ListClusters(ctx context.Context) ([]nutanix.Cluster, error)
+	ListStorageContainers(ctx context.Context) ([]nutanix.StorageContainer, error)
 }
 
 // NotEmptyError refuses a disconnect: the project still holds what
@@ -723,4 +726,70 @@ func (s *Service) CreateUser(ctx context.Context, id, email, firstName, lastName
 type Visibility struct {
 	OK       bool     `json:"ok"`
 	Findings []string `json:"findings"`
+}
+
+// Target is one choice in the cluster or storage container menu of a
+// connection; SiteDefault marks the site's default.
+type Target struct {
+	ExtID, Name, ClusterName string
+	SiteDefault              bool
+}
+
+// Targets are the menus offered when a tenant is connected to a site.
+type Targets struct {
+	Clusters, Containers []Target
+}
+
+// targetsTimeout bounds the two list calls behind the menus: a slow
+// Prism Central must not hold the admin page.
+const targetsTimeout = 10 * time.Second
+
+// Targets reads the site's AOS clusters and their non-system storage
+// containers, the site's defaults marked and first. When Prism Central
+// cannot be read it returns the defaults alone with the error, so the
+// page can still offer them.
+func (s *Service) Targets(ctx context.Context, siteID string) (Targets, error) {
+	site, ok := s.sites[siteID]
+	if !ok {
+		return Targets{}, ErrUnknownSite
+	}
+	defaults := Targets{}
+	if site.ClusterExtID != "" {
+		defaults.Clusters = []Target{{ExtID: site.ClusterExtID, SiteDefault: true}}
+	}
+	if site.StorageContainerExtID != "" {
+		defaults.Containers = []Target{{ExtID: site.StorageContainerExtID, SiteDefault: true}}
+	}
+	ctx, cancel := context.WithTimeout(ctx, targetsTimeout)
+	defer cancel()
+	cls, err := site.PC.ListClusters(ctx)
+	if err != nil {
+		return defaults, err
+	}
+	scs, err := site.PC.ListStorageContainers(ctx)
+	if err != nil {
+		return defaults, err
+	}
+	var out Targets
+	names := map[string]string{}
+	for _, cl := range cls {
+		if !cl.IsAOS {
+			continue
+		}
+		names[cl.ExtID] = cl.Name
+		out.Clusters = append(out.Clusters, Target{ExtID: cl.ExtID, Name: cl.Name, SiteDefault: cl.ExtID == site.ClusterExtID})
+	}
+	for _, sc := range scs {
+		name, aos := names[sc.ClusterExtID]
+		if sc.IsSystem || !aos {
+			continue
+		}
+		out.Containers = append(out.Containers, Target{ExtID: sc.ExtID, Name: sc.Name, ClusterName: name, SiteDefault: sc.ExtID == site.StorageContainerExtID})
+	}
+	defaultFirst := func(ts []Target) {
+		sort.SliceStable(ts, func(i, j int) bool { return ts[i].SiteDefault && !ts[j].SiteDefault })
+	}
+	defaultFirst(out.Clusters)
+	defaultFirst(out.Containers)
+	return out, nil
 }
