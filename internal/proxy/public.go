@@ -95,6 +95,17 @@ func NewPublic(o PublicOptions) http.Handler {
 	// (Milestone 2c), then allow-list, then proxy.
 	prismAllowed := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sess, _ := auth.SessionFromContext(r.Context())
+		// The console's Sign Out needs only the session, so it comes before
+		// the routing: a tenant with several sites and no site chosen (a
+		// stale console tab) is still signed out of that site only.
+		if o.Landing.interceptsSignOut(r) {
+			if o.Sites.multiple(r.Context(), sess.Tenant) {
+				o.Sites.leaveSite(w, r, sess)
+				return
+			}
+			o.Landing.signOut(w, r)
+			return
+		}
 		b, ok := o.Sites.route(w, r, sess)
 		if !ok {
 			return
@@ -105,10 +116,6 @@ func NewPublic(o PublicOptions) http.Handler {
 				l.SwitchURL = sitesPath
 			}
 			l.landing(w, r)
-			return
-		}
-		if l.interceptsSignOut(r) {
-			l.signOut(w, r)
 			return
 		}
 		if rule, ok := o.Policy.Allowed(r); !ok {

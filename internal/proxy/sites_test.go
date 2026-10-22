@@ -28,6 +28,9 @@ type sitesHarness struct {
 	placements map[string][]string // tenant → active sites
 	status     map[string]sites.Status
 	log        *bytes.Buffer
+	routing    *SiteRouting
+	auth       *auth.Authenticator
+	keycloak   http.Handler
 }
 
 func newSitesHarness(t *testing.T) *sitesHarness {
@@ -59,13 +62,28 @@ func newSitesHarness(t *testing.T) *sitesHarness {
 			defer h.mu.Unlock()
 			return h.status[id]
 		},
-		SetSite: h.store.SetSite,
-		Pages:   pages,
+		SetSite:   h.store.SetSite,
+		LeaveSite: h.store.LeaveSite,
+		Pages:     pages,
 	}
+	h.routing, h.auth, h.keycloak = routing, a, upstreamFor(t, kcUp.URL, "id.test")
 	h.handler = NewPublic(PublicOptions{
 		PrismHost: "prism.test", IDHost: "id.test",
-		Sites: routing, Keycloak: upstreamFor(t, kcUp.URL, "id.test"), Auth: a,
+		Sites: routing, Keycloak: h.keycloak, Auth: a,
 		Policy: PrismPolicy{AllowPrefixes: config.DefaultAllowPrefixes}, Log: log,
+	})
+	return h
+}
+
+// withLanding rebuilds the handler with the landing page on, which is
+// what intercepts the console's Sign Out.
+func (h *sitesHarness) withLanding() *sitesHarness {
+	log := slog.New(slog.NewJSONHandler(h.log, nil))
+	h.handler = NewPublic(PublicOptions{
+		PrismHost: "prism.test", IDHost: "id.test",
+		Sites: h.routing, Keycloak: h.keycloak, Auth: h.auth,
+		Policy: PrismPolicy{AllowPrefixes: config.DefaultAllowPrefixes}, Log: log,
+		Landing: &LandingOptions{Pages: h.routing.Pages, Logo: func(context.Context) ([]byte, string, bool) { return nil, "", false }, PrismHost: "prism.test"},
 	})
 	return h
 }
@@ -337,5 +355,108 @@ func TestLandingUsesSiteIdP(t *testing.T) {
 	rec = h.do("GET", "/.portico/saml-start", "s1", map[string]string{"Cookie": auth.SessionCookie + "=s1; iam-sessionid=abc"}, nil)
 	if rec.Code != 302 || rec.Header().Get("Location") != "/api/iam/authn/initiate-login" || len(pb.puts) != 1 || pb.puts[0] != "idp-b" || len(pa.puts) != 0 {
 		t.Fatalf("saml-start on site-b: %d %q a=%v b=%v", rec.Code, rec.Header().Get("Location"), pa.puts, pb.puts)
+	}
+}
+
+// signOut is the console's Sign Out tail with live Prism Central cookies of
+// the session's site and a stash of site-b.
+func (h *sitesHarness) signOut(sid string) *httptest.ResponseRecorder {
+	return h.do("GET", "/redirect?logout=https%3A%2F%2Fprism.test%2F", sid, map[string]string{
+		"Accept": "text/html",
+		"Cookie": "NTNX_SESSION_ID=x; " + StashName("site-b", "NTNX_SESSION_ID") + "=y",
+	}, nil)
+}
+
+// setCookie returns the Set-Cookie header for name, "" when none.
+func setCookie(rec *httptest.ResponseRecorder, name string) string {
+	for _, c := range rec.Result().Header.Values("Set-Cookie") {
+		if strings.HasPrefix(c, name+"=") {
+			return c
+		}
+	}
+	return ""
+}
+
+func TestSignOutWithSeveralSitesReturnsToSitePage(t *testing.T) {
+	h := newSitesHarness(t).withLanding()
+	h.session("s1", "acme", "site-a")
+	h.store.SetSite("s1", "site-a", time.Now())
+	rec := h.signOut("s1")
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/.portico/sites" {
+		t.Fatalf("sign-out with two sites: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if c := setCookie(rec, "NTNX_SESSION_ID"); !strings.Contains(c, "Max-Age=0") {
+		t.Errorf("the site's live cookie is not expired: %q", c)
+	}
+	if c := setCookie(rec, StashName("site-b", "NTNX_SESSION_ID")); c != "" {
+		t.Errorf("another site's stash was touched: %q", c)
+	}
+	if c := setCookie(rec, auth.SessionCookie); c != "" {
+		t.Errorf("the Portico session cookie was touched: %q", c)
+	}
+	s, ok := h.store.Get("s1", time.Now())
+	if !ok || s.Site != "" || s.CookieSite != "site-a" {
+		t.Fatalf("session after a site sign-out: ok=%v site=%q cookieSite=%q", ok, s.Site, s.CookieSite)
+	}
+	if !strings.Contains(h.log.String(), `"sign-out-site"`) {
+		t.Errorf("access log lacks the rule: %s", h.log.String())
+	}
+	if len(*h.a)+len(*h.b) != 0 {
+		t.Error("the sign-out reached a Prism Central")
+	}
+}
+
+func TestSignOutWithoutChosenSiteStillGoesToSitePage(t *testing.T) {
+	h := newSitesHarness(t).withLanding()
+	h.session("s1", "acme", "")
+	rec := h.signOut("s1")
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/.portico/sites" {
+		t.Fatalf("sign-out without a chosen site: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if c := setCookie(rec, "NTNX_SESSION_ID"); !strings.Contains(c, "Max-Age=0") {
+		t.Errorf("the live Prism Central cookie is not expired: %q", c)
+	}
+	if _, ok := h.store.Get("s1", time.Now()); !ok {
+		t.Fatal("the Portico session ended")
+	}
+}
+
+func TestSignOutWithOneSiteSignsOutOfEverything(t *testing.T) {
+	h := newSitesHarness(t).withLanding()
+	h.session("s1", "solo", "site-a")
+	rec := h.signOut("s1")
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/.portico/logout" {
+		t.Fatalf("sign-out with one site: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+func TestSignOutAfterOtherPlacementsRemoved(t *testing.T) {
+	h := newSitesHarness(t).withLanding()
+	h.session("s1", "acme", "site-a")
+	h.mu.Lock()
+	h.placements["acme"] = []string{"site-a"}
+	h.mu.Unlock()
+	rec := h.signOut("s1")
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/.portico/logout" {
+		t.Fatalf("sign-out with one site left: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+// After a site sign-out the other site's stash still comes back on the
+// next choice: no new password there (Review Focus 1).
+func TestSignOutThenOtherSiteRestoresItsStash(t *testing.T) {
+	h := newSitesHarness(t).withLanding()
+	h.session("s1", "acme", "site-a")
+	h.store.SetSite("s1", "site-a", time.Now())
+	h.signOut("s1")
+	rec := h.do("POST", "/.portico/sites/select", "s1", map[string]string{
+		"Accept": "text/html", "Sec-Fetch-Site": "same-origin",
+		"Cookie": StashName("site-b", "NTNX_SESSION_ID") + "=y",
+	}, url.Values{"site": {"site-b"}})
+	if rec.Code != http.StatusSeeOther || h.site("s1") != "site-b" {
+		t.Fatalf("choosing site-b after the sign-out: %d site=%q", rec.Code, h.site("s1"))
+	}
+	if c := setCookie(rec, "NTNX_SESSION_ID"); !strings.HasPrefix(c, "NTNX_SESSION_ID=y") {
+		t.Fatalf("site-b's cookie was not restored: %q", c)
 	}
 }

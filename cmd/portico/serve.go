@@ -315,6 +315,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			Placements:  placements.Sites,
 			Status:      monitor.Status,
 			SetSite:     sessions.SetSite,
+			LeaveSite:   sessions.LeaveSite,
 			StashMaxAge: cfg.Session.MaxAge,
 			Pages:       pages,
 		},

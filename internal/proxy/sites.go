@@ -35,6 +35,9 @@ type SiteRouting struct {
 	Placements func(ctx context.Context, tenantID string) ([]string, error)
 	Status     func(siteID string) sites.Status
 	SetSite    func(sessionID, siteID string, now time.Time) bool
+	// LeaveSite takes a session off its site, keeping the Portico session
+	// (the console's Sign Out with several sites).
+	LeaveSite func(sessionID string, now time.Time) bool
 	// Switch runs in the response that moves a session from one site to
 	// another; NewPublic sets the cookie stash when it is nil.
 	Switch func(w http.ResponseWriter, r *http.Request, from, to string)
@@ -226,4 +229,28 @@ func (s *SiteRouting) selectSite(w http.ResponseWriter, r *http.Request) {
 func (s *SiteRouting) multiple(ctx context.Context, tenant string) bool {
 	bs, err := s.allowed(ctx, tenant)
 	return err == nil && len(bs) > 1
+}
+
+// leaveSite is the console's Sign Out of a tenant with several sites
+// (design sites usability 4.7): it ends that site only. The live Prism
+// Central cookies are expired, the other sites' stashes and Portico's
+// cookies are left alone, the session leaves its site and the browser
+// goes to the site page, where Sign out ends everything.
+func (s *SiteRouting) leaveSite(w http.ResponseWriter, r *http.Request, sess auth.Session) {
+	setRule(r, "sign-out-site")
+	for _, c := range r.Cookies() {
+		if isPorticoCookie(c.Name) {
+			continue
+		}
+		if _, _, ok := parseStash(c.Name); ok {
+			continue
+		}
+		http.SetCookie(w, &http.Cookie{Name: c.Name, Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	}
+	if s.LeaveSite != nil && !s.LeaveSite(sess.ID, time.Now()) {
+		Refuse(w, http.StatusUnauthorized, "session-gone", "portico session required")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, sitesPath, http.StatusSeeOther)
 }
