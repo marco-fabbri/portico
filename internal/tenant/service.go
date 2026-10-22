@@ -31,8 +31,9 @@ var (
 	ErrUnknownSite = errors.New("tenant: no such site")
 	// ErrNoSites: no site named while several are configured.
 	ErrNoSites = errors.New("tenant: name the sites to place the tenant on")
-	// ErrLastSite: a tenant keeps at least one site; delete the tenant instead.
-	ErrLastSite = errors.New("tenant: this is the tenant's last site; delete the tenant instead")
+	// ErrCount: the project's contents could not be counted, so a
+	// disconnect is refused (an unknown is not an empty).
+	ErrCount = errors.New("the project's contents could not be counted")
 	// ErrPlacementExists: the tenant is already on that site.
 	ErrPlacementExists = errors.New("tenant: already placed on this site")
 	// ErrNoPlacementTarget: neither the request nor the site names a cluster and a storage container.
@@ -44,6 +45,7 @@ var (
 // placement of new tenants.
 type Site struct {
 	ID, Code                            string
+	URL                                 string // Prism Central's address, for links in the admin UI
 	PC                                  PrismCentral
 	SAMLIdPName                         string
 	ClusterExtID, StorageContainerExtID string
@@ -69,6 +71,19 @@ type PrismCentral interface {
 	CreateRoleMembership(ctx context.Context, groupExtID, idpExtID, projectExtID, roleExtID string) (*nutanix.RoleMembership, error)
 	DeleteRoleMembership(ctx context.Context, extID string) error
 	PoliciesMentioning(ctx context.Context, extID string) ([]string, error)
+	ProjectContents(ctx context.Context, projectExtID string) (nutanix.Contents, error)
+}
+
+// NotEmptyError refuses a disconnect: the project still holds what
+// Contents names (design sites usability 4.6). Emptying it is the MSP's
+// work, in Prism Central.
+type NotEmptyError struct {
+	Site, Project, URL string
+	Contents           nutanix.Contents
+}
+
+func (e *NotEmptyError) Error() string {
+	return fmt.Sprintf("the project %s on %s still holds %s: empty it in Prism Central first", e.Project, e.Site, e.Contents)
 }
 
 // Keycloak is the part of the Keycloak admin client the service uses.
@@ -368,10 +383,39 @@ func (s *Service) setPlacementStatus(ctx context.Context, id, siteID string, fro
 	return nil
 }
 
-// RemoveSite takes a tenant off one site in the background: the 2a
-// deletion steps on that site, the project too when deleteProject is
-// set, then the placement row. The last site cannot be removed.
-func (s *Service) RemoveSite(ctx context.Context, id, siteID string, deleteProject bool) error {
+// Contents counts what the tenant's project holds on one site, with the
+// service account (write-up 24, item 1).
+func (s *Service) Contents(ctx context.Context, id, siteID string) (nutanix.Contents, error) {
+	site, err := s.site(siteID)
+	if err != nil {
+		return nutanix.Contents{}, fmt.Errorf("%w: %q", ErrUnknownSite, siteID)
+	}
+	p, err := s.st.GetPlacement(ctx, id, siteID)
+	if err != nil {
+		return nutanix.Contents{}, err
+	}
+	if p.ProjectExtID == "" {
+		return nutanix.Contents{Counts: map[string]int{}}, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.OperationTimeout)
+	defer cancel()
+	c, err := site.PC.ProjectContents(ctx, p.ProjectExtID)
+	if err != nil {
+		return nutanix.Contents{}, fmt.Errorf("%w on %s: %v", ErrCount, site.Code, err)
+	}
+	return c, nil
+}
+
+// Disconnect takes a tenant off one site (design sites usability 4.6).
+// It counts what the project holds first and refuses, with a
+// *NotEmptyError, when anything is there, or with ErrCount when the
+// count fails. With an empty project it removes, in the background, the
+// role memberships, the identity provider's sharing, the SAML group, the
+// resource group and the project, then the connection. Prism Central's
+// own refusal to delete a project that still holds something (a kind
+// Portico cannot count) ends the connection remove-failed; RetrySite
+// runs the disconnect again. The last site can be disconnected.
+func (s *Service) Disconnect(ctx context.Context, id, siteID string) error {
 	if _, err := s.st.GetTenant(ctx, id); err != nil {
 		return err
 	}
@@ -379,15 +423,23 @@ func (s *Service) RemoveSite(ctx context.Context, id, siteID string, deleteProje
 	if err != nil {
 		return err
 	}
-	ps, err := s.st.ListPlacements(ctx, id)
-	if err != nil {
-		return err
-	}
-	if len(ps) <= 1 {
-		return ErrLastSite
+	switch p.Status {
+	case store.PlacementActive, store.PlacementSuspended, store.PlacementFailed, store.PlacementRemoveFailed:
+	default:
+		return fmt.Errorf("%w: the connection to %s is %s", ErrState, s.SiteCode(siteID), p.Status)
 	}
 	if !s.acquire(id) {
 		return ErrBusy
+	}
+	c, err := s.Contents(ctx, id, siteID)
+	if err != nil {
+		s.release(id)
+		return err
+	}
+	if !c.Empty() {
+		s.release(id)
+		site, _ := s.site(siteID)
+		return &NotEmptyError{Site: site.Code, Project: p.ProjectID, URL: site.URL, Contents: c}
 	}
 	p.Status, p.LastError = store.PlacementRemoving, ""
 	if err := s.st.UpdatePlacement(ctx, p); err != nil {
@@ -395,10 +447,47 @@ func (s *Service) RemoveSite(ctx context.Context, id, siteID string, deleteProje
 		return err
 	}
 	s.changed(id)
-	s.background(id, "remove-site", func(ctx context.Context) error {
+	s.background(id, "disconnect", func(ctx context.Context) error {
 		defer s.changed(id)
-		return s.removePlacement(ctx, id, siteID, deleteProject)
+		return s.removePlacement(ctx, id, siteID, true)
 	})
+	return nil
+}
+
+// RetrySite retries one connection only (design sites usability 4.4): a
+// failed one is provisioned again, one whose disconnect failed is
+// disconnected again (counting first).
+func (s *Service) RetrySite(ctx context.Context, id, siteID string) error {
+	t, err := s.st.GetTenant(ctx, id)
+	if err != nil {
+		return err
+	}
+	p, err := s.st.GetPlacement(ctx, id, siteID)
+	if err != nil {
+		return err
+	}
+	switch p.Status {
+	case store.PlacementRemoveFailed:
+		return s.Disconnect(ctx, id, siteID)
+	case store.PlacementFailed:
+	default:
+		return fmt.Errorf("%w: the connection to %s is %s", ErrState, s.SiteCode(siteID), p.Status)
+	}
+	keepStatus := true
+	switch t.Status {
+	case store.StatusActive, store.StatusDisabled:
+	case store.StatusFailed:
+		if t.LastOp == store.OpDelete {
+			return fmt.Errorf("%w: the last operation was a deletion that failed; delete the tenant again", ErrState)
+		}
+		keepStatus = false
+	default:
+		return fmt.Errorf("%w: %s", ErrState, t.Status)
+	}
+	if !s.acquire(id) {
+		return ErrBusy
+	}
+	s.background(id, store.OpProvision, func(ctx context.Context) error { return s.provisionSites(ctx, id, keepStatus, siteID) })
 	return nil
 }
 

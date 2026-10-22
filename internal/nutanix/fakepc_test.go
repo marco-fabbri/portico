@@ -21,6 +21,7 @@ type fakePC struct {
 	etag   string
 	fail   map[string]int // "METHOD path" → status to answer with an error body
 	status string         // task status after polls
+	totals map[string]int // list path → metadata.totalAvailableResults
 	iamSt  *iamState      // service account, key and policy (bootstrap_test.go)
 }
 
@@ -31,7 +32,7 @@ type recorded struct {
 }
 
 func newFakePC(t *testing.T) *fakePC {
-	f := &fakePC{t: t, key: "k-secret-123", etag: `"etag-abc"`, fail: map[string]int{}, status: "SUCCEEDED"}
+	f := &fakePC{t: t, key: "k-secret-123", etag: `"etag-abc"`, fail: map[string]int{}, status: "SUCCEEDED", totals: map[string]int{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -72,6 +73,11 @@ func (f *fakePC) handle(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "metadata": map[string]any{"totalAvailableResults": 1}})
 	}
 	p := r.URL.Path
+	if n, ok := f.totals[p]; ok {
+		w.WriteHeader(200)
+		json.NewEncoder(w).Encode(map[string]any{"data": []any{}, "metadata": map[string]any{"totalAvailableResults": n}})
+		return
+	}
 	if f.handleIAM(w, r, rec, reply) {
 		return
 	}

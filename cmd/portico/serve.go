@@ -229,7 +229,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		if err != nil {
 			return fmt.Errorf("site %s: %w", site.ID, err)
 		}
-		tenantSites = append(tenantSites, tenant.Site{ID: site.ID, Code: site.Code, PC: c, SAMLIdPName: site.SAMLIdPName,
+		tenantSites = append(tenantSites, tenant.Site{ID: site.ID, Code: site.Code, URL: site.URL, PC: c, SAMLIdPName: site.SAMLIdPName,
 			ClusterExtID: site.ClusterExtID, StorageContainerExtID: site.StorageContainerExtID})
 		probes[site.ID] = func(ctx context.Context) error {
 			_, err := c.PrismCentralVersion(ctx)
