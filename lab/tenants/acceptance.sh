@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Milestone 2a acceptance (write-up 11): create a tenant through Portico's
 # admin API on NTNX-01, check it from Prism Central as the service account,
-# create its first user, disable and enable it; with --delete, remove it
-# with its project and verify nothing is left (and _internal unchanged).
+# create its first user, disable and enable it; with --delete, disconnect
+# it from every site (each project deleted), delete it (its Keycloak users
+# and group) and verify nothing is left (and _internal unchanged).
 # Prints one line per check: got (expected). Exit 1 on any mismatch.
 #   source lab/env.sh && lab/tenants/acceptance.sh [--delete]
 # Tenant slug "tenant-b" → project portico-lab-tenant-b (lab prefix) and
@@ -86,9 +87,23 @@ if [ "${1:-}" != "--delete" ]; then
   echo "browser check pending: log in as $email on https://$LAB_PRISM_HOST/ (then run with --delete)"
 else
   snap_internal "$tmp/internal-before.json"
-  code=$(api DELETE "/api/v1/tenants/$slug?delete_project=true")
+  # A tenant is deleted only once it is connected to no site: disconnect
+  # each (Portico deletes the empty project), wait until none is left.
+  code=$(api GET "/api/v1/tenants/$slug")
+  if [ "$code" = 200 ]; then
+    for site in $(jq -r '.placements[]?.site' "$tmp/out"); do
+      line "DELETE /sites/$site" "$(api DELETE "/api/v1/tenants/$slug/sites/$site")" 202
+    done
+    waited=0
+    while api GET "/api/v1/tenants/$slug" >/dev/null && [ "$(jq '.placements // [] | length' "$tmp/out")" -gt 0 ] && [ "$waited" -lt 900 ]; do
+      [ "$(jq -r '[.placements[]?.status] | index("remove-failed") != null' "$tmp/out")" = true ] && break
+      sleep 10; waited=$((waited + 10))
+    done
+    line "connections left after disconnecting" "$(jq '.placements // [] | length' "$tmp/out")" 0
+  fi
+  code=$(api DELETE "/api/v1/tenants/$slug")
   [ "$code" = 404 ] && { echo "     tenant already absent, cleaning the rest"; code=202; }
-  line "DELETE ?delete_project=true" "$code" 202
+  line "DELETE tenant" "$code" 202
   line "tenant row after deletion" "$(wait_status gone 900)" gone
   line "project $project in Prism Central after deletion" "$(gone project_extid "$project")" absent
   line "SAML group $group after deletion" "$(gone user_group_extid "$group")" absent
@@ -96,10 +111,8 @@ else
   line "Keycloak group $group after deletion" "$kg" 0
   snap_internal "$tmp/internal-after.json"
   line "_internal project unchanged" "$(diff -q "$tmp/internal-before.json" "$tmp/internal-after.json" >/dev/null && echo yes || echo no)" yes
-  # The test user is removed too, so the next run creates it again with a
-  # fresh temporary password (Portico itself leaves tenant users in place).
-  uid=$(lab/saml/kc.sh GET "/$REALM/users?email=$email&exact=true" 2>/dev/null | jq -r '.[0].id // empty')
-  [ -n "$uid" ] && lab/saml/kc.sh DELETE "/$REALM/users/$uid" >/dev/null 2>&1
+  # Portico deletes the tenant's users with its group, so the next run
+  # creates the test user again with a fresh temporary password.
   line "Keycloak test user $email removed" "$(lab/saml/kc.sh GET "/$REALM/users?email=$email&exact=true" 2>/dev/null | jq -r 'length')" 0
   rm -f "$pwfile"
 fi

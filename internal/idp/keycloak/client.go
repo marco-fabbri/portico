@@ -242,6 +242,15 @@ func (c *Client) DeleteGroup(ctx context.Context, id string) error {
 	return err
 }
 
+// DeleteUser deletes a user; an absent user is not an error.
+func (c *Client) DeleteUser(ctx context.Context, id string) error {
+	_, _, err := c.do(ctx, http.MethodDelete, "/users/"+url.PathEscape(id), nil, nil, nil)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
 // FindUserByEmail returns the user with exactly that email.
 func (c *Client) FindUserByEmail(ctx context.Context, email string) (*User, error) {
 	var users []User
