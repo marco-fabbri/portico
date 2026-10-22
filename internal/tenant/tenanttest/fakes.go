@@ -136,7 +136,7 @@ func (p *PC) CreateProject(ctx context.Context, id, name, description string) (*
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.Creates["CreateProject"]++
-	pr := nutanix.Project{ExtID: p.next("p"), ID: id, Name: name}
+	pr := nutanix.Project{ExtID: p.next("p"), ID: id, Name: name, Description: description}
 	p.Projects = append(p.Projects, pr)
 	return &pr, nil
 }
@@ -282,7 +282,7 @@ func (p *PC) CreateUserGroup(ctx context.Context, name, idpExtID string) (*nutan
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.Creates["CreateUserGroup"]++
-	g := nutanix.UserGroup{ExtID: p.next("g"), Name: name}
+	g := nutanix.UserGroup{ExtID: p.next("g"), Name: name, IdPExtID: idpExtID}
 	p.Groups = append(p.Groups, g)
 	return &g, nil
 }

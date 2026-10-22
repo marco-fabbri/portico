@@ -80,3 +80,21 @@ func TestStorageContainersCarryCluster(t *testing.T) {
 		t.Fatalf("containers = %+v", got)
 	}
 }
+
+func TestProjectContentsMissingAPIIsUncounted(t *testing.T) {
+	f := newFakePC(t)
+	for _, k := range contentKinds {
+		f.totals[k.path] = 0
+	}
+	delete(f.totals, "/api/dataprotection/v4.0/config/recovery-points")
+	f.fail["GET /api/dataprotection/v4.0/config/recovery-points"] = 404
+	delete(f.totals, "/api/networking/v4.0/config/vpcs")
+	f.fail["GET /api/networking/v4.0/config/vpcs"] = 501
+	got, err := newClient(t, f, nil).ProjectContents(context.Background(), "p-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Uncounted) != 2 || !got.Empty() {
+		t.Fatalf("contents = %+v", got)
+	}
+}
