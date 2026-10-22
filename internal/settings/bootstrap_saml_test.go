@@ -130,3 +130,27 @@ func TestSAMLBootstrapPreconditions(t *testing.T) {
 		t.Fatalf("credentials instead of the key: %+v %v", res, err)
 	}
 }
+
+// Keycloak's SAML backchannel logout goes to the client's admin URL, the
+// public Prism Central name, which the Keycloak container cannot resolve
+// and which Portico would refuse without a session anyway (write-up 24):
+// the client has none, and a client left by an older bootstrap loses it
+// when the bootstrap runs again.
+func TestSAMLClientHasNoBackchannelLogoutURL(t *testing.T) {
+	pc, kc, s := samlEnv(t)
+	_ = pc
+	res, _, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{})
+	if err != nil || !res.OK {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if cl := kc.client(res.EntityID); cl["adminUrl"] != "" {
+		t.Fatalf("adminUrl = %v, want empty", cl["adminUrl"])
+	}
+	kc.client(res.EntityID)["adminUrl"] = "https://prism.example.test/api/iam/authn/callback"
+	if res, _, err = NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{}); err != nil || !res.OK {
+		t.Fatalf("second run: res=%+v err=%v", res, err)
+	}
+	if cl := kc.client(res.EntityID); cl["adminUrl"] != "" {
+		t.Fatalf("adminUrl after a second run = %v, want empty", cl["adminUrl"])
+	}
+}

@@ -160,9 +160,13 @@ func (b *Bootstrapper) SAML(ctx context.Context, keycloakURL string, s Settings,
 	res.EntityID, res.ACSURL, res.KeycloakClientID = entityID, acs, entityID
 
 	// Keycloak: the SAML client Prism Central's SP metadata describes
-	// (write-up 04; no single logout, write-up 13).
+	// (write-up 04; no single logout, write-up 13). No admin URL: Keycloak
+	// sends its SAML backchannel logout there, to the public Prism Central
+	// name, which its container cannot resolve and Portico would refuse
+	// without a session (write-up 24); Portico's logout expires Prism
+	// Central's cookies instead.
 	rep := map[string]any{"clientId": entityID, "protocol": "saml", "enabled": true, "name": "Prism Central",
-		"redirectUris": []string{acs}, "baseUrl": acs, "adminUrl": acs, "frontchannelLogout": false,
+		"redirectUris": []string{acs}, "baseUrl": acs, "adminUrl": "", "frontchannelLogout": false,
 		"attributes": map[string]string{
 			"saml.assertion.signature": "true", "saml.server.signature": "true", "saml.client.signature": "false",
 			"saml.force.post.binding": "true", "saml.authnstatement": "true", "saml_name_id_format": "email",
