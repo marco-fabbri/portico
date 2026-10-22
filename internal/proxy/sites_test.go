@@ -26,7 +26,8 @@ type sitesHarness struct {
 	a, b       *[]recorded
 	store      *auth.MemoryStore
 	mu         sync.Mutex
-	placements map[string][]string // tenant → active sites
+	placements map[string][]string        // tenant → connected sites
+	suspended  map[string]map[string]bool // tenant → site → suspended
 	status     map[string]sites.Status
 	log        *bytes.Buffer
 	routing    *SiteRouting
@@ -41,7 +42,8 @@ func newSitesHarness(t *testing.T) *sitesHarness {
 	kcUp, _ := recordingUpstream(t, false, nil)
 	h := &sitesHarness{a: gotA, b: gotB, store: auth.NewMemoryStore(8*time.Hour, 15*time.Minute), log: &bytes.Buffer{},
 		placements: map[string][]string{"acme": {"site-a", "site-b"}, "solo": {"site-a"}},
-		status:     map[string]sites.Status{"site-a": sites.Available, "site-b": sites.Available}}
+		status:     map[string]sites.Status{"site-a": sites.Available, "site-b": sites.Available},
+		suspended:  map[string]map[string]bool{}}
 	log := slog.New(slog.NewJSONHandler(h.log, nil))
 	a := auth.NewAuthenticator(auth.OIDCConfig{
 		Issuer: "https://id.test/realms/x", DiscoveryURL: "https://127.0.0.1:1/realms/x",
@@ -53,10 +55,14 @@ func newSitesHarness(t *testing.T) *sitesHarness {
 			"site-a": {ID: "site-a", Code: "AZ-IT-MI1", Name: "Milan", Order: 1, Upstream: upstreamFor(t, upA.URL, "prism.test")},
 			"site-b": {ID: "site-b", Code: "AZ-US-NYC1", Name: "New York", Order: 2, Upstream: upstreamFor(t, upB.URL, "prism.test")},
 		},
-		Placements: func(ctx context.Context, tenant string) ([]string, error) {
+		Connections: func(ctx context.Context, tenant string) ([]sites.Connection, error) {
 			h.mu.Lock()
 			defer h.mu.Unlock()
-			return h.placements[tenant], nil
+			var out []sites.Connection
+			for _, id := range h.placements[tenant] {
+				out = append(out, sites.Connection{SiteID: id, Suspended: h.suspended[tenant][id]})
+			}
+			return out, nil
 		},
 		Status: func(id string) sites.Status {
 			h.mu.Lock()
@@ -333,8 +339,10 @@ func TestLandingUsesSiteIdP(t *testing.T) {
 	pa, pb := mk("idp-a"), mk("idp-b")
 	h := newSitesHarness(t)
 	routing := &SiteRouting{Backends: map[string]*SiteBackend{}, SetSite: h.store.SetSite,
-		Placements: func(context.Context, string) ([]string, error) { return []string{"site-a", "site-b"}, nil },
-		Status:     func(string) sites.Status { return sites.Available }}
+		Connections: func(context.Context, string) ([]sites.Connection, error) {
+			return []sites.Connection{{SiteID: "site-a"}, {SiteID: "site-b"}}, nil
+		},
+		Status: func(string) sites.Status { return sites.Available }}
 	for id, p := range map[string]*pc{"site-a": pa, "site-b": pb} {
 		base, _ := url.Parse(p.srv.URL)
 		idp := map[string]string{"site-a": "idp-a", "site-b": "idp-b"}[id]
@@ -498,5 +506,77 @@ func TestSitePageSignOutDelay(t *testing.T) {
 		if got := SitePageSignOut(idle); got != want {
 			t.Errorf("SitePageSignOut(%v) = %v, want %v", idle, got, want)
 		}
+	}
+}
+
+func (h *sitesHarness) suspend(tenant, site string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.suspended[tenant] == nil {
+		h.suspended[tenant] = map[string]bool{}
+	}
+	h.suspended[tenant][site] = true
+}
+
+func TestSuspendedSiteIsAGreyTile(t *testing.T) {
+	h := newSitesHarness(t)
+	h.suspend("acme", "site-b")
+	h.session("s1", "acme", "")
+	rec := h.do("GET", "/.portico/sites", "s1", nav, nil)
+	body := rec.Body.String()
+	if rec.Code != 200 || !strings.Contains(body, `value="site-b" disabled`) || !strings.Contains(body, "Not available") {
+		t.Fatalf("suspended tile: %d\n%s", rec.Code, body)
+	}
+}
+
+func TestSelectSuspendedSiteRefused(t *testing.T) {
+	h := newSitesHarness(t)
+	h.suspend("acme", "site-b")
+	h.session("s1", "acme", "")
+	rec := h.do("POST", "/.portico/sites/select", "s1", nil, url.Values{"site": {"site-b"}})
+	if rec.Code != 403 || rec.Header().Get("X-Portico-Rule") != "site-not-allowed" || h.site("s1") != "" {
+		t.Fatalf("select suspended: %d %q site=%q", rec.Code, rec.Body.String(), h.site("s1"))
+	}
+}
+
+func TestSessionOnSuspendedSiteNavigationGoesToSitePage(t *testing.T) {
+	h := newSitesHarness(t)
+	h.session("s1", "acme", "site-b")
+	h.suspend("acme", "site-b")
+	rec := h.do("GET", "/console/", "s1", nav, nil)
+	if rec.Code != 303 || rec.Header().Get("Location") != "/.portico/sites" || len(*h.b) != 0 {
+		t.Fatalf("navigation on a suspended site: %d %q upstream=%d", rec.Code, rec.Header().Get("Location"), len(*h.b))
+	}
+}
+
+func TestSessionOnSuspendedSiteXHRRefused(t *testing.T) {
+	h := newSitesHarness(t)
+	h.session("s1", "acme", "site-b")
+	h.suspend("acme", "site-b")
+	rec := h.do("GET", "/api/x", "s1", nil, nil)
+	if rec.Code != 403 || rec.Header().Get("X-Portico-Rule") != "site-suspended" || len(*h.b) != 0 {
+		t.Fatalf("XHR on a suspended site: %d %q upstream=%d", rec.Code, rec.Body.String(), len(*h.b))
+	}
+}
+
+func TestOnlySuspendedSiteShowsNotAvailable(t *testing.T) {
+	h := newSitesHarness(t)
+	h.session("s1", "solo", "site-a")
+	h.suspend("solo", "site-a")
+	rec := h.do("GET", "/console/", "s1", nav, nil)
+	if rec.Code != 503 || !strings.Contains(rec.Body.String(), "AZ-IT-MI1 is not available at the moment") || len(*h.a) != 0 {
+		t.Fatalf("only site suspended: %d upstream=%d\n%s", rec.Code, len(*h.a), rec.Body.String())
+	}
+}
+
+func TestActivePlusSuspendedIsSeveralSites(t *testing.T) {
+	h := newSitesHarness(t).withLanding()
+	h.suspend("acme", "site-b")
+	h.session("s1", "acme", "")
+	if rec := h.do("GET", "/console/", "s1", nav, nil); rec.Code != 303 || rec.Header().Get("Location") != "/.portico/sites" || h.site("s1") != "" {
+		t.Fatalf("active plus suspended was auto-routed: %d %q site=%q", rec.Code, rec.Header().Get("Location"), h.site("s1"))
+	}
+	if rec := h.signOut("s1"); rec.Code != 303 || rec.Header().Get("Location") != "/.portico/sites" {
+		t.Fatalf("sign-out with active plus suspended: %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 }
