@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/marco-fabbri/portico/internal/branding"
+	"github.com/marco-fabbri/portico/internal/nutanix"
 	"github.com/marco-fabbri/portico/internal/store"
 	"github.com/marco-fabbri/portico/internal/tenant"
 	"github.com/marco-fabbri/portico/internal/tenant/tenanttest"
@@ -90,19 +91,13 @@ func TestTenantAPIAddRemoveSite(t *testing.T) {
 	if len(pcB.Memberships) != 1 {
 		t.Fatalf("site-b not provisioned: %+v", pcB.Memberships)
 	}
-	if rec, _ := e.do("DELETE", "/api/v1/tenants/acme/sites/site-b?delete_project=maybe", "", true); rec.Code != 400 {
-		t.Fatalf("bad delete_project: %d", rec.Code)
-	}
-	rec, out = e.do("DELETE", "/api/v1/tenants/acme/sites/site-b?delete_project=true", "", true)
+	rec, out = e.do("DELETE", "/api/v1/tenants/acme/sites/site-b", "", true)
 	if rec.Code != 202 {
-		t.Fatalf("remove site: %d %v", rec.Code, out)
+		t.Fatalf("disconnect: %d %v", rec.Code, out)
 	}
 	e.svc.Wait()
 	if len(pcB.Memberships) != 0 || len(pcB.Projects) != 1 {
 		t.Fatalf("site-b left: %+v %+v", pcB.Memberships, pcB.Projects)
-	}
-	if rec, out := e.do("DELETE", "/api/v1/tenants/acme/sites/site-a", "", true); rec.Code != 409 || !strings.Contains(out["error"].(string), "last site") {
-		t.Fatalf("remove the last site: %d %v", rec.Code, out)
 	}
 	if rec, _ := e.do("DELETE", "/api/v1/tenants/acme/sites/site-b", "", true); rec.Code != 404 {
 		t.Fatalf("remove a site the tenant is not on: %d", rec.Code)
@@ -124,5 +119,35 @@ func TestSuspendResumeAPI(t *testing.T) {
 	e.st.UpdatePlacement(context.Background(), p)
 	if rec, _ := e.do("POST", "/api/v1/tenants/acme/sites/site-a/suspend", "", true); rec.Code != 409 {
 		t.Fatalf("suspend of a removing placement: %d", rec.Code)
+	}
+}
+
+func TestDisconnectAPI(t *testing.T) {
+	e, pcB := newEnv2(t)
+	e.do("POST", "/api/v1/tenants", `{"slug":"acme","display_name":"ACME","sites":[{"site":"site-a"},{"site":"site-b"}]}`, true)
+	e.svc.Wait()
+	p, _ := e.st.GetPlacement(context.Background(), "acme", "site-b")
+	pcB.Contents[p.ProjectExtID] = nutanix.Contents{Counts: map[string]int{"vms": 1}}
+	rec, out := e.do("DELETE", "/api/v1/tenants/acme/sites/site-b", "", true)
+	if counts, _ := out["counts"].(map[string]any); rec.Code != 409 || counts["vms"] != float64(1) {
+		t.Fatalf("disconnect of a project with a VM: %d %v", rec.Code, out)
+	}
+	if rec, out := e.do("GET", "/api/v1/tenants/acme/sites/site-b/contents", "", true); rec.Code != 200 || out["empty"] != false {
+		t.Fatalf("contents: %d %v", rec.Code, out)
+	}
+	pcB.Contents[p.ProjectExtID] = nutanix.Contents{Counts: map[string]int{}}
+	if rec, out := e.do("GET", "/api/v1/tenants/acme/sites/site-b/contents", "", true); rec.Code != 200 || out["empty"] != true {
+		t.Fatalf("contents when empty: %d %v", rec.Code, out)
+	}
+	if rec, out := e.do("DELETE", "/api/v1/tenants/acme/sites/site-b?delete_project=true", "", true); rec.Code != 202 {
+		t.Fatalf("disconnect of an empty project (old query ignored): %d %v", rec.Code, out)
+	}
+	e.svc.Wait()
+	e.pc.FailOnce["ProjectContents"] = &nutanix.APIError{Status: 504, Message: "slow"}
+	if rec, out := e.do("DELETE", "/api/v1/tenants/acme/sites/site-a", "", true); rec.Code != 503 {
+		t.Fatalf("disconnect with a failed count: %d %v", rec.Code, out)
+	}
+	if rec, out := e.do("DELETE", "/api/v1/tenants/acme/sites/site-a", "", true); rec.Code != 202 {
+		t.Fatalf("disconnect of the last site: %d %v", rec.Code, out)
 	}
 }

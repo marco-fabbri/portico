@@ -82,12 +82,13 @@ func TestTenantDetailPerSiteAddAndRemove(t *testing.T) {
 	if len(pcB.Memberships) != 0 || len(pcB.Projects) != 1 {
 		t.Fatal("site-b objects left")
 	}
-	if rec := e.do("POST", "/tenants/acme/sites/site-a/remove", e.form(), true); rec.Code != 409 || !strings.Contains(rec.Body.String(), "last site") {
-		t.Fatalf("remove the last site: %d", rec.Code)
-	}
 	for _, path := range []string{"/tenants/acme/sites", "/tenants/acme/sites/site-a/remove"} {
 		if rec := e.do("POST", path, map[string][]string{"site": {"site-b"}}, true); rec.Code != 403 {
 			t.Fatalf("%s without CSRF: %d", path, rec.Code)
 		}
+	}
+	// The last site can be disconnected too (design sites usability 4.6).
+	if rec := e.do("POST", "/tenants/acme/sites/site-a/remove", e.form(), true); rec.Code != 303 {
+		t.Fatalf("disconnect the last site: %d", rec.Code)
 	}
 }

@@ -66,6 +66,12 @@ func (s *Service) idp(ctx context.Context, site Site) (*nutanix.SAMLIdP, error) 
 // tenant's status is left as it is (a site added to an active tenant);
 // otherwise it ends active or failed naming the sites that failed.
 func (s *Service) provision(ctx context.Context, id string, keepStatus bool) error {
+	return s.provisionSites(ctx, id, keepStatus, "")
+}
+
+// provisionSites is provision limited to one site when only is set; the
+// other connections are left as they are.
+func (s *Service) provisionSites(ctx context.Context, id string, keepStatus bool, only string) error {
 	defer s.changed(id)
 	t, err := s.st.GetTenant(ctx, id)
 	if err != nil {
@@ -95,6 +101,9 @@ func (s *Service) provision(ctx context.Context, id string, keepStatus bool) err
 		// whose removal failed, is never provisioned again (review I2).
 		switch ps[i].Status {
 		case store.PlacementActive, store.PlacementSuspended, store.PlacementRemoving, store.PlacementRemoveFailed:
+			continue
+		}
+		if only != "" && ps[i].SiteID != only {
 			continue
 		}
 		pr, err := s.prepare(ctx, &ps[i])
@@ -449,7 +458,14 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string, 
 				s.log.Warn("refusing to delete a project outside Portico's naming", "tenant", tenantID, "site", siteID, "project", p.ProjectID, "expected", s.projectName(tenantID))
 				return "kept: refusing to delete project " + p.ProjectID + " (not " + s.projectName(tenantID) + ")", nil
 			}
-			d, err := tolerate("project", pc.DeleteProject(ctx, p.ProjectExtID))
+			err := pc.DeleteProject(ctx, p.ProjectExtID)
+			if nutanix.IsTaskFailed(err) {
+				// Write-up 24: Prism Central refuses to delete a project
+				// that still holds something, here a kind Portico cannot
+				// count with the service account.
+				return "", fmt.Errorf("Prism Central refused to delete the project: it still holds something (%v)", err)
+			}
+			d, err := tolerate("project", err)
 			if err == nil {
 				p.ProjectExtID = ""
 			}

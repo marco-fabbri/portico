@@ -355,7 +355,7 @@ func (h *Handler) tenantAddSite(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/tenants/"+url.PathEscape(t.ID), http.StatusSeeOther)
 }
 
-// tenantRemoveSite takes the tenant off one site.
+// tenantRemoveSite disconnects the tenant from one site.
 func (h *Handler) tenantRemoveSite(w http.ResponseWriter, r *http.Request) {
 	if !h.requireCSRF(w, r) {
 		return
@@ -365,12 +365,11 @@ func (h *Handler) tenantRemoveSite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	site := r.PathValue("site")
-	deleteProject := r.PostFormValue("delete_project") != ""
-	if err := h.svc.RemoveSite(r.Context(), t.ID, site, deleteProject); err != nil {
+	if err := h.svc.Disconnect(r.Context(), t.ID, site); err != nil {
 		h.detailWithError(w, r, t, statusOf(err), err.Error())
 		return
 	}
-	h.log.Info("tenant site removal started", "via", "ui", "tenant", t.ID, "site", site, "delete_project", deleteProject)
+	h.log.Info("tenant disconnect started", "via", "ui", "tenant", t.ID, "site", site)
 	http.Redirect(w, r, "/tenants/"+url.PathEscape(t.ID), http.StatusSeeOther)
 }
 
@@ -392,8 +391,10 @@ func statusOf(err error) int {
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, store.ErrExists), errors.Is(err, tenant.ErrExists), errors.Is(err, tenant.ErrBusy), errors.Is(err, tenant.ErrState),
-		errors.Is(err, tenant.ErrPlacementExists), errors.Is(err, tenant.ErrLastSite):
+		errors.Is(err, tenant.ErrPlacementExists), errors.As(err, new(*tenant.NotEmptyError)):
 		return http.StatusConflict
+	case errors.Is(err, tenant.ErrCount):
+		return http.StatusServiceUnavailable
 	case errors.Is(err, tenant.ErrInvalidSlug), errors.Is(err, tenant.ErrUnknownSite), errors.Is(err, tenant.ErrNoSites), errors.Is(err, tenant.ErrNoPlacementTarget):
 		return http.StatusBadRequest
 	default:

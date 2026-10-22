@@ -39,9 +39,19 @@ const (
 type APIError struct {
 	Status  int
 	Message string
+	// Task is set when a task that Prism Central accepted ended FAILED or
+	// CANCELED: Prism Central refused the operation itself.
+	Task bool
 }
 
 func (e *APIError) Error() string { return fmt.Sprintf("prism central: %d %s", e.Status, e.Message) }
+
+// IsTaskFailed reports whether err is a task Prism Central ran and
+// failed (a refusal of the operation, not a transport or API error).
+func IsTaskFailed(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.Task
+}
 
 // IsNotFound reports whether err is a 404 from Prism Central or a lookup
 // that found nothing.
@@ -106,6 +116,12 @@ func newWithAuth(baseURL string, auth func(*http.Request), tlsCfg *tls.Config, l
 // discard) receives the "data" member of the envelope. The ETag header of
 // the response is returned so a write can follow a GET.
 func (c *Client) do(ctx context.Context, method, path, query string, body any, ifMatch string, out any) (string, error) {
+	return c.call(ctx, method, path, query, body, ifMatch, out, nil)
+}
+
+// call is do that also reads metadata.totalAvailableResults into total
+// when total is not nil (a count with $limit=1).
+func (c *Client) call(ctx context.Context, method, path, query string, body any, ifMatch string, out any, total *int) (string, error) {
 	u := *c.base
 	u.Path, u.RawQuery = path, query
 	var rd io.Reader
@@ -148,14 +164,20 @@ func (c *Client) do(ctx context.Context, method, path, query string, body any, i
 		c.log.Warn("prism central error", "method", method, "path", path, "status", resp.StatusCode, "message", msg)
 		return "", &APIError{Status: resp.StatusCode, Message: msg}
 	}
-	if out != nil && len(raw) > 0 {
+	if (out != nil || total != nil) && len(raw) > 0 {
 		var env struct {
-			Data json.RawMessage `json:"data"`
+			Data     json.RawMessage `json:"data"`
+			Metadata struct {
+				TotalAvailableResults int `json:"totalAvailableResults"`
+			} `json:"metadata"`
 		}
 		if err := json.Unmarshal(raw, &env); err != nil {
 			return "", fmt.Errorf("prism central: %s %s: decode: %w", method, path, err)
 		}
-		if len(env.Data) > 0 {
+		if total != nil {
+			*total = env.Metadata.TotalAvailableResults
+		}
+		if out != nil && len(env.Data) > 0 {
 			if err := json.Unmarshal(env.Data, out); err != nil {
 				return "", fmt.Errorf("prism central: %s %s: decode data: %w", method, path, err)
 			}
@@ -286,7 +308,7 @@ func (c *Client) WaitTask(ctx context.Context, taskExtID string) error {
 			if st.LegacyErrorMessage != "" {
 				msgs = append(msgs, st.LegacyErrorMessage)
 			}
-			return &APIError{Status: http.StatusInternalServerError, Message: fmt.Sprintf("task %s %s: %s", taskExtID, st.Status, strings.Join(msgs, "; "))}
+			return &APIError{Status: http.StatusInternalServerError, Message: fmt.Sprintf("task %s %s: %s", taskExtID, st.Status, strings.Join(msgs, "; ")), Task: true}
 		}
 		select {
 		case <-ctx.Done():

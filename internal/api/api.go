@@ -87,7 +87,9 @@ func New(svc *tenant.Service, st store.Store, brand *branding.Service, so *Setti
 	mux.HandleFunc("POST "+Prefix+"tenants/{id}/users", h.running(h.createUser))
 	mux.HandleFunc("GET "+Prefix+"tenants/{id}/visibility", h.running(h.visibility))
 	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites", h.running(h.addSite))
-	mux.HandleFunc("DELETE "+Prefix+"tenants/{id}/sites/{site}", h.running(h.removeSite))
+	mux.HandleFunc("DELETE "+Prefix+"tenants/{id}/sites/{site}", h.running(h.disconnect))
+	mux.HandleFunc("GET "+Prefix+"tenants/{id}/sites/{site}/contents", h.running(h.contents))
+	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites/{site}/retry", h.running(h.retrySite))
 	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites/{site}/suspend", h.running(h.suspendSite))
 	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites/{site}/resume", h.running(h.resumeSite))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -165,11 +167,7 @@ func (h *handler) resumeSite(w http.ResponseWriter, r *http.Request) {
 func (h *handler) placementAction(w http.ResponseWriter, r *http.Request, done string, fn func(ctx context.Context, id, siteID string) error) {
 	id, site := r.PathValue("id"), r.PathValue("site")
 	if err := fn(r.Context(), id, site); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "the tenant is not connected to site "+site)
-			return
-		}
-		h.fail(w, err)
+		h.failConnection(w, site, err)
 		return
 	}
 	h.log.Info("tenant connection "+done, "tenant", id, "site", site)
@@ -218,7 +216,13 @@ func (h *handler) fail(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "tenant not found")
 	case errors.Is(err, store.ErrExists), errors.Is(err, tenant.ErrExists):
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, tenant.ErrBusy), errors.Is(err, tenant.ErrState), errors.Is(err, tenant.ErrPlacementExists), errors.Is(err, tenant.ErrLastSite):
+	case errors.As(err, new(*tenant.NotEmptyError)):
+		var ne *tenant.NotEmptyError
+		errors.As(err, &ne)
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "counts": ne.Contents.Counts})
+	case errors.Is(err, tenant.ErrCount):
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+	case errors.Is(err, tenant.ErrBusy), errors.Is(err, tenant.ErrState), errors.Is(err, tenant.ErrPlacementExists):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, tenant.ErrInvalidSlug), errors.Is(err, tenant.ErrUnknownSite), errors.Is(err, tenant.ErrNoSites), errors.Is(err, tenant.ErrNoPlacementTarget):
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -429,25 +433,46 @@ func (h *handler) addSite(w http.ResponseWriter, r *http.Request) {
 	h.writeTenant(w, r, http.StatusAccepted, t)
 }
 
-func (h *handler) removeSite(w http.ResponseWriter, r *http.Request) {
-	deleteProject := false
-	if v := r.URL.Query().Get("delete_project"); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "delete_project must be true or false")
-			return
-		}
-		deleteProject = b
-	}
+// disconnect takes the tenant off one site: refused (409, with the
+// counts) while its project holds anything, 503 when the count fails.
+func (h *handler) disconnect(w http.ResponseWriter, r *http.Request) {
 	id, site := r.PathValue("id"), r.PathValue("site")
-	if err := h.svc.RemoveSite(r.Context(), id, site, deleteProject); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "the tenant is not placed on site "+site)
-			return
-		}
-		h.fail(w, err)
+	if err := h.svc.Disconnect(r.Context(), id, site); err != nil {
+		h.failConnection(w, site, err)
 		return
 	}
-	h.log.Info("tenant site removal started", "tenant", id, "site", site, "delete_project", deleteProject)
-	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "site": site, "status": string(store.PlacementRemoving), "delete_project": deleteProject})
+	h.log.Info("tenant disconnect started", "tenant", id, "site", site)
+	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "site": site, "status": string(store.PlacementRemoving)})
+}
+
+func (h *handler) contents(w http.ResponseWriter, r *http.Request) {
+	id, site := r.PathValue("id"), r.PathValue("site")
+	c, err := h.svc.Contents(r.Context(), id, site)
+	if err != nil {
+		h.failConnection(w, site, err)
+		return
+	}
+	uncounted := c.Uncounted
+	if uncounted == nil {
+		uncounted = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"counts": c.Counts, "uncounted": uncounted, "empty": c.Empty()})
+}
+
+func (h *handler) retrySite(w http.ResponseWriter, r *http.Request) {
+	id, site := r.PathValue("id"), r.PathValue("site")
+	if err := h.svc.RetrySite(r.Context(), id, site); err != nil {
+		h.failConnection(w, site, err)
+		return
+	}
+	h.log.Info("tenant connection retry started", "tenant", id, "site", site)
+	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "site": site})
+}
+
+func (h *handler) failConnection(w http.ResponseWriter, site string, err error) {
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "the tenant is not connected to site "+site)
+		return
+	}
+	h.fail(w, err)
 }
