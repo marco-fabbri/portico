@@ -54,10 +54,12 @@ func newPublicHarnessWith(t *testing.T, prismURL string, mutate func(*PublicOpti
 		PrismHost: "prism.test",
 		IDHost:    "id.test",
 		Sites: &SiteRouting{
-			Backends:   map[string]*SiteBackend{"site-a": site},
-			Placements: func(context.Context, string) ([]string, error) { return []string{"site-a"}, nil },
-			Status:     func(string) sites.Status { return sites.Available },
-			SetSite:    store.SetSite,
+			Backends: map[string]*SiteBackend{"site-a": site},
+			Connections: func(context.Context, string) ([]sites.Connection, error) {
+				return []sites.Connection{{SiteID: "site-a"}}, nil
+			},
+			Status:  func(string) sites.Status { return sites.Available },
+			SetSite: store.SetSite,
 		},
 		Keycloak: upstreamFor(t, kcUp.URL, "id.test"),
 		Auth:     a,
