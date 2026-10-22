@@ -85,6 +85,12 @@ func (p *Pages) Sites(w http.ResponseWriter, r *http.Request, tiles []SiteTile, 
 
 // Error renders a branded error page; retry, when not empty, is a link.
 func (p *Pages) Error(w http.ResponseWriter, r *http.Request, status int, title, text, retry string) {
+	p.ErrorSwitch(w, r, status, title, text, retry, "")
+}
+
+// ErrorSwitch is Error with a "Choose another site" link to switchURL,
+// for a tenant with several sites.
+func (p *Pages) ErrorSwitch(w http.ResponseWriter, r *http.Request, status int, title, text, retry, switchURL string) {
 	b := p.get(r.Context())
-	p.write(w, status, "error.html", pageData{B: b, Status: status, Title: title, Text: text, Retry: retry})
+	p.write(w, status, "error.html", pageData{B: b, Status: status, Title: title, Text: text, Retry: retry, SwitchURL: switchURL})
 }

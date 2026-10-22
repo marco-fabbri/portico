@@ -26,6 +26,7 @@
   {{if .Retry}}<a class="button" href="{{.Retry}}">Try again</a>{{end}}
   <p class="code">{{.Status}}</p>
 </section>
+{{if .SwitchURL}}<p class="status"><a href="{{.SwitchURL}}">Choose another site</a></p>{{end}}
 {{template "brand-powered" .}}
 </body>
 </html>
