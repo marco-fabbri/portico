@@ -158,3 +158,20 @@ func TestListDropsExpired(t *testing.T) {
 		t.Fatalf("ActiveWindow = %v", ActiveWindow)
 	}
 }
+
+func TestLeaveSiteKeepsCookieSite(t *testing.T) {
+	st := NewMemoryStore(8*time.Hour, 15*time.Minute)
+	t0 := time.Now()
+	st.Create(Session{ID: "a", CreatedAt: t0, LastSeen: t0})
+	st.SetSite("a", "site-1", t0)
+	if !st.LeaveSite("a", t0.Add(time.Minute)) {
+		t.Fatal("LeaveSite on a live session")
+	}
+	s, ok := st.Get("a", t0.Add(time.Minute))
+	if !ok || s.Site != "" || !s.SiteSince.IsZero() || s.CookieSite != "site-1" {
+		t.Fatalf("after LeaveSite: ok=%v site=%q since=%v cookieSite=%q", ok, s.Site, s.SiteSince, s.CookieSite)
+	}
+	if st.LeaveSite("gone", t0) {
+		t.Fatal("LeaveSite on a missing session")
+	}
+}
