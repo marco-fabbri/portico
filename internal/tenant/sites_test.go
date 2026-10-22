@@ -633,3 +633,45 @@ func TestTargetsOnErrorOffersDefaults(t *testing.T) {
 		t.Fatalf("targets = %+v", got)
 	}
 }
+
+func TestDisconnectKeepsAProjectPorticoDidNotCreate(t *testing.T) {
+	e := newEnv2(t)
+	name := e.svc.projectName("acme")
+	e.pcA.Projects = append(e.pcA.Projects, nutanix.Project{ExtID: "p-hand", ID: name, Name: name, Description: "made by hand"})
+	e.createOn(t, "acme", "site-a")
+	ctx := context.Background()
+	if err := e.svc.Disconnect(ctx, "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	kept := false
+	for _, pr := range e.pcA.Projects {
+		kept = kept || pr.ExtID == "p-hand"
+	}
+	if !kept {
+		t.Fatal("a project Portico did not create was deleted")
+	}
+	if rgs, _ := e.pcA.ListResourceGroups(ctx, "p-hand"); len(rgs) != 1 {
+		t.Fatalf("resource groups of the kept project = %+v", rgs)
+	}
+	if _, err := e.st.GetPlacement(ctx, "acme", "site-a"); err == nil {
+		t.Fatal("the connection is still there")
+	}
+}
+
+func TestDisconnectKeepsAGroupOfAnotherIdentityProvider(t *testing.T) {
+	e := newEnv2(t)
+	e.pcA.Groups = append(e.pcA.Groups, nutanix.UserGroup{ExtID: "g-other", Name: e.svc.groupName("acme"), IdPExtID: "idp-of-someone-else"})
+	e.createOn(t, "acme", "site-a")
+	if err := e.svc.Disconnect(context.Background(), "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	kept := false
+	for _, g := range e.pcA.Groups {
+		kept = kept || g.ExtID == "g-other"
+	}
+	if !kept {
+		t.Fatal("a SAML group of another identity provider was deleted")
+	}
+}

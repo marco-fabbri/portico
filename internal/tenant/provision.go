@@ -201,7 +201,7 @@ func (s *Service) provisionPlacement(ctx context.Context, t *store.Tenant, pr pr
 		{"project", func(ctx context.Context) (string, error) {
 			pr, err := pc.FindProject(ctx, project)
 			if nutanix.IsNotFound(err) {
-				pr, err = pc.CreateProject(ctx, project, project, "Portico tenant "+t.DisplayName)
+				pr, err = pc.CreateProject(ctx, project, project, projectMarker+t.DisplayName)
 			}
 			if err != nil {
 				return "", err
@@ -375,6 +375,20 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string) 
 			s.log.Warn("identity provider lookup during delete", "tenant", tenantID, "site", siteID, "err", err.Error())
 		}
 	}
+	// Provisioning adopts an existing project or SAML group of the right
+	// name; Disconnect deletes only what Portico made (ADR 0006).
+	foreignProject, err := s.foreignProject(ctx, pc, tenantID, p)
+	if err != nil {
+		return fail(err)
+	}
+	foreignGroup, err := s.foreignGroup(ctx, pc, tenantID, p, idp)
+	if err != nil {
+		return fail(err)
+	}
+	keep := func(why string) (string, error) {
+		s.log.Warn("disconnect keeps an object Portico did not create", "tenant", tenantID, "site", siteID, "why", why)
+		return "kept: " + why, nil
+	}
 	steps := []struct {
 		name string
 		fn   func(ctx context.Context) (string, error)
@@ -428,6 +442,10 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string) 
 			if p.SAMLGroupExtID == "" {
 				return absent("saml group")
 			}
+			if foreignGroup != "" {
+				p.SAMLGroupExtID = ""
+				return keep(foreignGroup)
+			}
 			d, err := tolerate("saml group", pc.DeleteUserGroup(ctx, p.SAMLGroupExtID))
 			if err == nil {
 				p.SAMLGroupExtID = ""
@@ -437,6 +455,10 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string) 
 		{"resource-group", func(ctx context.Context) (string, error) {
 			if p.ProjectExtID == "" {
 				return absent("resource group")
+			}
+			if foreignProject != "" {
+				p.ResourceGroupExtID = ""
+				return keep("resource groups of " + foreignProject)
 			}
 			rgs, err := pc.ListResourceGroups(ctx, p.ProjectExtID)
 			if nutanix.IsNotFound(err) || (err == nil && len(rgs) == 0) {
@@ -458,9 +480,9 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string) 
 			if p.ProjectExtID == "" {
 				return absent("project")
 			}
-			if p.ProjectID != s.projectName(tenantID) {
-				s.log.Warn("refusing to delete a project outside Portico's naming", "tenant", tenantID, "site", siteID, "project", p.ProjectID, "expected", s.projectName(tenantID))
-				return "kept: refusing to delete project " + p.ProjectID + " (not " + s.projectName(tenantID) + ")", nil
+			if foreignProject != "" {
+				p.ProjectExtID = ""
+				return keep(foreignProject)
 			}
 			err := pc.DeleteProject(ctx, p.ProjectExtID)
 			if nutanix.IsTaskFailed(err) {
@@ -494,4 +516,52 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// projectMarker starts the description of every project Portico creates.
+const projectMarker = "Portico tenant "
+
+// foreignProject says why the placement's project is not Portico's to
+// delete, "" when it is (or is already gone): a name outside Portico's
+// naming, another project now carrying the name, or a description that
+// does not start with projectMarker (made by hand, adopted).
+func (s *Service) foreignProject(ctx context.Context, pc PrismCentral, tenantID string, p *store.Placement) (string, error) {
+	if p.ProjectExtID == "" {
+		return "", nil
+	}
+	if p.ProjectID != s.projectName(tenantID) {
+		s.log.Warn("refusing to delete a project outside Portico's naming", "tenant", tenantID, "site", p.SiteID, "project", p.ProjectID, "expected", s.projectName(tenantID))
+		return "project " + p.ProjectID + " is outside Portico's naming (" + s.projectName(tenantID) + ")", nil
+	}
+	pr, err := pc.FindProject(ctx, p.ProjectID)
+	switch {
+	case nutanix.IsNotFound(err):
+		return "", nil
+	case err != nil:
+		return "", err
+	case pr.ExtID != p.ProjectExtID:
+		return "project " + p.ProjectID + " is now another project (" + pr.ExtID + ")", nil
+	case !strings.HasPrefix(pr.Description, projectMarker):
+		return "project " + p.ProjectID + " was not created by Portico (its description does not start with \"" + strings.TrimSpace(projectMarker) + "\")", nil
+	}
+	return "", nil
+}
+
+// foreignGroup says why the placement's SAML group is not Portico's to
+// delete: Prism Central reports it bound to another identity provider.
+// A group listed without its identity provider is deleted, as before.
+func (s *Service) foreignGroup(ctx context.Context, pc PrismCentral, tenantID string, p *store.Placement, idp *nutanix.SAMLIdP) (string, error) {
+	if p.SAMLGroupExtID == "" || idp == nil {
+		return "", nil
+	}
+	g, err := pc.FindUserGroup(ctx, s.groupName(tenantID))
+	switch {
+	case nutanix.IsNotFound(err):
+		return "", nil
+	case err != nil:
+		return "", err
+	case g.ExtID == p.SAMLGroupExtID && g.IdPExtID != "" && g.IdPExtID != idp.ExtID:
+		return "SAML group " + g.Name + " belongs to another identity provider (" + g.IdPExtID + ")", nil
+	}
+	return "", nil
 }

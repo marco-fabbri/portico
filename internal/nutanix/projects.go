@@ -9,10 +9,11 @@ import (
 
 // Project is a Projects 2.0 project.
 type Project struct {
-	ExtID     string `json:"extId"`
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	IsDefault bool   `json:"isDefault"`
+	ExtID       string `json:"extId"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	IsDefault   bool   `json:"isDefault"`
 }
 
 // ResourceGroup allocates clusters and storage containers to a project.
