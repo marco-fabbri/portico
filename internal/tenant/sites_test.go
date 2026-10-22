@@ -599,3 +599,37 @@ func TestCreateNilSitesWithSeveralConfiguredHasNone(t *testing.T) {
 		t.Fatalf("%d placements, defaults %v", len(ps), e.svc.DefaultSites())
 	}
 }
+
+func TestTargetsMarkSiteDefaults(t *testing.T) {
+	e := newEnv2(t)
+	e.pcA.Clusters = []nutanix.Cluster{{ExtID: "pc", Name: "prism-central", IsPrismCentral: true}, {ExtID: "cl-a", Name: "NTNX-01", IsAOS: true}}
+	e.pcA.Containers = []nutanix.StorageContainer{
+		{ExtID: "sc-other", Name: "bulk", ClusterExtID: "cl-a"},
+		{ExtID: "sys", Name: "NutanixManagementShare", ClusterExtID: "cl-a", IsSystem: true},
+		{ExtID: "sc-a", Name: "default-container", ClusterExtID: "cl-a"},
+	}
+	got, err := e.svc.Targets(context.Background(), "site-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Clusters) != 1 || got.Clusters[0] != (Target{ExtID: "cl-a", Name: "NTNX-01", SiteDefault: true}) {
+		t.Fatalf("clusters = %+v", got.Clusters)
+	}
+	if len(got.Containers) != 2 || got.Containers[0] != (Target{ExtID: "sc-a", Name: "default-container", ClusterName: "NTNX-01", SiteDefault: true}) ||
+		got.Containers[1] != (Target{ExtID: "sc-other", Name: "bulk", ClusterName: "NTNX-01"}) {
+		t.Fatalf("containers = %+v", got.Containers)
+	}
+}
+
+func TestTargetsOnErrorOffersDefaults(t *testing.T) {
+	e := newEnv2(t)
+	e.pcA.FailOnce["ListClusters"] = errors.New("timeout")
+	got, err := e.svc.Targets(context.Background(), "site-a")
+	if err == nil {
+		t.Fatal("no error")
+	}
+	if len(got.Clusters) != 1 || got.Clusters[0] != (Target{ExtID: "cl-a", SiteDefault: true}) ||
+		len(got.Containers) != 1 || got.Containers[0] != (Target{ExtID: "sc-a", SiteDefault: true}) {
+		t.Fatalf("targets = %+v", got)
+	}
+}

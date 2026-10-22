@@ -66,3 +66,17 @@ func TestWaitTaskFailureIsMarked(t *testing.T) {
 		t.Fatal("a plain API error marked as a task failure")
 	}
 }
+
+func TestStorageContainersCarryCluster(t *testing.T) {
+	f := newFakePC(t)
+	f.lists["/api/clustermgmt/v4.0/config/storage-containers"] = []any{
+		map[string]any{"containerExtId": "sc-1", "name": "default-container-1", "clusterExtId": "cl-1"},
+	}
+	got, err := newClient(t, f, nil).ListStorageContainers(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ExtID != "sc-1" || got[0].ClusterExtID != "cl-1" {
+		t.Fatalf("containers = %+v", got)
+	}
+}
