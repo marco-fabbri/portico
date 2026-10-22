@@ -58,10 +58,11 @@ type PC struct {
 	Policies    map[string][]string // policy display name → extIds it mentions
 	Creates     map[string]int      // method → count
 	Calls       int
-	FailOnce    map[string]error  // method → error returned once
-	GateCreate  *Gate             // held by CreateProject when set
-	GateDelete  *Gate             // held by DeleteUserGroup when set
-	RGCluster   map[string]string // resource group extId → the cluster it was created on
+	FailOnce    map[string]error            // method → error returned once
+	GateCreate  *Gate                       // held by CreateProject when set
+	GateDelete  *Gate                       // held by DeleteUserGroup when set
+	RGCluster   map[string]string           // resource group extId → the cluster it was created on
+	Contents    map[string]nutanix.Contents // project extId → what it holds; empty when absent
 	seq         int
 }
 
@@ -76,7 +77,20 @@ func NewPC(idpName string) *PC {
 		Creates:   map[string]int{},
 		FailOnce:  map[string]error{},
 		RGCluster: map[string]string{},
+		Contents:  map[string]nutanix.Contents{},
 	}
+}
+
+func (p *PC) ProjectContents(ctx context.Context, projectExtID string) (nutanix.Contents, error) {
+	if err := p.call("ProjectContents"); err != nil {
+		return nutanix.Contents{}, err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if c, ok := p.Contents[projectExtID]; ok {
+		return c, nil
+	}
+	return nutanix.Contents{Counts: map[string]int{}}, nil
 }
 
 func (p *PC) call(method string) error {

@@ -35,7 +35,7 @@ func newEnv2(t *testing.T) *env2 {
 	e := &env2{st: st, pcA: tenanttest.NewPC("portico-idp"), pcB: tenanttest.NewPC("portico-idp"), kc: tenanttest.NewKC(), log: &bytes.Buffer{}}
 	log := slog.New(slog.NewJSONHandler(e.log, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	sites := []Site{
-		{ID: "site-a", Code: "SITE-A", PC: e.pcA, SAMLIdPName: "portico-idp", ClusterExtID: "cl-a", StorageContainerExtID: "sc-a"},
+		{ID: "site-a", Code: "SITE-A", URL: "https://pc-a.test:9440", PC: e.pcA, SAMLIdPName: "portico-idp", ClusterExtID: "cl-a", StorageContainerExtID: "sc-a"},
 		{ID: "site-b", Code: "SITE-B", PC: e.pcB, SAMLIdPName: "portico-idp", ClusterExtID: "cl-b", StorageContainerExtID: "sc-b"},
 	}
 	cfg := Config{ProjectPrefix: "portico", GroupPrefix: "tenant-", RoleName: "Project Admin", OperationTimeout: 5 * time.Second}
@@ -221,13 +221,13 @@ func TestAddSiteLater(t *testing.T) {
 	}
 }
 
-func TestRemoveSiteKeepsOtherSite(t *testing.T) {
+func TestDisconnectKeepsOtherSite(t *testing.T) {
 	e := newEnv2(t)
 	ctx := context.Background()
 	e.createOn(t, "acme", "site-a", "site-b")
 	e.changes = nil
-	if err := e.svc.RemoveSite(ctx, "acme", "site-b", true); err != nil {
-		t.Fatalf("RemoveSite: %v", err)
+	if err := e.svc.Disconnect(ctx, "acme", "site-b"); err != nil {
+		t.Fatalf("Disconnect: %v", err)
 	}
 	e.svc.Wait()
 	if _, err := e.st.GetPlacement(ctx, "acme", "site-b"); !errors.Is(err, store.ErrNotFound) {
@@ -245,16 +245,21 @@ func TestRemoveSiteKeepsOtherSite(t *testing.T) {
 	if len(e.changes) == 0 || e.changes[0] != "acme" {
 		t.Fatalf("placement changes = %v", e.changes)
 	}
-	if err := e.svc.RemoveSite(ctx, "acme", "site-b", false); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("RemoveSite twice = %v", err)
+	if err := e.svc.Disconnect(ctx, "acme", "site-b"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("Disconnect twice = %v", err)
 	}
 }
 
-func TestRemoveLastSiteRefused(t *testing.T) {
+func TestDisconnectLastSiteAllowed(t *testing.T) {
 	e := newEnv2(t)
 	e.createOn(t, "acme", "site-a")
-	if err := e.svc.RemoveSite(context.Background(), "acme", "site-a", false); !errors.Is(err, ErrLastSite) {
-		t.Fatalf("RemoveSite of the last site = %v", err)
+	if err := e.svc.Disconnect(context.Background(), "acme", "site-a"); err != nil {
+		t.Fatalf("Disconnect of the last site = %v", err)
+	}
+	e.svc.Wait()
+	ps, _ := e.st.ListPlacements(context.Background(), "acme")
+	if len(ps) != 0 || e.tenant(t, "acme").Status != store.StatusActive {
+		t.Fatalf("after disconnecting the last site: %d placements, tenant %s", len(ps), e.tenant(t, "acme").Status)
 	}
 }
 
@@ -318,7 +323,7 @@ func TestRetrySkipsAFailedRemoval(t *testing.T) {
 	ctx := context.Background()
 	e.createOn(t, "acme", "site-a", "site-b")
 	e.pcB.FailOnce["DeleteUserGroup"] = &nutanix.APIError{Status: 500, Message: "group busy"}
-	if err := e.svc.RemoveSite(ctx, "acme", "site-b", false); err != nil {
+	if err := e.svc.Disconnect(ctx, "acme", "site-b"); err != nil {
 		t.Fatal(err)
 	}
 	e.svc.Wait()
@@ -334,8 +339,8 @@ func TestRetrySkipsAFailedRemoval(t *testing.T) {
 	if e.pcB.Creates["CreateRoleMembership"] != before {
 		t.Fatal("a retry re-granted the access being removed")
 	}
-	if err := e.svc.RemoveSite(ctx, "acme", "site-b", false); err != nil {
-		t.Fatalf("RemoveSite again: %v", err)
+	if err := e.svc.Disconnect(ctx, "acme", "site-b"); err != nil {
+		t.Fatalf("Disconnect again: %v", err)
 	}
 	e.svc.Wait()
 	if _, err := e.st.GetPlacement(ctx, "acme", "site-b"); !errors.Is(err, store.ErrNotFound) {
@@ -453,5 +458,154 @@ func TestProvisionSkipsSuspended(t *testing.T) {
 	e.svc.Wait()
 	if a, b := e.placement(t, "acme", "site-a"), e.placement(t, "acme", "site-b"); a.Status != store.PlacementSuspended || b.Status != store.PlacementActive {
 		t.Fatalf("after retry: site-a %s, site-b %s", a.Status, b.Status)
+	}
+}
+
+func (e *env2) contents(t *testing.T, tenant, site string, c nutanix.Contents) {
+	t.Helper()
+	pc := map[string]*tenanttest.PC{"site-a": e.pcA, "site-b": e.pcB}[site]
+	pc.Contents[e.placement(t, tenant, site).ProjectExtID] = c
+}
+
+func TestDisconnectRefusedWhenNotEmpty(t *testing.T) {
+	e := newEnv2(t)
+	e.createOn(t, "acme", "site-a")
+	e.contents(t, "acme", "site-a", nutanix.Contents{Counts: map[string]int{"vms": 1}})
+	calls := e.pcA.Calls
+	err := e.svc.Disconnect(context.Background(), "acme", "site-a")
+	var ne *NotEmptyError
+	if !errors.As(err, &ne) || ne.Site != "SITE-A" || ne.Project != "portico-acme" || ne.URL != "https://pc-a.test:9440" || ne.Contents.Counts["vms"] != 1 {
+		t.Fatalf("Disconnect of a project with a VM = %v (%+v)", err, ne)
+	}
+	if !strings.Contains(err.Error(), "still holds VMs: 1") {
+		t.Fatalf("message = %q", err.Error())
+	}
+	if p := e.placement(t, "acme", "site-a"); p.Status != store.PlacementActive {
+		t.Fatalf("placement after a refusal = %s", p.Status)
+	}
+	if e.pcA.Calls != calls+1 {
+		t.Fatalf("%d Prism Central calls, want the count only", e.pcA.Calls-calls)
+	}
+}
+
+func TestDisconnectRefusedWhenCountFails(t *testing.T) {
+	e := newEnv2(t)
+	e.createOn(t, "acme", "site-a")
+	e.pcA.FailOnce["ProjectContents"] = &nutanix.APIError{Status: 504, Message: "gateway timeout"}
+	if err := e.svc.Disconnect(context.Background(), "acme", "site-a"); !errors.Is(err, ErrCount) {
+		t.Fatalf("Disconnect with a failed count = %v", err)
+	}
+	e.svc.Wait()
+	if p := e.placement(t, "acme", "site-a"); p.Status != store.PlacementActive || len(e.pcA.Memberships) != 1 {
+		t.Fatalf("after a failed count: %s, %d memberships", p.Status, len(e.pcA.Memberships))
+	}
+}
+
+func TestDisconnectEmptyDeletesProject(t *testing.T) {
+	e := newEnv2(t)
+	e.createOn(t, "acme", "site-a")
+	ctx := context.Background()
+	if err := e.svc.Disconnect(ctx, "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if _, err := e.st.GetPlacement(ctx, "acme", "site-a"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("placement after disconnect: %v", err)
+	}
+	for _, pr := range e.pcA.Projects {
+		if pr.Name == "portico-acme" {
+			t.Fatal("project kept")
+		}
+	}
+	if len(e.pcA.RGs) != 0 || len(e.pcA.Groups) != 0 || len(e.pcA.Memberships) != 0 || len(e.pcA.IdPs[0].SharedWithProjects) != 0 {
+		t.Fatalf("left on site-a: rgs %d groups %d memberships %d shared %v", len(e.pcA.RGs), len(e.pcA.Groups), len(e.pcA.Memberships), e.pcA.IdPs[0].SharedWithProjects)
+	}
+	steps, _ := e.st.ListSteps(ctx, "acme")
+	ok := map[string]bool{}
+	for _, st := range steps {
+		if st.SiteID == "site-a" && st.OK && strings.Contains(st.Detail, "deleted") || st.Name == "idp-unshare" && st.OK {
+			ok[st.Name] = true
+		}
+	}
+	for _, n := range []string{"role-membership", "idp-unshare", "saml-group", "resource-group", "project"} {
+		if !ok[n] {
+			t.Errorf("step %s not recorded as done", n)
+		}
+	}
+}
+
+func TestDisconnectSuspendedAllowed(t *testing.T) {
+	e := newEnv2(t)
+	e.createOn(t, "acme", "site-a")
+	ctx := context.Background()
+	e.svc.Suspend(ctx, "acme", "site-a")
+	if err := e.svc.Disconnect(ctx, "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if _, err := e.st.GetPlacement(ctx, "acme", "site-a"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("suspended placement after disconnect: %v", err)
+	}
+}
+
+func TestDisconnectProjectDeleteRefusedByPrismCentral(t *testing.T) {
+	e := newEnv2(t)
+	e.createOn(t, "acme", "site-a")
+	ctx := context.Background()
+	e.pcA.FailOnce["DeleteProject"] = &nutanix.APIError{Status: 500, Message: "task t-1 FAILED: legacy error", Task: true}
+	if err := e.svc.Disconnect(ctx, "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	p := e.placement(t, "acme", "site-a")
+	if p.Status != store.PlacementRemoveFailed || !strings.Contains(p.LastError, "Prism Central refused to delete the project: it still holds something") {
+		t.Fatalf("after Prism Central's refusal: %s %q", p.Status, p.LastError)
+	}
+	if err := e.svc.RetrySite(ctx, "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if _, err := e.st.GetPlacement(ctx, "acme", "site-a"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("after the retry: %v", err)
+	}
+}
+
+func TestDisconnectNeverDeletesForeignProject(t *testing.T) {
+	e := newEnv2(t)
+	e.createOn(t, "acme", "site-a")
+	ctx := context.Background()
+	p := e.placement(t, "acme", "site-a")
+	p.ProjectID = "someone-else"
+	e.st.UpdatePlacement(ctx, p)
+	if err := e.svc.Disconnect(ctx, "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	kept := false
+	for _, pr := range e.pcA.Projects {
+		kept = kept || pr.ExtID == p.ProjectExtID
+	}
+	if !kept {
+		t.Fatal("a project outside Portico's naming was deleted")
+	}
+}
+
+func TestRetrySiteProvisionsOnlyThatSite(t *testing.T) {
+	e := newEnv2(t)
+	e.pcA.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 500, Message: "a exploded"}
+	e.pcB.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 500, Message: "b exploded"}
+	e.createOn(t, "acme", "site-a", "site-b")
+	ctx := context.Background()
+	if a, b := e.placement(t, "acme", "site-a"), e.placement(t, "acme", "site-b"); a.Status != store.PlacementFailed || b.Status != store.PlacementFailed {
+		t.Fatalf("setup: %s %s", a.Status, b.Status)
+	}
+	e.pcB.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 500, Message: "b would be retried"}
+	if err := e.svc.RetrySite(ctx, "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	_, untouched := e.pcB.FailOnce["CreateRoleMembership"]
+	if a, b := e.placement(t, "acme", "site-a"), e.placement(t, "acme", "site-b"); a.Status != store.PlacementActive || b.Status != store.PlacementFailed || !untouched {
+		t.Fatalf("after RetrySite(site-a): a %s, b %s, site-b retried %v", a.Status, b.Status, !untouched)
 	}
 }
