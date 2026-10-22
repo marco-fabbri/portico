@@ -30,11 +30,11 @@ type SiteBackend struct {
 // tenant's active placements every time (design sites §4.4).
 type SiteRouting struct {
 	Backends map[string]*SiteBackend
-	// Placements returns the ids of the sites where the tenant has an
-	// active placement.
-	Placements func(ctx context.Context, tenantID string) ([]string, error)
-	Status     func(siteID string) sites.Status
-	SetSite    func(sessionID, siteID string, now time.Time) bool
+	// Connections returns the sites the tenant is connected to, active or
+	// suspended (design sites usability 4.5).
+	Connections func(ctx context.Context, tenantID string) ([]sites.Connection, error)
+	Status      func(siteID string) sites.Status
+	SetSite     func(sessionID, siteID string, now time.Time) bool
 	// LeaveSite takes a session off its site, keeping the Portico session
 	// (the console's Sign Out with several sites).
 	LeaveSite func(sessionID string, now time.Time) bool
@@ -69,20 +69,25 @@ const (
 	selectPath = "/.portico/sites/select"
 )
 
-// allowed returns the backends of the tenant's active placements in site
-// order.
-func (s *SiteRouting) allowed(ctx context.Context, tenant string) ([]*SiteBackend, error) {
+// connections returns the backends of the tenant's connections in site
+// order, and which of them are suspended. Every one is a tile and counts
+// for "several sites"; only one that is not suspended routes.
+func (s *SiteRouting) connections(ctx context.Context, tenant string) ([]*SiteBackend, map[string]bool, error) {
 	if tenant == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
-	ids, err := s.Placements(ctx, tenant)
+	cs, err := s.Connections(ctx, tenant)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var out []*SiteBackend
-	for _, id := range ids {
-		if b, ok := s.Backends[id]; ok {
+	suspended := map[string]bool{}
+	for _, c := range cs {
+		if b, ok := s.Backends[c.SiteID]; ok {
 			out = append(out, b)
+			if c.Suspended {
+				suspended[b.ID] = true
+			}
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -91,7 +96,7 @@ func (s *SiteRouting) allowed(ctx context.Context, tenant string) ([]*SiteBacken
 		}
 		return out[i].Code < out[j].Code
 	})
-	return out, nil
+	return out, suspended, nil
 }
 
 func find(bs []*SiteBackend, id string) *SiteBackend {
@@ -138,12 +143,28 @@ func (s *SiteRouting) unavailable(w http.ResponseWriter, r *http.Request, b *Sit
 	s.page(w, r, http.StatusServiceUnavailable, "site-"+string(st), title, text, "/")
 }
 
+// suspendedPage answers a tenant whose only connection is suspended: a
+// branded page for a navigation, the JSON refusal otherwise.
+func (s *SiteRouting) suspendedPage(w http.ResponseWriter, r *http.Request, b *SiteBackend) {
+	setRule(r, "site-suspended")
+	if s.Pages != nil && isNavigation(r) {
+		w.Header().Set("X-Portico-Rule", "site-suspended")
+		s.Pages.Error(w, r, http.StatusServiceUnavailable, "Site not available", b.Code+" is not available at the moment. Please try again later.", "/")
+		return
+	}
+	Refuse(w, http.StatusForbidden, "site-suspended", "site not available: "+b.Code+" is not available at the moment")
+}
+
 // route returns the backend this request goes to, or answers it. The
-// session's site must be among the tenant's active placements; without
-// one, a single placement is chosen when it is available, several send a
-// browser to the site page and refuse anything else.
+// session's site must be one of the tenant's connections that is not
+// suspended; without one, a single connection is chosen when it is active
+// and available, several send a browser to the site page and refuse
+// anything else. A session whose site was suspended or removed falls into
+// the same branches (its Site is left as it is). The check runs on every
+// request, so a VM console already upgraded to a WebSocket is not cut: it
+// ends when the user closes it (design sites usability 4.5).
 func (s *SiteRouting) route(w http.ResponseWriter, r *http.Request, sess auth.Session) (*SiteBackend, bool) {
-	bs, err := s.allowed(r.Context(), sess.Tenant)
+	bs, suspended, err := s.connections(r.Context(), sess.Tenant)
 	if err != nil {
 		s.page(w, r, http.StatusServiceUnavailable, "site-lookup", "Service unavailable", "Your sites could not be read. Please try again in a moment.", "/")
 		return nil, false
@@ -152,11 +173,15 @@ func (s *SiteRouting) route(w http.ResponseWriter, r *http.Request, sess auth.Se
 		s.noSite(w, r)
 		return nil, false
 	}
-	if b := find(bs, sess.Site); b != nil {
+	if b := find(bs, sess.Site); b != nil && !suspended[b.ID] {
 		return b, true
 	}
 	if len(bs) == 1 {
 		b := bs[0]
+		if suspended[b.ID] {
+			s.suspendedPage(w, r, b)
+			return nil, false
+		}
 		if st := s.Status(b.ID); st != sites.Available {
 			s.unavailable(w, r, b, st)
 			return nil, false
@@ -176,6 +201,11 @@ func (s *SiteRouting) route(w http.ResponseWriter, r *http.Request, sess auth.Se
 		http.Redirect(w, r, sitesPath, http.StatusSeeOther)
 		return nil, false
 	}
+	if suspended[sess.Site] {
+		setRule(r, "site-suspended")
+		Refuse(w, http.StatusForbidden, "site-suspended", "site not available: choose another site")
+		return nil, false
+	}
 	setRule(r, "site-required")
 	Refuse(w, http.StatusForbidden, "site-required", "choose a site first")
 	return nil, false
@@ -185,7 +215,7 @@ func (s *SiteRouting) route(w http.ResponseWriter, r *http.Request, sess auth.Se
 func (s *SiteRouting) sitesPage(w http.ResponseWriter, r *http.Request) {
 	setRule(r, "site-page")
 	sess, _ := auth.SessionFromContext(r.Context())
-	bs, err := s.allowed(r.Context(), sess.Tenant)
+	bs, suspended, err := s.connections(r.Context(), sess.Tenant)
 	if err != nil {
 		s.page(w, r, http.StatusServiceUnavailable, "site-lookup", "Service unavailable", "Your sites could not be read. Please try again in a moment.", sitesPath)
 		return
@@ -200,14 +230,17 @@ func (s *SiteRouting) sitesPage(w http.ResponseWriter, r *http.Request) {
 	}
 	tiles := make([]branding.SiteTile, 0, len(bs))
 	for _, b := range bs {
-		st := s.Status(b.ID)
-		tiles = append(tiles, branding.SiteTile{ID: b.ID, Code: b.Code, Name: b.Name, Status: string(st), Selectable: st == sites.Available, Current: b.ID == sess.Site})
+		st := string(s.Status(b.ID))
+		if suspended[b.ID] {
+			st = "suspended"
+		}
+		tiles = append(tiles, branding.SiteTile{ID: b.ID, Code: b.Code, Name: b.Name, Status: st, Selectable: st == string(sites.Available), Current: b.ID == sess.Site})
 	}
 	s.Pages.Sites(w, r, tiles, sess.Email, s.SignOutAfter)
 }
 
-// selectSite records the tenant's choice: only a site among its active
-// placements, available, from a same-origin form.
+// selectSite records the tenant's choice: only a connection that is not
+// suspended, available, from a same-origin form.
 func (s *SiteRouting) selectSite(w http.ResponseWriter, r *http.Request) {
 	setRule(r, "site-select")
 	if f := r.Header.Get("Sec-Fetch-Site"); f != "" && f != "same-origin" {
@@ -216,13 +249,13 @@ func (s *SiteRouting) selectSite(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, _ := auth.SessionFromContext(r.Context())
 	id := strings.TrimSpace(r.PostFormValue("site"))
-	bs, err := s.allowed(r.Context(), sess.Tenant)
+	bs, suspended, err := s.connections(r.Context(), sess.Tenant)
 	if err != nil {
 		Refuse(w, http.StatusServiceUnavailable, "site-lookup", "sites could not be read")
 		return
 	}
 	b := find(bs, id)
-	if b == nil {
+	if b == nil || suspended[b.ID] {
 		s.page(w, r, http.StatusForbidden, "site-not-allowed", "Site not available", "This site is not available for your account.", sitesPath)
 		return
 	}
@@ -241,10 +274,12 @@ func (s *SiteRouting) selectSite(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// multiple reports whether the session's tenant has more than one site,
-// for the landing page's "switch site" link.
+// multiple reports whether the session's tenant has several sites: more
+// than one connection, active or suspended (design sites usability 4.5).
+// The routing, the landing page's "switch site" link and the console's
+// sign-out all use it.
 func (s *SiteRouting) multiple(ctx context.Context, tenant string) bool {
-	bs, err := s.allowed(ctx, tenant)
+	bs, _, err := s.connections(ctx, tenant)
 	return err == nil && len(bs) > 1
 }
 

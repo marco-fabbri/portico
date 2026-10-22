@@ -213,3 +213,13 @@ func TestSitesPageSignsOutWhenIdle(t *testing.T) {
 		t.Fatalf("idle sign-out without a delay: %s", rec.Body.String())
 	}
 }
+
+func TestSitesTileSuspended(t *testing.T) {
+	rec := httptest.NewRecorder()
+	pagesFor(Default()).Sites(rec, httptest.NewRequest("GET", "https://prism.test/.portico/sites", nil),
+		[]SiteTile{{ID: "nyc1", Code: "AZ-US-NYC1", Status: "suspended"}}, "carol@acme.example", 0)
+	body := rec.Body.String()
+	if !strings.Contains(body, "Not available") || !strings.Contains(body, `class="state suspended"`) {
+		t.Fatalf("suspended tile: %s", body)
+	}
+}

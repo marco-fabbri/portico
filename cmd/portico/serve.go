@@ -312,7 +312,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		PrismHost: cfg.Public.PrismHost, IDHost: cfg.Public.IDHost,
 		Sites: &proxy.SiteRouting{
 			Backends:     backends,
-			Placements:   placements.Sites,
+			Connections:  placements.Connections,
 			Status:       monitor.Status,
 			SetSite:      sessions.SetSite,
 			LeaveSite:    sessions.LeaveSite,

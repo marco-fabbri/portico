@@ -17,8 +17,11 @@ type PlacementStatus string
 const (
 	PlacementCreating PlacementStatus = "creating"
 	PlacementActive   PlacementStatus = "active"
-	PlacementFailed   PlacementStatus = "failed"
-	PlacementRemoving PlacementStatus = "removing"
+	// PlacementSuspended: access closed by Portico for maintenance, nothing
+	// changed in Prism Central (design sites usability 4.5).
+	PlacementSuspended PlacementStatus = "suspended"
+	PlacementFailed    PlacementStatus = "failed"
+	PlacementRemoving  PlacementStatus = "removing"
 	// PlacementRemoveFailed is a removal that stopped: it is repeated,
 	// never turned back into provisioning (review I2).
 	PlacementRemoveFailed PlacementStatus = "remove-failed"
