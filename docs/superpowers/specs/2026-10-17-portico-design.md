@@ -298,8 +298,10 @@ before deleting the project. The tenant row stores: project `id` and
 `extId`, resource group extId, SAML group extId, role membership extIds,
 IdP sharing state. Project naming: `<prefix>-<slug>`, prefix configurable,
 default `portico` (SP Central uses `sp-`). A tenant can be disabled (group
-disabled → login impossible) and deleted (project left in place unless
-explicitly chosen; Portico never deletes VMs).
+disabled → login impossible). Disconnecting a tenant from a site deletes
+an empty project and refuses a non-empty one; deleting a tenant needs no
+sites left; Portico never deletes VMs (sites usability design 4.6,
+ADR 0006).
 
 Step 1 scope decisions (design calls):
 

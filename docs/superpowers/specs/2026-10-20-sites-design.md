@@ -194,9 +194,16 @@ stays one per tenant, so one login serves all its sites.
   recorded on its placement. A failure on one site leaves the others
   done; the tenant shows which site failed and a retry resumes there.
 - Add a site later: the same steps on that site.
-- Remove a site from a tenant: the deletion order of design 4.4 on that
-  site (unshare before delete); the project stays unless the MSP asks to
-  delete it; Portico never deletes VMs.
+- Disconnect a tenant from a site (sites usability design 4.6): only when
+  the project is empty, counted with the service account; then the
+  deletion order of design 4.4 on that site (unshare before delete) and
+  the project with it. A non-empty project is refused, and Prism
+  Central's own refusal to delete a project that still holds something
+  is the safety net. The last site can be disconnected too: a tenant may
+  have no site. Portico never deletes VMs.
+- Suspend a connection (usability 4.5): placements gain the status
+  **suspended**. Portico stops routing the tenant to that site; nothing
+  changes in Prism Central. Resume opens the same project again.
 - Project and group names are the same on every site
   (`<prefix>-<slug>`, `tenant-<slug>`).
 - Cluster and storage container move from the global tenant settings
@@ -210,9 +217,12 @@ stays one per tenant, so one login serves all its sites.
 2. After the login Portico resolves the tenant from the user's Keycloak
    group and the tenant's placements.
    - No placement: an error page, no request to any Prism Central.
-   - One placement: that site is selected and the flow continues as
-     today (landing page, SAML start).
-   - More than one: the site page (`/.portico/sites`).
+   - One connection: that site is selected and the flow continues as
+     today (landing page, SAML start); a suspended one shows "not
+     available".
+   - More than one: the site page (`/.portico/sites`). Connections that
+     are active or suspended count (usability 4.5): a suspended one is a
+     grey tile, so the tenant still sees where it normally works.
 3. The tenant clicks an available tile. Portico checks that the tenant
    has a placement on that site, records the choice (section 4.4) and
    sends the browser to `/`, which reaches that site's Prism Central; its
@@ -302,11 +312,14 @@ Builder's call, to confirm by measurement (section 6, item 3):
   Keycloak and public-name cards are unchanged. Adding or editing a site
   uses the existing Apply (controlled restart), refused while a tenant
   operation runs, as today.
-- Tenant pages: create with site choice and per-site cluster and
-  container pickers; tenant detail with one section per placement (steps,
-  visibility, add/remove site).
+- Tenant and site pages: those of the sites usability design 4.4. The
+  tenant page lists its sites with suspend, resume, disconnect and retry,
+  and connects it to one more site; the site page lists its tenants and
+  connects one more; both read the cluster and container menus from that
+  site's Prism Central. Creating a tenant with no site is allowed.
 - Every action is a REST call first (design 4.7, ADR 0003): sites CRUD,
-  per-site bootstrap, maintenance flag, tenant placements add/remove.
+  per-site bootstrap, maintenance flag, tenant connections (connect,
+suspend, resume, disconnect, retry).
   The API has no external users before the first release, so it changes
   without a compatibility layer.
 - Internal pass-through (design 4.2): it serves one site, chosen in the
