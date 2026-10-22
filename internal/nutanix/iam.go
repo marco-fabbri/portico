@@ -36,8 +36,9 @@ type SAMLIdPSpec struct {
 
 // UserGroup is a SAML group known to Prism Central.
 type UserGroup struct {
-	ExtID string `json:"extId"`
-	Name  string `json:"name"`
+	ExtID    string `json:"extId"`
+	Name     string `json:"name"`
+	IdPExtID string `json:"idpId"` // the SAML identity provider of a SAML group
 }
 
 // Role is a Prism Central role.

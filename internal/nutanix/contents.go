@@ -74,9 +74,22 @@ func (c Contents) UncountedNames() []string {
 	return out
 }
 
+// uncountable are the answers that say a kind cannot be listed here at
+// all: not allowed (403), filter refused (400), API absent from this
+// Prism Central (404, 501). Recording them as uncounted keeps Disconnect
+// possible; Prism Central's refusal to delete a non-empty project stays
+// the safety net.
+func uncountable(status int) bool {
+	switch status {
+	case http.StatusForbidden, http.StatusBadRequest, http.StatusNotFound, http.StatusNotImplemented:
+		return true
+	}
+	return false
+}
+
 // ProjectContents counts what the project holds, every kind in parallel.
-// A kind answering 403 or 400 is recorded as uncounted; any other error
-// (a 5xx, a timeout) fails the whole count.
+// A kind answering 403, 400, 404 or 501 is recorded as uncounted; any
+// other error (a 5xx, a timeout) fails the whole count.
 func (c *Client) ProjectContents(ctx context.Context, projectExtID string) (Contents, error) {
 	q := url.Values{"$limit": {"1"}, "$filter": {"projectExtId eq '" + projectExtID + "'"}}.Encode()
 	type result struct {
@@ -101,7 +114,7 @@ func (c *Client) ProjectContents(ctx context.Context, projectExtID string) (Cont
 		switch err := results[i].err; {
 		case err == nil:
 			out.Counts[k.key] = results[i].n
-		case errors.As(err, &apiErr) && (apiErr.Status == http.StatusForbidden || apiErr.Status == http.StatusBadRequest):
+		case errors.As(err, &apiErr) && uncountable(apiErr.Status):
 			out.Uncounted = append(out.Uncounted, k.key)
 		default:
 			return Contents{}, fmt.Errorf("counting %s: %w", k.name, err)
