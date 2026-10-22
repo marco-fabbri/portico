@@ -133,6 +133,23 @@ func (m *MemoryStore) SetSite(id, site string, now time.Time) bool {
 	return true
 }
 
+// LeaveSite takes one session off its site (the console's Sign Out with
+// several sites, design sites usability 4.7). CookieSite stays: the
+// browser's cookies of that site are expired by the caller, and the next
+// choice must still restore the target's stash without wiping the
+// others. False when the session is gone.
+func (m *MemoryStore) LeaveSite(id string, now time.Time) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[id]
+	if !ok || m.expired(s, now) {
+		return false
+	}
+	s.Site, s.SiteSince = "", time.Time{}
+	m.sessions[id] = s
+	return true
+}
+
 // ClearSite takes every session off the site ("Disconnect remaining
 // users", design sites §4.1) and returns how many there were; their next
 // request goes back to the site page.
