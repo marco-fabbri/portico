@@ -44,7 +44,24 @@ type SiteRouting struct {
 	// StashMaxAge keeps a site's stashed cookies; the session's lifetime,
 	// 8 h when zero.
 	StashMaxAge time.Duration
-	Pages       *branding.Pages
+	// SignOutAfter sends a site page left open to the full sign-out
+	// (SitePageSignOut); none when zero.
+	SignOutAfter time.Duration
+	Pages        *branding.Pages
+}
+
+// SitePageSignOut is how long a site page stays before it signs out of
+// everything: a minute less than the Portico session's idle limit, so the
+// session (and its id token, which spares Keycloak's "Do you want to log
+// out?") is still there; half the limit when that is two minutes or less.
+// Without it a tenant with several sites whose console signed out for
+// inactivity would keep its Portico and Keycloak sessions on a page that
+// sends no requests (write-up 21: with one site that sign-out ends both).
+func SitePageSignOut(idle time.Duration) time.Duration {
+	if idle <= 2*time.Minute {
+		return idle / 2
+	}
+	return idle - time.Minute
 }
 
 const (
@@ -186,7 +203,7 @@ func (s *SiteRouting) sitesPage(w http.ResponseWriter, r *http.Request) {
 		st := s.Status(b.ID)
 		tiles = append(tiles, branding.SiteTile{ID: b.ID, Code: b.Code, Name: b.Name, Status: string(st), Selectable: st == sites.Available, Current: b.ID == sess.Site})
 	}
-	s.Pages.Sites(w, r, tiles, sess.Email)
+	s.Pages.Sites(w, r, tiles, sess.Email, s.SignOutAfter)
 }
 
 // selectSite records the tenant's choice: only a site among its active

@@ -363,7 +363,7 @@ func TestPagesLinkTheIcons(t *testing.T) {
 	v := b.IconVersion()
 	render := map[string]func(*httptest.ResponseRecorder, *http.Request){
 		"landing": func(w *httptest.ResponseRecorder, r *http.Request) { p.Landing(w, r, "/.portico/saml-start") },
-		"sites":   func(w *httptest.ResponseRecorder, r *http.Request) { p.Sites(w, r, nil, "a@b.c") },
+		"sites":   func(w *httptest.ResponseRecorder, r *http.Request) { p.Sites(w, r, nil, "a@b.c", 0) },
 		"error":   func(w *httptest.ResponseRecorder, r *http.Request) { p.Error(w, r, 503, "Down", "down", "") },
 	}
 	for name, fn := range render {
