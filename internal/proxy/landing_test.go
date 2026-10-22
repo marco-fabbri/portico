@@ -120,18 +120,21 @@ func TestProvidersPageWithoutSessionRedirectsToLogin(t *testing.T) {
 	}
 }
 
-func TestProvidersPostAndMarkerAreProxied(t *testing.T) {
+func TestProvidersPostIsProxied(t *testing.T) {
 	lh := newLandingHarness(t)
 	rec := lh.do("POST", "https://prism.test/ui/iam/providers", nil, true)
-	if rec.Code != 200 || rec.Body.String() != "pc" {
-		t.Fatalf("POST providers: %d %q", rec.Code, rec.Body.String())
+	if rec.Code != 200 || rec.Body.String() != "pc" || len(*lh.pc) != 1 {
+		t.Fatalf("POST providers: %d %q upstream %d", rec.Code, rec.Body.String(), len(*lh.pc))
 	}
-	rec = lh.do("GET", "https://prism.test/ui/iam/providers?portico=manual", nil, true)
-	if rec.Code != 200 || rec.Body.String() != "pc" {
-		t.Fatalf("GET providers with the marker: %d %q", rec.Code, rec.Body.String())
-	}
-	if len(*lh.pc) != 2 {
-		t.Fatalf("upstream requests = %d, want 2", len(*lh.pc))
+}
+
+// The fallback marker is gone (design sites usability 4.8): a crafted
+// marker gets the landing page, never Prism Central's provider page.
+func TestProvidersMarkerNoLongerBypassesLanding(t *testing.T) {
+	lh := newLandingHarness(t)
+	rec := lh.do("GET", "https://prism.test/ui/iam/providers?portico=manual", nil, true)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "/.portico/saml-start") || len(*lh.pc) != 0 {
+		t.Fatalf("GET providers with the old marker: %d upstream %d %s", rec.Code, len(*lh.pc), rec.Body.String())
 	}
 }
 
@@ -171,30 +174,49 @@ func TestSAMLStartHappyPath(t *testing.T) {
 	}
 }
 
-func TestSAMLStartFallsBackOnce(t *testing.T) {
+// A failed SAML start shows the branded "responding slowly" page with
+// Retry to "/", which restarts the flow (design sites usability 4.8).
+func TestSAMLStartFailureShowsSlowPage(t *testing.T) {
 	cases := []struct {
-		name string
-		prep func(lh *landingHarness)
-		hdr  map[string]string
+		name, step string
+		prep       func(lh *landingHarness)
+		hdr        map[string]string
 	}{
-		{"put fails", func(lh *landingHarness) { lh.putFail = true }, withIAMCookie(nil)},
-		{"get fails", func(lh *landingHarness) { lh.getFail = true }, withIAMCookie(nil)},
-		{"no cookie", func(lh *landingHarness) {}, nil},
-		{"idp lookup", func(lh *landingHarness) { lh.idpErr = errors.New("idp not found") }, withIAMCookie(nil)},
+		{"put fails", "put", func(lh *landingHarness) { lh.putFail = true }, withIAMCookie(nil)},
+		{"get fails", "get", func(lh *landingHarness) { lh.getFail = true }, withIAMCookie(nil)},
+		{"no cookie", "cookie", func(lh *landingHarness) {}, nil},
+		{"idp lookup", "idp", func(lh *landingHarness) { lh.idpErr = errors.New("idp not found") }, withIAMCookie(nil)},
 	}
 	for _, c := range cases {
 		lh := newLandingHarness(t)
 		c.prep(lh)
-		rec := lh.do("GET", "https://prism.test/.portico/saml-start", c.hdr, true)
-		if rec.Code != 302 || rec.Header().Get("Location") != "/ui/iam/providers?portico=manual" {
+		hdr := c.hdr
+		if hdr == nil {
+			hdr = map[string]string{}
+		}
+		hdr["Accept"] = "text/html"
+		rec := lh.do("GET", "https://prism.test/.portico/saml-start", hdr, true)
+		body := rec.Body.String()
+		if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Location") != "" || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html") {
 			t.Fatalf("%s: %d %q", c.name, rec.Code, rec.Header().Get("Location"))
 		}
-		rec = lh.do("GET", "https://prism.test"+rec.Header().Get("Location"), nil, true)
-		if rec.Code != 200 || rec.Body.String() != "pc" {
-			t.Fatalf("%s: the fallback was not proxied: %d %q", c.name, rec.Code, rec.Body.String())
+		if rec.Header().Get("Content-Security-Policy") != "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'" {
+			t.Errorf("%s: CSP %q", c.name, rec.Header().Get("Content-Security-Policy"))
+		}
+		for _, want := range []string{"Site responding slowly", "SITE-A is responding slowly. Please try again in a moment.", `href="/"`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s: page lacks %q", c.name, want)
+			}
+		}
+		for _, not := range []string{"/ui/iam/providers", "/.portico/saml-start", "Choose another site"} {
+			if strings.Contains(body, not) {
+				t.Errorf("%s: page has %q", c.name, not)
+			}
+		}
+		if !strings.Contains(lh.logBuf.String(), `"step":"`+c.step+`"`) {
+			t.Errorf("%s: the log lacks the step: %s", c.name, lh.logBuf.String())
 		}
 		if strings.Contains(lh.logBuf.String(), "abc\"") && c.hdr != nil {
-			// the cookie value must not be logged
 			t.Fatalf("%s: cookie value in the log: %s", c.name, lh.logBuf.String())
 		}
 	}
@@ -300,14 +322,14 @@ func TestSAMLStartTransportErrorDoesNotLogCookie(t *testing.T) {
 		}
 	})
 	rec := lh.do("GET", "https://prism.test/.portico/saml-start", map[string]string{"Cookie": "iam-sessionid=secret-cookie-id-9f3a"}, true)
-	if rec.Code != 302 || rec.Header().Get("Location") != "/ui/iam/providers?portico=manual" {
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Location") != "" {
 		t.Fatalf("transport error: %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 	if strings.Contains(lh.logBuf.String(), "secret-cookie-id-9f3a") {
 		t.Fatalf("the login-request id reached the log: %s", lh.logBuf.String())
 	}
-	if !strings.Contains(lh.logBuf.String(), "falling back") {
-		t.Fatalf("no fallback warning: %s", lh.logBuf.String())
+	if !strings.Contains(lh.logBuf.String(), "sign-in could not start") {
+		t.Fatalf("no warning: %s", lh.logBuf.String())
 	}
 }
 

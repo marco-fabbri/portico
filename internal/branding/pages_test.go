@@ -183,3 +183,17 @@ func TestSitesTemplateVariantB(t *testing.T) {
 		t.Fatal("the site page must keep the CSP and carry no script")
 	}
 }
+
+func TestErrorPageSwitchLink(t *testing.T) {
+	p := pagesFor(Default())
+	rec := httptest.NewRecorder()
+	p.ErrorSwitch(rec, httptest.NewRequest("GET", "https://prism.test/", nil), http.StatusServiceUnavailable, "Site responding slowly", "x", "/", "/.portico/sites")
+	if !strings.Contains(rec.Body.String(), `href="/.portico/sites"`) || !strings.Contains(rec.Body.String(), "Choose another site") {
+		t.Fatalf("no switch link: %s", rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	p.Error(rec, httptest.NewRequest("GET", "https://prism.test/", nil), http.StatusServiceUnavailable, "Site responding slowly", "x", "/")
+	if strings.Contains(rec.Body.String(), "/.portico/sites") || strings.Contains(rec.Body.String(), "Choose another site") {
+		t.Fatalf("switch link without a URL: %s", rec.Body.String())
+	}
+}

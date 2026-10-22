@@ -76,7 +76,11 @@ func NewPublic(o PublicOptions) http.Handler {
 			if !ok {
 				return
 			}
-			o.Landing.forSite(b).samlStart(w, r)
+			l := o.Landing.forSite(b)
+			if o.Sites.multiple(r.Context(), sess.Tenant) {
+				l.SwitchURL = sitesPath
+			}
+			l.samlStart(w, r)
 		})))
 		// The logo is a public asset (it is on the Keycloak login page too):
 		// the error pages need it on both hosts and before any session.
