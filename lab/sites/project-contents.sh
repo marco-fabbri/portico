@@ -75,18 +75,31 @@ fi
 # --scratch: does Prism Central refuse to delete a project that holds a VM?
 name="portico-measure-$(date -u +%Y%m%dT%H%M%SZ)"; vm=; p=
 cleanup() {
-  [ -n "$vm" ] && { IF_MATCH="$(etag_of "/api/vmm/v4.0/ahv/config/vms/$vm")" lab/pc.sh DELETE "/api/vmm/v4.0/ahv/config/vms/$vm" >/dev/null 2>&1; sleep 5; }
-  [ -n "$p" ] && { IF_MATCH="$(etag_of "$MD/config/projects/$p")" lab/pc.sh DELETE "$MD/config/projects/$p" >/dev/null 2>&1; }
+  [ -n "$vm" ] && { t=$(IF_MATCH="$(etag_of "/api/vmm/v4.0/ahv/config/vms/$vm")" lab/pc.sh DELETE "/api/vmm/v4.0/ahv/config/vms/$vm" 2>/dev/null | jq -r '.data.extId // empty'); [ -n "$t" ] && wait_task "$t" 300 >/dev/null 2>&1; }
+  if [ -n "$p" ]; then
+    for rg in $(resource_group_extids "$p"); do
+      t=$(IF_MATCH="$(etag_of "$MD/config/resource-groups/$rg")" lab/pc.sh DELETE "$MD/config/resource-groups/$rg" 2>/dev/null | jq -r '.data.extId // empty'); [ -n "$t" ] && wait_task "$t" 300 >/dev/null 2>&1
+    done
+    t=$(IF_MATCH="$(etag_of "$MD/config/projects/$p")" lab/pc.sh DELETE "$MD/config/projects/$p" 2>/dev/null | jq -r '.data.extId // empty'); [ -n "$t" ] && wait_task "$t" 300 >/dev/null 2>&1
+    echo "cleanup: project still there: $([ -n "$(project_extid "$name")" ] && echo yes || echo no)"
+  fi
   rm -rf "$tmp"
 }
 trap cleanup EXIT
-jq -n --arg n "$name" '{name: $n, description: "Portico write-up 24, deleted by the script"}' > "$tmp/p.json"
-lab/pc.sh POST "$MD/config/projects" "$tmp/p.json" >"$tmp/out" 2>"$tmp/code"; echo "create project: $(tail -1 "$tmp/code")"
-sleep 5; p=$(project_extid "$name"); [ -n "$p" ] || { echo "project not found after create" >&2; exit 1; }
+# As lab/projects/create.sh: the project, then a resource group on the
+# first AOS cluster and its default-container.
+jq -n --arg n "$name" '{id: $n, name: $n, description: "Portico write-up 24, deleted by the script"}' > "$tmp/p.json"
+code=$(post "$MD/config/projects" "$tmp/p.json" "$tmp/out"); echo "create project: $code"
+t=$(jq -r '.data.extId // empty' "$tmp/out"); [ -n "$t" ] && wait_task "$t" 300 >/dev/null
+p=$(project_extid "$name"); [ -n "$p" ] || { echo "project not found after create: $(jq -c '.error // empty' "$tmp/out" | head -c 400)" >&2; exit 1; }
 cl=$(lab/pc.sh GET "/api/clustermgmt/v4.0/config/clusters" 2>/dev/null | jq -r '[.data[] | select(.config.clusterFunction | index("AOS"))][0].extId')
+sc=$(lab/pc.sh GET "/api/clustermgmt/v4.0/config/storage-containers?\$limit=100" 2>/dev/null | jq -r --arg c "$cl" '[.data[] | select(.clusterExtId == $c and (.name | startswith("default-container")))][0].containerExtId')
+jq -n --arg n "$name-rg" --arg p "$p" --arg c "$cl" --arg s "$sc" '{name: $n, projectExtId: $p, placementTargets: [{clusterExtId: $c, storageContainers: [{extId: $s}]}]}' > "$tmp/rg.json"
+code=$(post "$MD/config/resource-groups" "$tmp/rg.json" "$tmp/out"); echo "create resource group: $code"
+t=$(jq -r '.data.extId // empty' "$tmp/out"); [ -n "$t" ] && wait_task "$t" 300 >/dev/null
 jq -n --arg n "$name-vm" --arg c "$cl" --arg p "$p" '{name: $n, numSockets: 1, numCoresPerSocket: 1, memorySizeBytes: 536870912, cluster: {extId: $c}, project: {extId: $p}}' > "$tmp/vm.json"
-lab/pc.sh POST "/api/vmm/v4.0/ahv/config/vms" "$tmp/vm.json" >"$tmp/out" 2>"$tmp/code"; echo "create vm in project: $(tail -1 "$tmp/code") $(jq -c '.data.extId // .error // empty' "$tmp/out" | head -c 300)"
-sleep 15
+code=$(post "/api/vmm/v4.0/ahv/config/vms" "$tmp/vm.json" "$tmp/out"); echo "create vm in project: $code $(jq -c '.error // empty' "$tmp/out" | head -c 400)"
+t=$(jq -r '.data.extId // empty' "$tmp/out"); [ -n "$t" ] && echo "vm task: $(wait_task "$t" 300 2>"$tmp/err") $(head -c 400 "$tmp/err")"
 vm=$(lab/pc.sh GET "/api/vmm/v4.0/ahv/config/vms?\$filter=$(enc "name eq '$name-vm'")" 2>/dev/null | jq -r '.data[0].extId // empty')
 echo "vm: ${vm:-not found}"
 count "$p"
@@ -95,5 +108,5 @@ echo "delete project holding a vm: $(tail -1 "$tmp/code") $(jq -c '.error // emp
 # A v4 delete answers with a task; the refusal, if any, is in the task.
 t=$(jq -r '.data.extId // empty' "$tmp/out")
 [ -n "$t" ] && echo "delete task: $(wait_task "$t" 120 2>"$tmp/err") $(head -c 600 "$tmp/err")"
-still=$(project_extid "$name"); echo "project still there after that delete: ${still:+yes}${still:-no}"
+still=$(project_extid "$name"); echo "project still there after that delete: $([ -n "$still" ] && echo yes || echo no)"
 [ -z "$still" ] && p=
