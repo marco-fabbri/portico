@@ -12,6 +12,7 @@ import (
 	"github.com/marco-fabbri/portico/internal/api"
 	"github.com/marco-fabbri/portico/internal/auth"
 	"github.com/marco-fabbri/portico/internal/settings"
+	"github.com/marco-fabbri/portico/internal/store"
 )
 
 // siteRow is a site as the setup pages show it: the key blanked, whether
@@ -42,6 +43,11 @@ type siteData struct {
 	// Form keeps the non-secret bootstrap fields as typed; passwords are
 	// never echoed.
 	Form map[string]string
+	// Running is set when the tenant service runs: Connections are the
+	// tenants on this site, Connectable the active tenants not on it.
+	Running     bool
+	Connections []connectionRow
+	Connectable []store.Tenant
 }
 
 // siteFragment is a check or bootstrap answer on the site page.
@@ -215,7 +221,42 @@ func (h *Handler) loadSite(w http.ResponseWriter, r *http.Request) (settings.Sit
 
 func (h *Handler) renderSite(w http.ResponseWriter, r *http.Request, status int, s settings.Site, errMsg string) {
 	d := siteData{siteRow: toSiteRow(s, h.siteTenants(r, s.ID)), Mode: h.setup.Mode, Live: h.live(s.ID)}
+	h.siteConnections(r, &d)
 	h.render(w, r, status, "site", "Site "+s.Code, d, errMsg)
+}
+
+// siteConnections fills the tenant rows of the site page and the tenants
+// that can still be connected to it.
+func (h *Handler) siteConnections(r *http.Request, d *siteData) {
+	if h.svc == nil {
+		return
+	}
+	if _, ok := h.siteOf(d.S.ID); !ok {
+		// Saved but not applied yet: the running service has no such site.
+		return
+	}
+	d.Running = true
+	ps, err := h.st.ListPlacementsBySite(r.Context(), d.S.ID)
+	if err != nil {
+		h.log.Warn("placements unreadable", "site", d.S.ID, "err", err.Error())
+	}
+	ts, err := h.st.ListTenants(r.Context())
+	if err != nil {
+		h.log.Warn("tenants unreadable", "err", err.Error())
+	}
+	names, on := map[string]string{}, map[string]bool{}
+	for _, t := range ts {
+		names[t.ID] = t.DisplayNameOr()
+	}
+	for _, p := range ps {
+		on[p.TenantID] = true
+	}
+	d.Connections = h.connectionRows(r, ps, "site", func(id string) string { return names[id] })
+	for _, t := range ts {
+		if t.Status == store.StatusActive && !on[t.ID] {
+			d.Connectable = append(d.Connectable, t)
+		}
+	}
 }
 
 func (h *Handler) sitePage(w http.ResponseWriter, r *http.Request) {

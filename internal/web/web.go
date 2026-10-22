@@ -87,6 +87,7 @@ func New(o Options) *Handler {
 	mux.HandleFunc("GET /static/apple-touch-icon.png", h.icon)
 	mux.HandleFunc("GET /{$}", h.home)
 	h.routes(mux)
+	h.connectionRoutes(mux)
 	h.setupRoutes(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		h.render(w, r, http.StatusNotFound, "notfound", "Not found", nil, "")

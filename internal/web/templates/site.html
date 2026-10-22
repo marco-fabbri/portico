@@ -1,9 +1,40 @@
 {{define "content"}}
 <div class="page-head"><div><h1>Site {{.Data.S.Code}}{{with .Data.Live}} <span class="status status-{{.Status}}">{{.Status}}</span>{{end}}</h1><p>{{with .Data.S.Name}}{{.}} · {{end}}<a href="/setup">Back to the setup</a></p></div></div>
 
+{{if .Data.Running}}
+<section class="card" id="card-tenants">
+  <h2>Tenants on this site</h2>
+  {{if .Data.Connections}}
+  <table>
+    <thead><tr><th>Tenant</th><th>Cluster</th><th>Storage container</th><th>Status</th><th>Users now</th><th></th></tr></thead>
+    <tbody>{{range .Data.Connections}}<tr>
+      <td><a href="/tenants/{{.TenantID}}"><strong>{{.Tenant}}</strong></a><br><span class="muted small">{{.TenantID}}</span></td>
+      <td class="muted small">{{.ClusterExtID}}</td><td class="muted small">{{.StorageContainerExtID}}</td>
+      {{template "connection-cells" .}}
+    </tr>{{end}}</tbody>
+  </table>
+  {{else}}<p class="muted">No tenant is connected to this site.</p>{{end}}
+</section>
+
+{{if .Data.Connectable}}
+<section class="card" id="card-connect">
+  <h2>Connect a tenant to this site</h2>
+  <form method="post" action="/setup/sites/{{.Data.S.ID}}/tenants">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <label>Tenant <select name="tenant">{{range .Data.Connectable}}<option value="{{.ID}}">{{.DisplayNameOr}}</option>{{end}}</select></label>
+    <div id="targets" hx-get="/targets?form=connect&amp;site={{.Data.S.ID}}" hx-trigger="load">
+      <label>Cluster (optional) <input type="text" name="cluster_ext_id" placeholder="the site's default"></label>
+      <label>Storage container (optional) <input type="text" name="storage_container_ext_id" placeholder="the site's default"></label>
+    </div>
+    <div class="actions"><button type="submit" class="primary">Connect</button></div>
+  </form>
+</section>
+{{end}}
+{{end}}
+
 {{with .Data.Live}}
 <section class="card" id="card-live">
-  <h2>Tenants on this site</h2>
+  <h2>Users on this site</h2>
   <form method="post" action="/setup/sites/{{.ID}}/maintenance" class="inline">
     <input type="hidden" name="_csrf" value="{{$.CSRF}}">
     {{if .Maintenance}}
@@ -57,7 +88,7 @@
 <section class="card" id="card-remove">
   <h2>Remove</h2>
   {{if .Data.Tenants}}
-  <p class="state todo">Tenants placed here: {{range $i, $t := .Data.Tenants}}{{if $i}}, {{end}}<a href="/tenants/{{$t}}">{{$t}}</a>{{end}}. Remove them from this site first.</p>
+  <p class="state todo">Tenants placed here: {{range $i, $t := .Data.Tenants}}{{if $i}}, {{end}}<a href="/tenants/{{$t}}">{{$t}}</a>{{end}}. Disconnect them from this site first.</p>
   {{else}}
   <form method="post" action="/setup/sites/{{.Data.S.ID}}/delete">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">

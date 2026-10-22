@@ -1,0 +1,21 @@
+{{define "content"}}
+{{with .Data}}
+<section class="card narrow">
+  <h1>{{.Title}}</h1>
+  <p>{{.Text}}</p>
+  {{if .List}}<ul>{{range .List}}<li>{{.}}</li>{{end}}</ul>{{end}}
+  {{if .Note}}<p class="muted">{{.Note}}</p>{{end}}
+  {{if .Link}}<p><a href="{{.Link}}" rel="noopener" target="_blank">{{.LinkText}}</a></p>{{end}}
+  <div class="actions">
+    {{if .Action}}
+    <form method="post" action="{{.Action}}" class="inline">
+      <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+      {{if .From}}<input type="hidden" name="from" value="{{.From}}">{{end}}
+      <button type="submit" class="{{if .Danger}}danger{{else}}primary{{end}}">{{.Button}}</button>
+    </form>
+    {{end}}
+    <a class="button" href="{{.Back}}">{{if .Action}}Cancel{{else}}Back{{end}}</a>
+  </div>
+</section>
+{{end}}
+{{end}}

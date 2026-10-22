@@ -35,3 +35,14 @@
 </body>
 </html>
 {{define "lockup"}}<div class="lockup"><img class="mark-large" src="/static/portico-mark.svg?v={{.Version}}" alt=""><span class="wordmark">Portico</span><span class="claim">Admin console</span></div>{{end}}
+{{/* One connection in the tenant and site tables: status, users now, and the actions its status allows. */}}
+{{define "connection-cells"}}
+<td><span class="status status-{{.Status}}">{{.Status}}</span>{{if and .LastError .CanRetry}}<p class="bad small">{{.LastError}}</p>{{end}}</td>
+<td>{{if .UsersKnown}}{{.Users}}{{else}}<span class="muted">–</span>{{end}}</td>
+<td class="row-actions">
+  {{if .CanSuspend}}<a class="button" href="/tenants/{{.TenantID}}/sites/{{.SiteID}}/suspend{{if .From}}?from={{.From}}{{end}}">Suspend</a>{{end}}
+  {{if .CanResume}}<form method="post" action="/tenants/{{.TenantID}}/sites/{{.SiteID}}/resume" class="inline"><input type="hidden" name="_csrf" value="{{.CSRF}}">{{if .From}}<input type="hidden" name="from" value="{{.From}}">{{end}}<button type="submit">Resume</button></form>{{end}}
+  {{if .CanRetry}}<form method="post" action="/tenants/{{.TenantID}}/sites/{{.SiteID}}/retry" class="inline"><input type="hidden" name="_csrf" value="{{.CSRF}}">{{if .From}}<input type="hidden" name="from" value="{{.From}}">{{end}}<button type="submit" class="primary">Retry</button></form>{{end}}
+  {{if .CanDisconnect}}<a class="button danger" href="/tenants/{{.TenantID}}/sites/{{.SiteID}}/disconnect{{if .From}}?from={{.From}}{{end}}">Disconnect</a>{{end}}
+</td>
+{{end}}
