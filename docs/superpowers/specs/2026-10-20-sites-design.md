@@ -226,12 +226,13 @@ stays one per tenant, so one login serves all its sites.
 5. The SAML response comes back as a POST to the ACS URL on `prism_host`;
    it follows the recorded site like any other request, so it reaches the
    Prism Central that started the login.
-6. Prism Central's own Sign Out ends the Portico session as today, on
-   every site.
-7. A way back to the site page from inside the console is not possible
-   without touching Prism Central's pages; the tenant opens the public
-   address again (or `/.portico/sites`). The landing page and the site
-   page carry a "switch site" link.
+6. Prism Central's own Sign Out: replaced by the sites usability design
+   (`2026-10-22-sites-usability-design.md`, 4.7). With several sites it
+   ends that site only and returns to the site page, which is also the way
+   back from inside the console; with one site it ends everything, as
+   before.
+7. The landing page and the site page carry a "switch site" link; the
+   tenant can also open `/.portico/sites`.
 
 ### 4.4 Remembering the site: one site at a time per browser
 
