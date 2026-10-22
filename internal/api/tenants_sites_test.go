@@ -108,3 +108,21 @@ func TestTenantAPIAddRemoveSite(t *testing.T) {
 		t.Fatalf("remove a site the tenant is not on: %d", rec.Code)
 	}
 }
+
+func TestSuspendResumeAPI(t *testing.T) {
+	e, _ := newEnv2(t)
+	e.do("POST", "/api/v1/tenants", `{"slug":"acme","display_name":"ACME","sites":[{"site":"site-a"}]}`, true)
+	e.svc.Wait()
+	if rec, out := e.do("POST", "/api/v1/tenants/acme/sites/site-a/suspend", "", true); rec.Code != 200 || out["status"] != "suspended" {
+		t.Fatalf("suspend: %d %v", rec.Code, out)
+	}
+	if rec, out := e.do("POST", "/api/v1/tenants/acme/sites/site-a/resume", "", true); rec.Code != 200 || out["status"] != "active" {
+		t.Fatalf("resume: %d %v", rec.Code, out)
+	}
+	p, _ := e.st.GetPlacement(context.Background(), "acme", "site-a")
+	p.Status = store.PlacementRemoving
+	e.st.UpdatePlacement(context.Background(), p)
+	if rec, _ := e.do("POST", "/api/v1/tenants/acme/sites/site-a/suspend", "", true); rec.Code != 409 {
+		t.Fatalf("suspend of a removing placement: %d", rec.Code)
+	}
+}
