@@ -27,10 +27,17 @@ a key or a token, except the one-time temporary password of a new user.
 | `POST /api/v1/tenants/{id}/provision` | Retry provisioning on every site that is not active (idempotent steps) | 202; 409 unless the tenant is `failed` or a site of an active tenant failed |
 | `POST /api/v1/tenants/{id}/sites` | Place an active tenant on one more site: `{"site", "cluster_ext_id", "storage_container_ext_id"}` | 202; 400; 409 when already placed there |
 | `DELETE /api/v1/tenants/{id}/sites/{site}?delete_project=true` | Take the tenant off one site (the project too only with `delete_project=true`) | 202; 404 when not placed there; 409 for the last site |
+| `POST /api/v1/tenants/{id}/sites/{site}/suspend` | Suspend an active connection for maintenance: Portico stops routing the tenant to that site (a new request, a new VM console included, is refused; an open console finishes); nothing changes in Prism Central and the VMs keep running | 200 with the connection (`status: suspended`); 404 when not connected there; 409 unless active |
+| `POST /api/v1/tenants/{id}/sites/{site}/resume` | Resume a suspended connection: the same project serves again, nothing is re-created | 200 with the connection (`status: active`); 409 unless suspended |
 | `POST /api/v1/tenants/{id}/disable` | Disable the Keycloak group: its users cannot log in | 202 |
 | `POST /api/v1/tenants/{id}/enable` | Enable it again | 202 |
 | `DELETE /api/v1/tenants/{id}?delete_project=true` | Delete the tenant on every site: role membership, SAML group, then the Keycloak group; the projects too only with `delete_project=true`. Portico never deletes VMs | 202 with `{"id", "status": "deleting", "delete_project"}` |
 | `POST /api/v1/tenants/{id}/users` | Create the tenant's user in Keycloak. Body: `{"email", "first_name", "last_name"}`; the email is the username and the SAML `NameID` | 201 `{"id", "email", "temporary_password"}`, shown once; the user must change it at the first login; 409 when the email exists |
+
+A connection's `status` is `creating`, `active`, `suspended`, `failed`,
+`removing` or `remove-failed`. A suspension or a resume takes effect at
+once on the node that made it; the pair's other node sees it within its
+connection cache, 5 s.
 
 A tenant:
 

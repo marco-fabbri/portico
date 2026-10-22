@@ -381,3 +381,77 @@ func TestRecoverInterruptedRemoval(t *testing.T) {
 		t.Fatalf("interrupted removal = %q", got)
 	}
 }
+
+func TestSuspendKeepsPrismCentralUntouched(t *testing.T) {
+	e := newEnv2(t)
+	e.createOn(t, "acme", "site-a")
+	calls, changes := e.pcA.Calls, len(e.changes)
+	if err := e.svc.Suspend(context.Background(), "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	if p := e.placement(t, "acme", "site-a"); p.Status != store.PlacementSuspended {
+		t.Fatalf("status = %s", p.Status)
+	}
+	if e.pcA.Calls != calls {
+		t.Fatalf("Prism Central called %d times by Suspend", e.pcA.Calls-calls)
+	}
+	if len(e.changes) != changes+1 || e.changes[len(e.changes)-1] != "acme" {
+		t.Fatalf("changes = %v", e.changes)
+	}
+}
+
+func TestResumeRestoresSameProject(t *testing.T) {
+	e := newEnv2(t)
+	e.createOn(t, "acme", "site-a")
+	before := e.placement(t, "acme", "site-a")
+	creates := e.pcA.Creates["CreateProject"]
+	ctx := context.Background()
+	if err := e.svc.Suspend(ctx, "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.Resume(ctx, "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	after := e.placement(t, "acme", "site-a")
+	if after.Status != store.PlacementActive || after.ProjectExtID != before.ProjectExtID || e.pcA.Creates["CreateProject"] != creates {
+		t.Fatalf("after resume: %+v, creates %d→%d", after, creates, e.pcA.Creates["CreateProject"])
+	}
+}
+
+func TestSuspendRefusedUnlessActive(t *testing.T) {
+	e := newEnv2(t)
+	e.createOn(t, "acme", "site-a")
+	ctx := context.Background()
+	if err := e.svc.Resume(ctx, "acme", "site-a"); !errors.Is(err, ErrState) {
+		t.Fatalf("Resume of an active placement: %v", err)
+	}
+	p := e.placement(t, "acme", "site-a")
+	p.Status = store.PlacementRemoving
+	e.st.UpdatePlacement(ctx, p)
+	if err := e.svc.Suspend(ctx, "acme", "site-a"); !errors.Is(err, ErrState) {
+		t.Fatalf("Suspend of a removing placement: %v", err)
+	}
+	if err := e.svc.Suspend(ctx, "acme", "site-z"); !errors.Is(err, ErrUnknownSite) {
+		t.Fatalf("Suspend on an unknown site: %v", err)
+	}
+}
+
+func TestProvisionSkipsSuspended(t *testing.T) {
+	e := newEnv2(t)
+	e.pcB.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 500, Message: "membership exploded"}
+	e.createOn(t, "acme", "site-a", "site-b")
+	ctx := context.Background()
+	if err := e.svc.Suspend(ctx, "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	if p := e.placement(t, "acme", "site-b"); p.Status != store.PlacementFailed {
+		t.Fatalf("site-b = %s, want failed", p.Status)
+	}
+	if err := e.svc.Retry(ctx, "acme"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if a, b := e.placement(t, "acme", "site-a"), e.placement(t, "acme", "site-b"); a.Status != store.PlacementSuspended || b.Status != store.PlacementActive {
+		t.Fatalf("after retry: site-a %s, site-b %s", a.Status, b.Status)
+	}
+}

@@ -332,6 +332,42 @@ func (s *Service) AddSite(ctx context.Context, id string, r PlacementRequest) er
 	return nil
 }
 
+// Suspend closes Portico's route from the tenant to one site, for
+// maintenance (design sites usability 4.5). Nothing changes in Prism
+// Central: the project, its group and role membership stay and the VMs
+// keep running; Resume opens the same project again.
+func (s *Service) Suspend(ctx context.Context, id, siteID string) error {
+	return s.setPlacementStatus(ctx, id, siteID, store.PlacementActive, store.PlacementSuspended)
+}
+
+// Resume reopens a suspended connection; nothing is re-created.
+func (s *Service) Resume(ctx context.Context, id, siteID string) error {
+	return s.setPlacementStatus(ctx, id, siteID, store.PlacementSuspended, store.PlacementActive)
+}
+
+func (s *Service) setPlacementStatus(ctx context.Context, id, siteID string, from, to store.PlacementStatus) error {
+	if _, ok := s.sites[siteID]; !ok {
+		return fmt.Errorf("%w: %q", ErrUnknownSite, siteID)
+	}
+	if !s.acquire(id) {
+		return ErrBusy
+	}
+	defer s.release(id)
+	p, err := s.st.GetPlacement(ctx, id, siteID)
+	if err != nil {
+		return err
+	}
+	if p.Status != from {
+		return fmt.Errorf("%w: the connection to %s is %s", ErrState, s.SiteCode(siteID), p.Status)
+	}
+	p.Status, p.LastError = to, ""
+	if err := s.st.UpdatePlacement(ctx, p); err != nil {
+		return err
+	}
+	s.changed(id)
+	return nil
+}
+
 // RemoveSite takes a tenant off one site in the background: the 2a
 // deletion steps on that site, the project too when deleteProject is
 // set, then the placement row. The last site cannot be removed.
