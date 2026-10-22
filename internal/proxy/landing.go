@@ -32,7 +32,10 @@ type LandingOptions struct {
 	PrismHost string       // public host name, sent as Host
 	IdPExtID  func(ctx context.Context) (string, error)
 	Log       *slog.Logger
-	// SwitchURL, when set, puts a "switch site" link on the landing page.
+	// SiteCode names the request's site on the "responding slowly" page.
+	SiteCode string
+	// SwitchURL, when set, puts a "switch site" link on the landing page
+	// and a "choose another site" link on the "responding slowly" page.
 	SwitchURL string
 }
 
@@ -43,13 +46,12 @@ func (l *LandingOptions) forSite(b *SiteBackend) *LandingOptions {
 		return nil
 	}
 	c := *l
-	c.PrismHTTP, c.PrismBase, c.IdPExtID = b.PrismHTTP, b.PrismBase, b.IdPExtID
+	c.PrismHTTP, c.PrismBase, c.IdPExtID, c.SiteCode = b.PrismHTTP, b.PrismBase, b.IdPExtID, b.Code
 	return &c
 }
 
 const (
 	providersPath    = "/ui/iam/providers"
-	manualMarker     = "manual"
 	samlStartPath    = "/.portico/saml-start"
 	logoPath         = "/.portico/logo"
 	faviconPath      = "/.portico/favicon.ico"
@@ -66,10 +68,9 @@ const (
 var reLoginRequestID = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
 
 // interceptsProviders reports whether this request gets the landing page
-// instead of Prism Central's provider page: a GET without the one-shot
-// marker that the fallback sets.
+// instead of Prism Central's provider page: every GET of it.
 func (l *LandingOptions) interceptsProviders(r *http.Request) bool {
-	return l != nil && r.Method == http.MethodGet && NormalizePath(r.URL.Path) == providersPath && r.URL.Query().Get("portico") != manualMarker
+	return l != nil && r.Method == http.MethodGet && NormalizePath(r.URL.Path) == providersPath
 }
 
 // interceptsSignOut reports whether this is the tail of the console's
@@ -90,26 +91,30 @@ func (l *LandingOptions) landing(w http.ResponseWriter, r *http.Request) {
 }
 
 // samlStart selects the SAML identity provider on the browser's login
-// request and sends the browser to initiate-login. Any failure falls
-// back once to the original provider page with the marker.
+// request and sends the browser to initiate-login. Any failure shows the
+// branded "responding slowly" page (design sites usability 4.8): Prism
+// Central's own provider page reads "Authentication providers not
+// registered yet" when it is slow, which means nothing to a tenant. Its
+// Retry goes to "/", which restarts the flow with a new login request.
 func (l *LandingOptions) samlStart(w http.ResponseWriter, r *http.Request) {
 	setRule(r, "saml-start")
-	fallback := func(step string, status int, err error) {
+	fail := func(step string, status int, err error) {
 		attrs := []any{"step", step, "status", status}
 		if err != nil {
 			attrs = append(attrs, "err", err.Error())
 		}
-		l.Log.Warn("saml-start: falling back to the provider page", attrs...)
-		http.Redirect(w, r, providersPath+"?portico="+manualMarker, http.StatusFound)
+		l.Log.Warn("saml-start: sign-in could not start", attrs...)
+		l.Pages.ErrorSwitch(w, r, http.StatusServiceUnavailable, "Site responding slowly",
+			l.SiteCode+" is responding slowly. Please try again in a moment.", "/", l.SwitchURL)
 	}
 	c, err := r.Cookie(iamCookie)
 	if err != nil || !reLoginRequestID.MatchString(c.Value) {
-		fallback("cookie", 0, nil)
+		fail("cookie", 0, nil)
 		return
 	}
 	idp, err := l.IdPExtID(r.Context())
 	if err != nil {
-		fallback("idp", 0, err)
+		fail("idp", 0, err)
 		return
 	}
 	var current struct {
@@ -117,7 +122,7 @@ func (l *LandingOptions) samlStart(w http.ResponseWriter, r *http.Request) {
 	}
 	status, err := l.loginRequest(r.Context(), http.MethodGet, c.Value, nil, &current)
 	if err != nil || status != http.StatusOK || current.Data == nil {
-		fallback("get", status, err)
+		fail("get", status, err)
 		return
 	}
 	// The console's own body: nothing else, nothing read-only.
@@ -130,7 +135,7 @@ func (l *LandingOptions) samlStart(w http.ResponseWriter, r *http.Request) {
 	}
 	status, err = l.loginRequest(r.Context(), http.MethodPut, c.Value, body, nil)
 	if err != nil || status < 200 || status > 299 {
-		fallback("put", status, err)
+		fail("put", status, err)
 		return
 	}
 	http.Redirect(w, r, initiateLogin, http.StatusFound)

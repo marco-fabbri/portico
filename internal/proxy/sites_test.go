@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -458,5 +459,19 @@ func TestSignOutThenOtherSiteRestoresItsStash(t *testing.T) {
 	}
 	if c := setCookie(rec, "NTNX_SESSION_ID"); !strings.HasPrefix(c, "NTNX_SESSION_ID=y") {
 		t.Fatalf("site-b's cookie was not restored: %q", c)
+	}
+}
+
+func TestSAMLStartFailureWithSeveralSitesLinksSitePage(t *testing.T) {
+	h := newSitesHarness(t)
+	h.routing.Backends["site-a"].PrismHTTP = &http.Client{}
+	h.routing.Backends["site-a"].PrismBase, _ = url.Parse("https://127.0.0.1:1")
+	h.routing.Backends["site-a"].IdPExtID = func(context.Context) (string, error) { return "", errors.New("slow") }
+	h.withLanding()
+	h.session("s1", "acme", "site-a")
+	rec := h.do("GET", "/.portico/saml-start", "s1", map[string]string{"Accept": "text/html", "Cookie": "iam-sessionid=abc"}, nil)
+	body := rec.Body.String()
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(body, `href="/.portico/sites"`) || !strings.Contains(body, "Choose another site") || !strings.Contains(body, "AZ-IT-MI1 is responding slowly.") {
+		t.Fatalf("slow page with two sites: %d %s", rec.Code, body)
 	}
 }
