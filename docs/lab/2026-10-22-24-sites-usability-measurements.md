@@ -179,7 +179,9 @@ Details, SHA-256 fingerprint).
   returns to the site page with the Portico session still valid;
   `AZ-US-NYC1` then opens with no password asked; the site page's Sign
   out ends on Keycloak's login page.
-- NOT MEASURED: the console's sign-out with one site (the lab has one
+- NOT MEASURED: going back to `AZ-IT-MI1` after `AZ-US-NYC1` (the
+  silent SAML round trip to the site that was signed out; unit test of
+  the stash only); the console's sign-out with one site (the lab has one
   tenant, on two sites; unit test only); the "responding slowly" page
   (Prism Central was not slow during the session; unit tests only);
   Safari.
