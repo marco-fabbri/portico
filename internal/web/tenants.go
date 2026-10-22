@@ -146,7 +146,8 @@ func (h *Handler) tenantCreate(w http.ResponseWriter, r *http.Request) {
 		h.render(w, r, http.StatusBadRequest, "tenant_new", "New tenant", d, tenant.ErrInvalidSlug.Error())
 		return
 	}
-	req := tenant.CreateRequest{Slug: d.Slug, DisplayName: d.DisplayName, Contacts: d.Contacts}
+	// No box checked creates a tenant connected to no site.
+	req := tenant.CreateRequest{Slug: d.Slug, DisplayName: d.DisplayName, Contacts: d.Contacts, Sites: []tenant.PlacementRequest{}}
 	for _, s := range d.Sites {
 		if s.Checked {
 			req.Sites = append(req.Sites, tenant.PlacementRequest{Site: s.ID, ClusterExtID: s.Cluster, StorageContainerExtID: s.Container})
@@ -324,8 +325,7 @@ func (h *Handler) tenantDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	deleteProject := r.PostFormValue("delete_project") != ""
-	if err := h.svc.Delete(r.Context(), t.ID, deleteProject); err != nil {
+	if err := h.svc.Delete(r.Context(), t.ID); err != nil {
 		h.detailWithError(w, r, t, statusOf(err), err.Error())
 		return
 	}
@@ -391,11 +391,11 @@ func statusOf(err error) int {
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, store.ErrExists), errors.Is(err, tenant.ErrExists), errors.Is(err, tenant.ErrBusy), errors.Is(err, tenant.ErrState),
-		errors.Is(err, tenant.ErrPlacementExists), errors.As(err, new(*tenant.NotEmptyError)):
+		errors.Is(err, tenant.ErrPlacementExists), errors.Is(err, tenant.ErrHasSites), errors.As(err, new(*tenant.NotEmptyError)):
 		return http.StatusConflict
 	case errors.Is(err, tenant.ErrCount):
 		return http.StatusServiceUnavailable
-	case errors.Is(err, tenant.ErrInvalidSlug), errors.Is(err, tenant.ErrUnknownSite), errors.Is(err, tenant.ErrNoSites), errors.Is(err, tenant.ErrNoPlacementTarget):
+	case errors.Is(err, tenant.ErrInvalidSlug), errors.Is(err, tenant.ErrUnknownSite), errors.Is(err, tenant.ErrNoPlacementTarget):
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError

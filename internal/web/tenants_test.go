@@ -153,7 +153,15 @@ func TestDisableEnableRetryDeleteForms(t *testing.T) {
 	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "not allowed") {
 		t.Fatalf("retry on an active tenant: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = e.do("POST", "/tenants/acme/delete", e.form("delete_project", "on"), true)
+	rec = e.do("POST", "/tenants/acme/delete", e.form(), true)
+	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "still connected to a site") {
+		t.Fatalf("delete with a site: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := e.svc.Disconnect(context.Background(), "acme", e.svc.Sites()[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	rec = e.do("POST", "/tenants/acme/delete", e.form(), true)
 	if rec.Code != 303 || rec.Header().Get("Location") != "/" {
 		t.Fatalf("delete: %d %q", rec.Code, rec.Header().Get("Location"))
 	}
@@ -163,7 +171,7 @@ func TestDisableEnableRetryDeleteForms(t *testing.T) {
 	}
 	for _, p := range e.pc.Projects {
 		if p.Name == "portico-acme" {
-			t.Fatal("project kept although delete_project was checked")
+			t.Fatal("project kept after the disconnect")
 		}
 	}
 }
@@ -174,7 +182,7 @@ func TestAllPostsRequireCSRF(t *testing.T) {
 	e.createTenant(t, "acme")
 	before, _ := e.st.GetTenant(context.Background(), "acme")
 	for _, path := range []string{"/tenants", "/tenants/acme/users", "/tenants/acme/disable", "/tenants/acme/enable", "/tenants/acme/provision", "/tenants/acme/delete"} {
-		rec := e.do("POST", path, url.Values{"slug": {"other"}, "email": {"x@y.test"}, "delete_project": {"on"}}, true)
+		rec := e.do("POST", path, url.Values{"slug": {"other"}, "email": {"x@y.test"}}, true)
 		if rec.Code != 403 {
 			t.Errorf("%s without CSRF: %d", path, rec.Code)
 		}

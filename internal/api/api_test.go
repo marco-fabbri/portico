@@ -178,13 +178,17 @@ func TestBusyIs409(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("provisioning did not start")
 	}
-	rec, out := e.do("DELETE", "/api/v1/tenants/acme?delete_project=true", "", true)
+	rec, out := e.do("DELETE", "/api/v1/tenants/acme", "", true)
 	if rec.Code != 409 || out["error"] == "" {
 		t.Fatalf("DELETE while creating: %d %v", rec.Code, out)
 	}
 	close(e.pc.GateCreate.Release)
 	e.svc.Wait()
-	rec, _ = e.do("DELETE", "/api/v1/tenants/acme?delete_project=true", "", true)
+	if rec, out := e.do("DELETE", "/api/v1/tenants/acme/sites/site-a", "", true); rec.Code != 202 {
+		t.Fatalf("disconnect: %d %v", rec.Code, out)
+	}
+	e.svc.Wait()
+	rec, _ = e.do("DELETE", "/api/v1/tenants/acme", "", true)
 	if rec.Code != 202 {
 		t.Fatalf("DELETE: %d", rec.Code)
 	}
@@ -257,24 +261,26 @@ func TestUnknownPathIs404JSON(t *testing.T) {
 	}
 }
 
-// 2a review minor: delete_project is parsed as a boolean, garbage is 400.
-func TestDeleteProjectFlagParsing(t *testing.T) {
+func TestDeleteTenantAPIWithSites(t *testing.T) {
 	e := newEnv(t)
 	e.do("POST", "/api/v1/tenants", `{"slug":"acme","display_name":"ACME"}`, true)
 	e.svc.Wait()
-	rec, out := e.do("DELETE", "/api/v1/tenants/acme?delete_project=yes", "", true)
-	if rec.Code != 400 || out["error"] == "" {
-		t.Fatalf("delete_project=yes: %d %v", rec.Code, out)
+	rec, out := e.do("DELETE", "/api/v1/tenants/acme", "", true)
+	if rec.Code != 409 || !strings.Contains(out["error"].(string), "still connected to a site") {
+		t.Fatalf("DELETE with a site: %d %v", rec.Code, out)
 	}
-	rec, _ = e.do("DELETE", "/api/v1/tenants/acme?delete_project=1", "", true)
-	if rec.Code != 202 {
-		t.Fatalf("delete_project=1: %d", rec.Code)
-	}
+}
+
+func TestCreateTenantSitesAbsentVsEmpty(t *testing.T) {
+	e := newEnv(t)
+	e.do("POST", "/api/v1/tenants", `{"slug":"one","display_name":"One"}`, true)
+	e.do("POST", "/api/v1/tenants", `{"slug":"none","display_name":"None","sites":[]}`, true)
 	e.svc.Wait()
-	for _, p := range e.pc.Projects {
-		if p.Name == "portico-acme" {
-			t.Fatal("project kept although delete_project=1")
-		}
+	if ps, _ := e.st.ListPlacements(context.Background(), "one"); len(ps) != 1 {
+		t.Fatalf("without sites: %d placements", len(ps))
+	}
+	if ps, _ := e.st.ListPlacements(context.Background(), "none"); len(ps) != 0 {
+		t.Fatalf("with sites []: %d placements", len(ps))
 	}
 }
 

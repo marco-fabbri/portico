@@ -152,7 +152,6 @@ func TestCreateRequestErrors(t *testing.T) {
 		req  CreateRequest
 		want error
 	}{
-		{"no site with several configured", CreateRequest{Slug: "a1", DisplayName: "x"}, ErrNoSites},
 		{"unknown site", CreateRequest{Slug: "a2", DisplayName: "x", Sites: []PlacementRequest{{Site: "nope"}}}, ErrUnknownSite},
 		{"site twice", CreateRequest{Slug: "a3", DisplayName: "x", Sites: []PlacementRequest{{Site: "site-a"}, {Site: "site-a"}}}, ErrPlacementExists},
 	} {
@@ -263,27 +262,6 @@ func TestDisconnectLastSiteAllowed(t *testing.T) {
 	}
 }
 
-func TestDeleteRemovesEverySite(t *testing.T) {
-	e := newEnv2(t)
-	ctx := context.Background()
-	e.createOn(t, "acme", "site-a", "site-b")
-	if err := e.svc.Delete(ctx, "acme", true); err != nil {
-		t.Fatal(err)
-	}
-	e.svc.Wait()
-	if _, err := e.st.GetTenant(ctx, "acme"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("row after delete: %v", err)
-	}
-	for name, pc := range map[string]*tenanttest.PC{"a": e.pcA, "b": e.pcB} {
-		if len(pc.Memberships) != 0 || len(pc.Groups) != 0 || len(pc.RGs) != 0 || len(pc.Projects) != 1 || len(pc.IdPs[0].SharedWithProjects) != 0 {
-			t.Fatalf("site %s objects left", name)
-		}
-	}
-	if len(e.kc.Groups) != 0 {
-		t.Fatal("keycloak group left")
-	}
-}
-
 func TestVisibilityPerSite(t *testing.T) {
 	e := newEnv2(t)
 	ctx := context.Background()
@@ -307,12 +285,12 @@ func TestPlacementChangeHookFires(t *testing.T) {
 		t.Fatalf("changes after create = %v", e.changes)
 	}
 	n := len(e.changes)
-	if err := e.svc.Delete(context.Background(), "acme", false); err != nil {
+	if err := e.svc.Disconnect(context.Background(), "acme", "site-a"); err != nil {
 		t.Fatal(err)
 	}
 	e.svc.Wait()
 	if len(e.changes) == n {
-		t.Fatal("no change reported for the deletion")
+		t.Fatal("no change reported for the disconnect")
 	}
 }
 
@@ -607,5 +585,17 @@ func TestRetrySiteProvisionsOnlyThatSite(t *testing.T) {
 	_, untouched := e.pcB.FailOnce["CreateRoleMembership"]
 	if a, b := e.placement(t, "acme", "site-a"), e.placement(t, "acme", "site-b"); a.Status != store.PlacementActive || b.Status != store.PlacementFailed || !untouched {
 		t.Fatalf("after RetrySite(site-a): a %s, b %s, site-b retried %v", a.Status, b.Status, !untouched)
+	}
+}
+
+func TestCreateNilSitesWithSeveralConfiguredHasNone(t *testing.T) {
+	e := newEnv2(t)
+	ctx := context.Background()
+	if _, err := e.svc.Create(ctx, CreateRequest{Slug: "acme", DisplayName: "ACME"}); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if ps, _ := e.st.ListPlacements(ctx, "acme"); len(ps) != 0 || len(e.svc.DefaultSites()) != 0 {
+		t.Fatalf("%d placements, defaults %v", len(ps), e.svc.DefaultSites())
 	}
 }

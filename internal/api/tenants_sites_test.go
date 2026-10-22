@@ -42,8 +42,8 @@ func newEnv2(t *testing.T) (*env, *tenanttest.PC) {
 
 func TestTenantAPIPlacementsShape(t *testing.T) {
 	e, _ := newEnv2(t)
-	rec, out := e.do("POST", "/api/v1/tenants", `{"slug":"acme","display_name":"ACME"}`, true)
-	if rec.Code != 400 || !strings.Contains(out["error"].(string), "sites") {
+	rec, out := e.do("POST", "/api/v1/tenants", `{"slug":"bare","display_name":"Bare"}`, true)
+	if rec.Code != 202 || len(out["placements"].([]any)) != 0 {
 		t.Fatalf("no sites with two configured: %d %v", rec.Code, out)
 	}
 	rec, out = e.do("POST", "/api/v1/tenants", `{"slug":"acme","display_name":"ACME","sites":[{"site":"site-a"},{"site":"site-b","cluster_ext_id":"cl-own"}]}`, true)
@@ -139,7 +139,7 @@ func TestDisconnectAPI(t *testing.T) {
 	if rec, out := e.do("GET", "/api/v1/tenants/acme/sites/site-b/contents", "", true); rec.Code != 200 || out["empty"] != true {
 		t.Fatalf("contents when empty: %d %v", rec.Code, out)
 	}
-	if rec, out := e.do("DELETE", "/api/v1/tenants/acme/sites/site-b?delete_project=true", "", true); rec.Code != 202 {
+	if rec, out := e.do("DELETE", "/api/v1/tenants/acme/sites/site-b", "", true); rec.Code != 202 {
 		t.Fatalf("disconnect of an empty project (old query ignored): %d %v", rec.Code, out)
 	}
 	e.svc.Wait()

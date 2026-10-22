@@ -206,8 +206,8 @@ func TestBusyWhileRunning(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("provisioning did not reach CreateProject")
 	}
-	if err := e.svc.Delete(context.Background(), "acme", false); !errors.Is(err, ErrBusy) {
-		t.Fatalf("Delete while provisioning = %v, want ErrBusy", err)
+	if err := e.svc.Delete(context.Background(), "acme"); !errors.Is(err, ErrBusy) && !errors.Is(err, ErrHasSites) {
+		t.Fatalf("Delete while provisioning = %v, want ErrBusy or ErrHasSites", err)
 	}
 	if err := e.svc.Retry(context.Background(), "acme"); !errors.Is(err, ErrBusy) && !errors.Is(err, ErrState) {
 		t.Fatalf("Retry while provisioning = %v, want ErrBusy or ErrState", err)
@@ -219,7 +219,7 @@ func TestBusyWhileRunning(t *testing.T) {
 	}
 }
 
-func TestDeleteReverseOrderAndTolerates404(t *testing.T) {
+func TestDisconnectReverseOrderAndTolerates404(t *testing.T) {
 	e := newEnv(t)
 	e.create(t, "acme")
 	e.svc.Wait()
@@ -227,13 +227,11 @@ func TestDeleteReverseOrderAndTolerates404(t *testing.T) {
 	// Someone removed the membership and the SAML group by hand.
 	e.pc.Memberships = nil
 	e.pc.Groups = nil
-	if err := e.svc.Delete(context.Background(), "acme", true); err != nil {
-		t.Fatalf("Delete: %v", err)
+	ctx := context.Background()
+	if err := e.svc.Disconnect(ctx, "acme", tn.SiteID); err != nil {
+		t.Fatalf("Disconnect: %v", err)
 	}
 	e.svc.Wait()
-	if _, err := e.st.GetTenant(context.Background(), "acme"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("row after delete: %v", err)
-	}
 	if len(e.pc.RGs) != 0 {
 		t.Fatalf("resource groups left: %+v", e.pc.RGs)
 	}
@@ -245,41 +243,22 @@ func TestDeleteReverseOrderAndTolerates404(t *testing.T) {
 	if len(e.pc.IdPs[0].SharedWithProjects) != 0 {
 		t.Fatalf("idp still shared: %v", e.pc.IdPs[0].SharedWithProjects)
 	}
-	if len(e.kc.Groups) != 0 {
-		t.Fatalf("keycloak group left: %+v", e.kc.Groups)
-	}
 	if !strings.Contains(e.log.String(), "already absent") {
 		t.Fatal("the 404s were not recorded as 'already absent' in the log")
 	}
-}
-
-func TestDeleteKeepsProjectByDefault(t *testing.T) {
-	e := newEnv(t)
-	e.create(t, "acme")
-	e.svc.Wait()
-	tn := e.place(t, "acme")
-	if err := e.svc.Delete(context.Background(), "acme", false); err != nil {
-		t.Fatal(err)
+	if err := e.svc.Delete(ctx, "acme"); err != nil {
+		t.Fatalf("Delete: %v", err)
 	}
 	e.svc.Wait()
-	if _, err := e.st.GetTenant(context.Background(), "acme"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := e.st.GetTenant(ctx, "acme"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("row after delete: %v", err)
 	}
-	found := false
-	for _, p := range e.pc.Projects {
-		if p.ExtID == tn.ProjectExtID {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("project was deleted although deleteProject was false")
-	}
-	if len(e.pc.Memberships) != 0 || len(e.pc.Groups) != 0 || len(e.pc.IdPs[0].SharedWithProjects) != 0 {
-		t.Fatalf("access objects left: %+v %+v %+v", e.pc.Memberships, e.pc.Groups, e.pc.IdPs[0].SharedWithProjects)
+	if len(e.kc.Groups) != 0 {
+		t.Fatalf("keycloak group left: %+v", e.kc.Groups)
 	}
 }
 
-func TestDeleteRefusesForeignProjectName(t *testing.T) {
+func TestDisconnectRefusesForeignProjectName(t *testing.T) {
 	e := newEnv(t)
 	e.create(t, "acme")
 	e.svc.Wait()
@@ -288,7 +267,7 @@ func TestDeleteRefusesForeignProjectName(t *testing.T) {
 	if err := e.st.UpdatePlacement(context.Background(), tn); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.svc.Delete(context.Background(), "acme", true); err != nil {
+	if err := e.svc.Disconnect(context.Background(), "acme", tn.SiteID); err != nil {
 		t.Fatal(err)
 	}
 	e.svc.Wait()
@@ -303,6 +282,68 @@ func TestDeleteRefusesForeignProjectName(t *testing.T) {
 	}
 	if !strings.Contains(e.log.String(), "refusing") {
 		t.Fatal("the refusal was not logged")
+	}
+}
+
+func TestCreateWithNoSites(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if _, err := e.svc.Create(ctx, CreateRequest{Slug: "acme", DisplayName: "ACME", Sites: []PlacementRequest{}}); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	ps, _ := e.st.ListPlacements(ctx, "acme")
+	if tn := e.get(t, "acme"); tn.Status != store.StatusActive || len(ps) != 0 || len(e.kc.Groups) != 1 {
+		t.Fatalf("tenant with no site: %s, %d placements, %d groups", tn.Status, len(ps), len(e.kc.Groups))
+	}
+	if got := e.svc.DefaultSites(); len(got) != 1 {
+		t.Fatalf("DefaultSites with one site = %v", got)
+	}
+}
+
+func TestDeleteRefusedWithSites(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.create(t, "acme")
+	e.svc.Wait()
+	p := e.place(t, "acme")
+	for _, st := range []store.PlacementStatus{store.PlacementActive, store.PlacementSuspended, store.PlacementCreating, store.PlacementRemoveFailed} {
+		p.Status = st
+		e.st.UpdatePlacement(ctx, p)
+		if err := e.svc.Delete(ctx, "acme"); !errors.Is(err, ErrHasSites) {
+			t.Fatalf("Delete with a %s connection = %v", st, err)
+		}
+		if tn := e.get(t, "acme"); tn.Status != store.StatusActive {
+			t.Fatalf("tenant after a refused delete: %s", tn.Status)
+		}
+	}
+}
+
+func TestDeleteRemovesGroupUsersAndRow(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if _, err := e.svc.Create(ctx, CreateRequest{Slug: "acme", DisplayName: "ACME", Sites: []PlacementRequest{}}); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	for _, mail := range []string{"a@acme.test", "b@acme.test"} {
+		if _, err := e.svc.CreateUser(ctx, "acme", mail, "A", "B"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := e.pc.Calls
+	if err := e.svc.Delete(ctx, "acme"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if _, err := e.st.GetTenant(ctx, "acme"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("row after delete: %v", err)
+	}
+	if len(e.kc.Users) != 0 || len(e.kc.Groups) != 0 {
+		t.Fatalf("left in Keycloak: %d users, %d groups", len(e.kc.Users), len(e.kc.Groups))
+	}
+	if e.pc.Calls != calls {
+		t.Fatalf("Delete called Prism Central %d times", e.pc.Calls-calls)
 	}
 }
 
@@ -473,8 +514,12 @@ func TestRetryRefusedAfterFailedDelete(t *testing.T) {
 	ctx := context.Background()
 	e.create(t, "acme")
 	e.svc.Wait()
-	e.pc.FailOnce["DeleteUserGroup"] = &nutanix.APIError{Status: 500, Message: "group busy"}
-	if err := e.svc.Delete(ctx, "acme", false); err != nil {
+	if err := e.svc.Disconnect(ctx, "acme", e.place(t, "acme").SiteID); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	e.kc.FailOnce["DeleteGroup"] = errors.New("group busy")
+	if err := e.svc.Delete(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
 	e.svc.Wait()
@@ -489,7 +534,7 @@ func TestRetryRefusedAfterFailedDelete(t *testing.T) {
 	if e.pc.Creates["CreateRoleMembership"] != 1 {
 		t.Fatalf("re-provisioned: CreateRoleMembership called %d times", e.pc.Creates["CreateRoleMembership"])
 	}
-	if err := e.svc.Delete(ctx, "acme", false); err != nil {
+	if err := e.svc.Delete(ctx, "acme"); err != nil {
 		t.Fatalf("second Delete: %v", err)
 	}
 	e.svc.Wait()

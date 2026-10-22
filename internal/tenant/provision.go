@@ -295,7 +295,7 @@ func (s *Service) provisionPlacement(ctx context.Context, t *store.Tenant, pr pr
 // remove takes the tenant off every site, then deletes its Keycloak group
 // and its row; the caller holds the lock. A site whose removal fails
 // keeps its placement (failed) and the tenant ends failed.
-func (s *Service) remove(ctx context.Context, id string, deleteProject bool) error {
+func (s *Service) remove(ctx context.Context, id string) error {
 	t, err := s.st.GetTenant(ctx, id)
 	if err != nil {
 		return err
@@ -307,18 +307,22 @@ func (s *Service) remove(ctx context.Context, id string, deleteProject bool) err
 		}
 		return err
 	}
-	ps, err := s.st.ListPlacements(ctx, id)
-	if err != nil {
-		return fail(err)
-	}
-	var failures []string
-	for _, p := range ps {
-		if err := s.removePlacement(ctx, id, p.SiteID, deleteProject); err != nil {
-			failures = append(failures, fmt.Sprintf("site %s: %v", s.SiteCode(p.SiteID), err))
+	if err := s.record(ctx, id, "", "keycloak-users", func(ctx context.Context) (string, error) {
+		if t.KeycloakGroupID == "" {
+			return "keycloak group already absent", nil
 		}
-	}
-	if len(failures) > 0 {
-		return fail(errors.New(strings.Join(failures, "; ")))
+		users, err := s.kc.GroupMembers(ctx, t.KeycloakGroupID)
+		if err != nil {
+			return "", err
+		}
+		for _, u := range users {
+			if err := s.kc.DeleteUser(ctx, u.ID); err != nil {
+				return "", err
+			}
+		}
+		return fmt.Sprintf("%d user(s) deleted", len(users)), nil
+	}); err != nil {
+		return fail(err)
 	}
 	if err := s.record(ctx, id, "", "keycloak-group", func(ctx context.Context) (string, error) {
 		if t.KeycloakGroupID == "" {
@@ -338,7 +342,7 @@ func (s *Service) remove(ctx context.Context, id string, deleteProject bool) err
 // removePlacement runs the deletion steps on one site in reverse order
 // (unshare before delete) and deletes the placement; a 404 is recorded as
 // "already absent". On failure the placement stays, failed.
-func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string, deleteProject bool) error {
+func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string) error {
 	p, err := s.st.GetPlacement(ctx, tenantID, siteID)
 	if err != nil {
 		return err
@@ -431,8 +435,8 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string, 
 			return d, err
 		}},
 		{"resource-group", func(ctx context.Context) (string, error) {
-			if !deleteProject || p.ProjectExtID == "" {
-				return "kept", nil
+			if p.ProjectExtID == "" {
+				return absent("resource group")
 			}
 			rgs, err := pc.ListResourceGroups(ctx, p.ProjectExtID)
 			if nutanix.IsNotFound(err) || (err == nil && len(rgs) == 0) {
@@ -451,8 +455,8 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string, 
 			return fmt.Sprintf("%d resource group(s) deleted", len(rgs)), nil
 		}},
 		{"project", func(ctx context.Context) (string, error) {
-			if !deleteProject || p.ProjectExtID == "" {
-				return "kept", nil
+			if p.ProjectExtID == "" {
+				return absent("project")
 			}
 			if p.ProjectID != s.projectName(tenantID) {
 				s.log.Warn("refusing to delete a project outside Portico's naming", "tenant", tenantID, "site", siteID, "project", p.ProjectID, "expected", s.projectName(tenantID))

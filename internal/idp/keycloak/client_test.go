@@ -147,6 +147,17 @@ func (f *fakeKC) handle(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(out)
 	case strings.HasPrefix(p, "/groups/") && r.Method == "DELETE":
 		w.WriteHeader(404)
+	case strings.HasPrefix(p, "/users/") && r.Method == "DELETE":
+		id := strings.TrimPrefix(p, "/users/")
+		f.mu.Lock()
+		_, ok := f.users[id]
+		delete(f.users, id)
+		f.mu.Unlock()
+		if !ok {
+			w.WriteHeader(404)
+			return
+		}
+		w.WriteHeader(204)
 	case p == "/users" && r.Method == "GET":
 		email := r.URL.Query().Get("email")
 		out := []map[string]any{}
@@ -371,5 +382,27 @@ func TestUserGroups(t *testing.T) {
 	}
 	if f.reqs[len(f.reqs)-1].Path != "/admin/realms/msp/users/nope/groups" {
 		t.Fatalf("path = %s", f.reqs[len(f.reqs)-1].Path)
+	}
+}
+
+func TestDeleteUser(t *testing.T) {
+	f := newFakeKC(t)
+	f.users["u1"] = map[string]any{"id": "u1", "email": "a@example.test"}
+	c := newClient(f, nil)
+	if err := c.DeleteUser(context.Background(), "u1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.users["u1"]; ok {
+		t.Fatal("user still there")
+	}
+	found := false
+	for _, r := range f.reqs {
+		found = found || r.Method == "DELETE" && r.Path == "/admin/realms/msp/users/u1"
+	}
+	if !found {
+		t.Fatalf("no DELETE of the user: %+v", f.reqs)
+	}
+	if err := c.DeleteUser(context.Background(), "gone"); err != nil {
+		t.Fatalf("DeleteUser on 404 = %v, want nil", err)
 	}
 }
