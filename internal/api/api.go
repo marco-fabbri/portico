@@ -88,6 +88,8 @@ func New(svc *tenant.Service, st store.Store, brand *branding.Service, so *Setti
 	mux.HandleFunc("GET "+Prefix+"tenants/{id}/visibility", h.running(h.visibility))
 	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites", h.running(h.addSite))
 	mux.HandleFunc("DELETE "+Prefix+"tenants/{id}/sites/{site}", h.running(h.removeSite))
+	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites/{site}/suspend", h.running(h.suspendSite))
+	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites/{site}/resume", h.running(h.resumeSite))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})
@@ -136,14 +138,47 @@ func (h *handler) toJSON(ctx context.Context, t *store.Tenant) (tenantJSON, erro
 		Placements: make([]placementJSON, 0, len(ps)),
 	}
 	for _, p := range ps {
-		out.Placements = append(out.Placements, placementJSON{
-			Site: p.SiteID, Code: h.svc.SiteCode(p.SiteID), Status: string(p.Status),
-			ClusterExtID: p.ClusterExtID, StorageContainerExtID: p.StorageContainerExtID,
-			ProjectID: p.ProjectID, ProjectExtID: p.ProjectExtID, ResourceGroupExtID: p.ResourceGroupExtID,
-			SAMLGroupExtID: p.SAMLGroupExtID, RoleMembershipExtID: p.RoleMembershipExtID, IdPShared: p.IdPShared, LastError: p.LastError,
-		})
+		out.Placements = append(out.Placements, h.placementJSON(p))
 	}
 	return out, nil
+}
+
+func (h *handler) placementJSON(p store.Placement) placementJSON {
+	return placementJSON{
+		Site: p.SiteID, Code: h.svc.SiteCode(p.SiteID), Status: string(p.Status),
+		ClusterExtID: p.ClusterExtID, StorageContainerExtID: p.StorageContainerExtID,
+		ProjectID: p.ProjectID, ProjectExtID: p.ProjectExtID, ResourceGroupExtID: p.ResourceGroupExtID,
+		SAMLGroupExtID: p.SAMLGroupExtID, RoleMembershipExtID: p.RoleMembershipExtID, IdPShared: p.IdPShared, LastError: p.LastError,
+	}
+}
+
+func (h *handler) suspendSite(w http.ResponseWriter, r *http.Request) {
+	h.placementAction(w, r, "suspended", h.svc.Suspend)
+}
+
+func (h *handler) resumeSite(w http.ResponseWriter, r *http.Request) {
+	h.placementAction(w, r, "resumed", h.svc.Resume)
+}
+
+// placementAction runs a synchronous action on one connection and
+// answers the connection as it is now.
+func (h *handler) placementAction(w http.ResponseWriter, r *http.Request, done string, fn func(ctx context.Context, id, siteID string) error) {
+	id, site := r.PathValue("id"), r.PathValue("site")
+	if err := fn(r.Context(), id, site); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "the tenant is not connected to site "+site)
+			return
+		}
+		h.fail(w, err)
+		return
+	}
+	h.log.Info("tenant connection "+done, "tenant", id, "site", site)
+	p, err := h.st.GetPlacement(r.Context(), id, site)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, h.placementJSON(*p))
 }
 
 // writeTenant answers a tenant with its placements.

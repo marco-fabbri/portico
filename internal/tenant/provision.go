@@ -91,10 +91,10 @@ func (s *Service) provision(ctx context.Context, id string, keepStatus bool) err
 	var failures []string
 	var ready []prepared
 	for i := range ps {
-		// Active sites are done; a site being removed, or whose removal
-		// failed, is never provisioned again (review I2).
+		// Active and suspended sites are done; a site being removed, or
+		// whose removal failed, is never provisioned again (review I2).
 		switch ps[i].Status {
-		case store.PlacementActive, store.PlacementRemoving, store.PlacementRemoveFailed:
+		case store.PlacementActive, store.PlacementSuspended, store.PlacementRemoving, store.PlacementRemoveFailed:
 			continue
 		}
 		pr, err := s.prepare(ctx, &ps[i])
