@@ -1,7 +1,8 @@
 # Installing Portico
 
 Pre-release: the paths below are what the lab exercises today. Nothing
-here is supported yet; the first release (Milestone 4) will say what is.
+here is supported yet; the first release (Milestone 6, `v0.1.0`) will say
+what is.
 
 ## What you need
 
