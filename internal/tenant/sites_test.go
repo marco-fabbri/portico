@@ -25,7 +25,7 @@ type env2 struct {
 	changes  []string
 }
 
-func newEnv2(t *testing.T) *env2 {
+func newEnv2(t *testing.T, edit ...func([]Site)) *env2 {
 	t.Helper()
 	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "portico.db"))
 	if err != nil {
@@ -37,6 +37,9 @@ func newEnv2(t *testing.T) *env2 {
 	sites := []Site{
 		{ID: "site-a", Code: "SITE-A", URL: "https://pc-a.test:9440", PC: e.pcA, SAMLIdPName: "portico-idp", ClusterExtID: "cl-a", StorageContainerExtID: "sc-a"},
 		{ID: "site-b", Code: "SITE-B", PC: e.pcB, SAMLIdPName: "portico-idp", ClusterExtID: "cl-b", StorageContainerExtID: "sc-b"},
+	}
+	for _, f := range edit {
+		f(sites)
 	}
 	cfg := Config{ProjectPrefix: "portico", GroupPrefix: "tenant-", RoleName: "Project Admin", OperationTimeout: 5 * time.Second}
 	e.svc = NewService(st, sites, e.kc, cfg, log)
@@ -673,5 +676,65 @@ func TestDisconnectKeepsAGroupOfAnotherIdentityProvider(t *testing.T) {
 	}
 	if !kept {
 		t.Fatal("a SAML group of another identity provider was deleted")
+	}
+}
+
+func storedIdP(sites []Site) { sites[0].SAMLIdPExtID = "idp-1" }
+
+func hasGroup(pc *tenanttest.PC, extID string) bool {
+	for _, g := range pc.Groups {
+		if g.ExtID == extID {
+			return true
+		}
+	}
+	return false
+}
+
+func TestDisconnectUsesStoredIdP(t *testing.T) {
+	e := newEnv2(t, storedIdP)
+	e.pcA.Groups = append(e.pcA.Groups, nutanix.UserGroup{ExtID: "g-other", Name: e.svc.groupName("acme"), IdPExtID: "idp-of-someone-else"})
+	e.createOn(t, "acme", "site-a")
+	// The provider list fails: the stored id still tells the group apart.
+	e.pcA.FailOnce["ListSAMLIdPs"] = errors.New("504 upstream request timeout")
+	if err := e.svc.Disconnect(context.Background(), "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if !hasGroup(e.pcA, "g-other") {
+		t.Fatal("a SAML group of another identity provider was deleted")
+	}
+}
+
+func TestDisconnectStoredIdPDeletesOwnGroup(t *testing.T) {
+	e := newEnv2(t, storedIdP)
+	e.createOn(t, "acme", "site-a")
+	g := e.placement(t, "acme", "site-a").SAMLGroupExtID
+	e.pcA.FailOnce["GetSAMLIdP"] = errors.New("504 upstream request timeout")
+	if err := e.svc.Disconnect(context.Background(), "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if hasGroup(e.pcA, g) {
+		t.Fatal("Portico's own SAML group was kept")
+	}
+}
+
+func TestDisconnectKeepsGroupWhenIdPUnknown(t *testing.T) {
+	e := newEnv2(t)
+	e.createOn(t, "acme", "site-a")
+	g := e.placement(t, "acme", "site-a").SAMLGroupExtID
+	e.pcA.FailOnce["ListSAMLIdPs"] = errors.New("504 upstream request timeout")
+	if err := e.svc.Disconnect(context.Background(), "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if !hasGroup(e.pcA, g) {
+		t.Fatal("a group whose identity provider is unknown was deleted")
+	}
+	if !strings.Contains(e.log.String(), "group kept") {
+		t.Fatalf("no 'group kept' in the log: %s", e.log.String())
+	}
+	if len(e.pcA.Memberships) != 0 {
+		t.Fatal("the role membership was kept: the tenant still has access")
 	}
 }

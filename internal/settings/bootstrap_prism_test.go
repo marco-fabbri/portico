@@ -315,3 +315,16 @@ func TestPrismBootstrapRevokesTheKeyWhenTheStoreFails(t *testing.T) {
 		t.Fatalf("key deleted %d times", pc.keyDeleted)
 	}
 }
+
+func TestPrismBootstrapStoresAccountAndKeyIDs(t *testing.T) {
+	pc := newFakePCAdmin(t)
+	s := withSite(Defaults())
+	s.PrismHost = "prism.example.test"
+	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), s, "site-a", prismInput(pc.srv.URL))
+	if err != nil || !res.OK {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if out.Sites[0].ServiceAccountExtID != "sa-1" || out.Sites[0].APIKeyExtID != "key-1" {
+		t.Fatalf("stored ids = %q %q", out.Sites[0].ServiceAccountExtID, out.Sites[0].APIKeyExtID)
+	}
+}
