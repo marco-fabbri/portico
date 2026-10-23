@@ -54,19 +54,43 @@ remains possible (`deploy/portico.yaml.example`, then `settings import`).
 ## Sites
 
 A site is one Prism Central behind Portico, shown to tenants by its code
-(`AZ-IT-MI1`) on the one public name. The setup page lists the sites;
-each has its own page.
+(`AZ-IT-MI1`) on the one public name. The setup page lists the sites
+with their status; each has its own page. A site change takes effect as
+soon as it is saved, without Apply or a restart; the other node of a
+pair picks it up within 30 seconds (a maintenance flag set there only at
+its next start).
 
-- **Add**: code, name, Prism Central URL; then the site's service account
-  and SAML trust from its page, and the default cluster and storage
-  container for new tenants. Apply to start serving it. A site not yet
-  complete (no key or no SAML trust) is not served and is listed as such
-  on the setup page; it never stops the other sites, also across a
-  restart.
-- **Tenants on sites**: a tenant is placed on the sites where it gets
-  resources, each with its project; a site can be added to or removed
-  from a tenant later (never its last one). The tenant's user signs in
-  once and, with several sites, chooses one on the site page.
+- **Add**: one page. Type the code, name and Prism Central address and
+  read the certificate: a trusted one (system roots, or the CA under
+  Advanced) goes on at once; Prism Central's factory certificate is not
+  trusted, so compare its SHA-256 fingerprint with the one your browser
+  shows on that address and confirm it, and Portico pins it. Then the
+  username and password of a Prism Central account allowed to create
+  users, roles and identity providers, used for this one run and never
+  stored. "Add the site" runs the setup (version, rights, identity
+  provider, service account, SAML trust both ways, the default cluster
+  and storage container for new tenants) in up to two minutes, and the
+  summary says what each step did. Under Advanced, the API key of a
+  service account made by hand adds the site without the credentials.
+- **Status**: the site's page checks the site in Prism Central and
+  Keycloak each time it opens: connection and trust, service account,
+  SAML trust, defaults. A site set up only in part, or whose service
+  account, identity provider or Keycloak client was deleted, is
+  incomplete: it takes no new entries and the page offers **Finish
+  setup**, or **Repair** for a trust to recreate; both run the setup
+  again with an administrator's credentials, keep what still works, and
+  bind the connected tenants again to a recreated trust. An incomplete
+  site never stops the other sites, also across a restart.
+- **Certificate changed**: a pinned site trusts one certificate. When
+  Prism Central's certificate is renewed, the site takes no new entries
+  and the requests of sessions already on it fail, since each connection
+  Portico opens checks the pin. Compare the new fingerprint on the
+  site's page with the browser's and confirm it. To avoid this at every
+  renewal, give the site the CA that issues its certificates.
+- **Tenants on sites**: a tenant is connected to the sites where it gets
+  resources, each with its project; a site can be connected or
+  disconnected later, the last one too. The tenant's user signs in once
+  and, with several sites, chooses one on the site page.
 - **Maintenance**: "Put in maintenance" on the site's page (or
   `PUT /api/v1/sites/{id}/maintenance`) takes effect at once: no new
   tenant session enters the site; those already on it keep working. The
@@ -86,12 +110,18 @@ each has its own page.
   makes it available again. One slow answer does not count: on NTNX-01
   the call took up to 30 s for a few minutes after a restart, then
   0.6 s again.
-- **Remove**: a site without tenants is removed from its page. A site
-  whose Prism Central is gone for good is **forgotten**: type its code,
-  Portico deletes its records of the site and of the tenants placed on
-  it without contacting that Prism Central, and lists what stays there
-  (projects, groups, role memberships, the identity provider, its
-  service account) for a clean-up if it ever comes back.
+- **Remove**: a site no tenant is connected to is removed from its page.
+  Portico deletes the site's SAML client in Keycloak, its maintenance
+  flag and its row. With an administrator's username and password it
+  also deletes, in that Prism Central, Portico's identity provider and
+  the service account's API key; the account itself stays, since it may
+  be one you made. Without them, the page lists what stays there for a
+  clean-up by hand. A site whose Prism Central is gone for good is
+  **forgotten**: type its code, Portico deletes its records of the site
+  and of the tenants connected to it and its Keycloak client without
+  contacting that Prism Central, and lists what stays there (projects,
+  groups, role memberships, the identity provider, its service account)
+  for a clean-up if it ever comes back.
 - **Upgrade**: a store written by a single-Prism Central release becomes
   site `site-1`, code `SITE-1`, with every tenant placed on it; rename
   the code on the site's page.
@@ -103,7 +133,10 @@ Structured JSON on standard error (`log.level` in the file), read with
 method, path, status, duration and whether a session was present; never
 a header value, a cookie, a token or a password. Site changes are logged
 at warning level: maintenance on and off, disconnections (with the
-count), a forgotten site with what it left behind.
+count), a pinned certificate with its fingerprint, a removed site with
+what it deleted and what it left, a forgotten site with what it left
+behind. Each setup step is logged with its status, never with the
+credentials.
 
 ## Upgrading
 

@@ -112,9 +112,12 @@ A site is a row in Portico's store:
   Uppercase letters, digits and hyphens, 2 to 32 characters, unique.
 - `name`: display text under the code (`Milan`).
 - `order`: position on the site page.
-- Prism Central connection: URL, TLS verification, CA, the service
-  account's API key (sealed with the master key), SAML IdP name and
-  extId, as the single `prism_central` block of today's settings.
+- Prism Central connection: URL, how its certificate is trusted
+  (verified against the system roots or a CA, or pinned: the SHA-256 of
+  the leaf certificate the MSP confirmed, sites usability design 4.3),
+  the service account's API key (sealed with the master key), SAML IdP
+  name and extId, as the single `prism_central` block of today's
+  settings.
 - `maintenance`: a flag the MSP sets on the admin UI and API.
 
 Site status, shown on the site page and on the admin UI:
@@ -123,9 +126,27 @@ Site status, shown on the site page and on the admin UI:
   succeeded and the site is not in maintenance.
 - **Maintenance**: the MSP's flag is set. The tile says so whatever the
   probe says.
+- **Unreachable**: the last three probes failed in a row (amended after
+  write-up 21: one slow answer from a Prism Central must not lock its
+  tenants out; the first answer makes the site available again).
+- **Incomplete** (sites usability design 4.2, 2026-10-23): the site was
+  never set up to the end (no service account key or no SAML trust
+  stored, so it is not served), or Prism Central or Keycloak says it no
+  longer is: the key refused three probes in a row, Portico's identity
+  provider missing in Prism Central or naming another site, or the
+  Keycloak client missing. The site's status card asks Prism Central and
+  Keycloak, never Portico's own row; "Finish setup" or "Repair" on the
+  site's page fixes it.
+- **Certificate changed** (sites usability design 4.3): a pinned site
+  presents another certificate, as after a renewal. Nothing reconnects by
+  itself: the site's page shows the new fingerprint until the MSP
+  compares and confirms it. Unlike the other states, the sessions
+  already on the site stop too, since each connection Portico opens to
+  Prism Central checks the pin.
 
 What "maintenance" and "unreachable" do (proposed by me, accepted by
-Marco on 2026-10-20): they stop **new entries** only. The tile is greyed out and not
+Marco on 2026-10-20), and "incomplete" too: they stop **new entries**
+only. The tile is greyed out and not
 clickable; a tenant whose only site is in that state gets a branded
 "site in maintenance" (or "site unreachable") page instead of the
 console; choosing that site is refused. Requests of a tenant already
@@ -162,24 +183,33 @@ Limits, written on the page: only access through Portico is counted
 (administrators working on Prism Central directly on the management
 network are not); in the pair (design 4.11) each node counts its own
 sessions until the pair shares them.
-- **Unreachable**: the last three probes failed in a row (amended after
-  write-up 21: one slow answer from a Prism Central must not lock its
-  tenants out; the first answer makes the site available again).
 
 The probe uses the site's service account, at an interval and with a
 timeout the builder chooses, and never blocks a tenant's request.
 
-A site cannot be removed while any tenant has a project on it, with one
-exception (builder's call): **forget**, for a Prism Central that is gone
-for good. After an explicit confirmation naming the site, Portico deletes
+A site cannot be removed while any tenant is connected to it (a failed
+connection included: its Disconnect cleans Prism Central) or a tenant
+operation runs. Removing it always deletes Portico's side: the site's
+Keycloak SAML client (a trust left there would stay live), its
+maintenance flag and its row. With the credentials of a Prism Central
+administrator, given for that removal only and checked after the
+certificate, Portico also deletes its identity provider and the service
+account's API key there; without them, it lists what it leaves: the
+identity provider, the service account and its key (sites usability
+design 4.1). There is one exception to "no tenant connected" (builder's
+call): **forget**, for a Prism Central that is gone for good. After an explicit confirmation naming the site, Portico deletes
 its own records of that site and of the placements on it, makes no call
 to that Prism Central, and lists the objects it leaves there (projects,
 IdP and its sharing, SAML user groups, role memberships, service account
 and key) in the log and on the response, for the MSP to clean up if the
-Prism Central ever comes back.
+Prism Central ever comes back. Forget deletes the site's Keycloak client
+too.
 
-The maintenance flag and the probe results take effect at once, without
-Apply: they are runtime state, not settings that need a restart.
+Every site change takes effect at once, without Apply (sites usability
+design 4.9): adding, editing, removing or forgetting a site, the
+maintenance flag and the probe results. The other node of a pair (design
+4.11) reads the document again every 30 seconds and picks a change up
+within that time.
 
 ### 4.2 Tenant on sites
 
@@ -307,19 +337,22 @@ Builder's call, to confirm by measurement (section 6, item 3):
 
 ### 4.6 Admin side
 
-- Setup page: the Prism Central card becomes the site list; "add site"
-  runs the Prism Central bootstrap and the SAML step for that site. The
-  Keycloak and public-name cards are unchanged. Adding or editing a site
-  uses the existing Apply (controlled restart), refused while a tenant
-  operation runs, as today.
+- Setup page: the Prism Central card becomes the site list, with each
+  site's status. "Add a site" is one page in two steps (sites usability
+  design 4.1): the address and its certificate, then the administrator's
+  credentials for one run that sets the site up. The Keycloak and
+  public-name cards are unchanged and still take effect at Apply; a site
+  change does not need it.
 - Tenant and site pages: those of the sites usability design 4.4. The
   tenant page lists its sites with suspend, resume, disconnect and retry,
   and connects it to one more site; the site page lists its tenants and
   connects one more; both read the cluster and container menus from that
   site's Prism Central. Creating a tenant with no site is allowed.
 - Every action is a REST call first (design 4.7, ADR 0003): sites CRUD,
-  per-site bootstrap, maintenance flag, tenant connections (connect,
-suspend, resume, disconnect, retry).
+  the certificate read, the one-run setup (Finish setup, Repair), the
+  pin, the status, the per-site bootstrap (under "Advanced"),
+  maintenance flag, tenant connections (connect, suspend, resume,
+  disconnect, retry).
   The API has no external users before the first release, so it changes
   without a compatibility layer.
 - Internal pass-through (design 4.2): it serves one site, chosen in the
