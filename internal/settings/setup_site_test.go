@@ -131,6 +131,22 @@ func TestSetupOlderVersionStops(t *testing.T) {
 	}
 }
 
+// Repair on a site whose row is complete: a run that stops early is not
+// complete, so the tenants are not bound again to a provider the run did
+// not recreate (on the appliance Prism Central answered 504 at the
+// version step after its provider was deleted, write-up 26).
+func TestRepairStoppedEarlyIsNotComplete(t *testing.T) {
+	f := setupEnv(t)
+	if res := f.run(t, f.admin(f.pin)); !res.Complete {
+		t.Fatalf("first run = %+v", res.Steps)
+	}
+	f.pc.Version = "pc.7.5.1"
+	res := f.run(t, f.admin(""))
+	if s := stepOf(res, "version"); s.Status != "failed" || res.Complete {
+		t.Fatalf("complete=%v steps=%+v", res.Complete, res.Steps)
+	}
+}
+
 func TestSetupForeignIdPStopsBeforeCreating(t *testing.T) {
 	f := setupEnv(t)
 	f.pc.AddIdP("other-idp")
