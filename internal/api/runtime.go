@@ -15,6 +15,9 @@ import (
 // exists in running mode only.
 type SitesRuntime interface {
 	Status(siteID string) sites.Status
+	Detail(siteID string) sites.Detail
+	// Report records the outcome of a status check made on the site's page.
+	Report(siteID string, err error)
 	Maintenance(siteID string) bool
 	SetMaintenance(ctx context.Context, siteID string, on bool) error
 	Sessions(siteID string, now time.Time) []auth.Session
@@ -29,6 +32,8 @@ type Runtime struct {
 }
 
 func (r *Runtime) Status(id string) sites.Status { return r.Monitor.Status(id) }
+func (r *Runtime) Detail(id string) sites.Detail { return r.Monitor.Detail(id) }
+func (r *Runtime) Report(id string, err error)   { r.Monitor.Report(id, err) }
 func (r *Runtime) Maintenance(id string) bool    { return r.Monitor.Maintenance(id) }
 func (r *Runtime) SetMaintenance(ctx context.Context, id string, on bool) error {
 	return r.Monitor.SetMaintenance(ctx, id, on)

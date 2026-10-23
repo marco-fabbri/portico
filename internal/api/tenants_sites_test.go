@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -149,5 +150,26 @@ func TestDisconnectAPI(t *testing.T) {
 	}
 	if rec, out := e.do("DELETE", "/api/v1/tenants/acme/sites/site-a", "", true); rec.Code != 202 {
 		t.Fatalf("disconnect of the last site: %d %v", rec.Code, out)
+	}
+}
+
+func TestTenantAPIIncompleteSite409(t *testing.T) {
+	e, _ := newEnv2(t)
+	e.svc.SetSiteGate(func(id string) error {
+		if id == "site-b" {
+			return fmt.Errorf("%w: finish the setup of AZ-US-NYC1 first", tenant.ErrSiteIncomplete)
+		}
+		return nil
+	})
+	rec, out := e.do("POST", "/api/v1/tenants", `{"slug":"acme","display_name":"ACME","sites":[{"site":"site-b"}]}`, true)
+	if rec.Code != 409 || !strings.Contains(out["error"].(string), "finish the setup of AZ-US-NYC1 first") {
+		t.Fatalf("create on an incomplete site: %d %v", rec.Code, out)
+	}
+	if rec, _ := e.do("POST", "/api/v1/tenants", `{"slug":"acme","display_name":"ACME","sites":[{"site":"site-a"}]}`, true); rec.Code != 202 {
+		t.Fatalf("create on a complete site: %d", rec.Code)
+	}
+	e.svc.Wait()
+	if rec, out := e.do("POST", "/api/v1/tenants/acme/sites", `{"site":"site-b"}`, true); rec.Code != 409 || !strings.Contains(out["error"].(string), "finish the setup") {
+		t.Fatalf("connect to an incomplete site: %d %v", rec.Code, out)
 	}
 }

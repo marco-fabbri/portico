@@ -145,8 +145,12 @@ func (s *SiteRouting) noSite(w http.ResponseWriter, r *http.Request) {
 func (s *SiteRouting) unavailable(w http.ResponseWriter, r *http.Request, b *SiteBackend, st sites.Status) {
 	text := b.Code + " is unreachable right now. Please try again in a few minutes."
 	title := "Site unreachable"
-	if st == sites.Maintenance {
+	switch st {
+	case sites.Maintenance:
 		title, text = "Site in maintenance", b.Code+" is in maintenance. Please try again later."
+	case sites.Incomplete:
+		// Its setup is broken on the MSP's side: the tenant is told no more.
+		title, text = "Site not available", b.Code+" is not available at the moment. Please try again later."
 	}
 	s.page(w, r, http.StatusServiceUnavailable, "site-"+string(st), title, text, "/")
 }
