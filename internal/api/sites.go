@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -400,7 +401,7 @@ func (o *SettingsOptions) CheckSite(ctx context.Context, id string, cand setting
 		return settings.CheckResult{}, ErrUnknownSite
 	}
 	if cand.URL == "" {
-		cand.URL, cand.TLSVerify, cand.CAPEM = stored.URL, stored.TLSVerify, stored.CAPEM
+		cand.URL, cand.TLSVerify, cand.TLSPin, cand.CAPEM = stored.URL, stored.TLSVerify, stored.TLSPin, stored.CAPEM
 	}
 	if !keyGiven {
 		if !sameHost(stored.URL, cand.URL) {
@@ -593,17 +594,29 @@ func (h *handler) inspectSite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
-	raw := strings.TrimSpace(in.URL)
-	if u, err := url.Parse(raw); err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("the Prism Central URL %q is not a valid https URL", raw))
-		return
-	}
-	info, err := settings.InspectCertificate(r.Context(), raw, []byte(strings.TrimSpace(in.CAPEM)))
-	if err != nil {
+	info, err := Inspect(r.Context(), in.URL, in.CAPEM)
+	switch {
+	case errors.Is(err, ErrInvalidURL):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case err != nil:
 		writeError(w, http.StatusBadGateway, err.Error())
-		return
+	default:
+		writeJSON(w, http.StatusOK, info)
 	}
-	writeJSON(w, http.StatusOK, info)
+}
+
+// ErrInvalidURL is an address that is not an https URL.
+var ErrInvalidURL = errors.New("not a valid https URL")
+
+// Inspect reads the certificate an address presents, before anything is
+// stored or any credential travels (design sites 4.1 step 1). The error
+// is ErrInvalidURL, or why nothing answers.
+func Inspect(ctx context.Context, rawURL, caPEM string) (settings.CertInfo, error) {
+	raw := strings.TrimSpace(rawURL)
+	if u, err := url.Parse(raw); err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+		return settings.CertInfo{}, fmt.Errorf("the Prism Central URL %q is %w", raw, ErrInvalidURL)
+	}
+	return settings.InspectCertificate(ctx, raw, []byte(strings.TrimSpace(caPEM)))
 }
 
 // setupSite runs the setup again with an administrator's one-time
@@ -800,10 +813,10 @@ func (h *handler) checkSite(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
-// siteStatusJSON is a site's status read from Prism Central and Keycloak
+// SiteStatusView is a site's status read from Prism Central and Keycloak
 // (sites usability design 4.2). Status, reason and new_fingerprint are
 // the monitor's, in running mode only.
-type siteStatusJSON struct {
+type SiteStatusView struct {
 	Status         string `json:"status,omitempty"`
 	Reason         string `json:"reason,omitempty"`
 	NewFingerprint string `json:"new_fingerprint,omitempty"`
@@ -816,26 +829,36 @@ func (h *handler) siteStatus(w http.ResponseWriter, r *http.Request) {
 	if h.settingsUnavailable(w) {
 		return
 	}
-	cur, _, err := h.so.Current(r.Context())
+	id := r.PathValue("id")
+	out, err := h.so.CheckStatus(r.Context(), id, h.log)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.siteError(w, err)
 		return
 	}
-	id := r.PathValue("id")
+	writeJSON(w, http.StatusOK, out)
+}
+
+// CheckStatus checks a site in Prism Central and Keycloak now and, in
+// running mode, gives the outcome to the monitor so the tile and new
+// entries follow at once (sites usability design 4.2).
+func (o *SettingsOptions) CheckStatus(ctx context.Context, id string, log *slog.Logger) (SiteStatusView, error) {
+	cur, _, err := o.Current(ctx)
+	if err != nil {
+		return SiteStatusView{}, err
+	}
 	site, ok := cur.Site(id)
 	if !ok {
-		writeError(w, http.StatusNotFound, ErrUnknownSite.Error())
-		return
+		return SiteStatusView{}, ErrUnknownSite
 	}
-	rep := settings.SiteStatus(r.Context(), settings.KeycloakAdmin(h.so.KeycloakURL, cur, h.log), site, h.log)
-	out := siteStatusJSON{StatusReport: rep}
-	if h.so.Runtime != nil {
-		h.so.Runtime.Report(id, rep.MonitorError())
-		d := h.so.Runtime.Detail(id)
+	rep := settings.SiteStatus(ctx, settings.KeycloakAdmin(o.KeycloakURL, cur, log), site, log)
+	out := SiteStatusView{StatusReport: rep}
+	if o.Runtime != nil {
+		o.Runtime.Report(id, rep.MonitorError())
+		d := o.Runtime.Detail(id)
 		out.Status, out.Reason, out.NewFingerprint = string(d.Status), d.Reason, d.NewFingerprint
 	}
-	h.log.Info("site status", "site", id, "status", out.Status, "connection", rep.Connection.OK, "service_account", rep.ServiceAccount.OK, "saml", rep.SAML.OK, "defaults", rep.Defaults.OK)
-	writeJSON(w, http.StatusOK, out)
+	log.Info("site status", "site", id, "status", out.Status, "connection", rep.Connection.OK, "service_account", rep.ServiceAccount.OK, "saml", rep.SAML.OK, "defaults", rep.Defaults.OK)
+	return out, nil
 }
 
 // bootstrapPrismJSON is the Prism Central bootstrap request body; an

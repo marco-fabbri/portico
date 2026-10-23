@@ -1,0 +1,11 @@
+{{define "content"}}
+<div class="page-head"><div><h1>Site {{.Data.Code}} removed</h1><p><a href="/setup">Back to the setup</a></p></div></div>
+<section class="card narrow">
+  <p>Portico no longer serves the site and has deleted its records of it.</p>
+  {{if .Data.Res.Deleted}}<p>Deleted:</p>
+  <ul>{{range .Data.Res.Deleted}}<li>{{.}}</li>{{end}}</ul>{{end}}
+  {{if .Data.Res.LeftInPrismCentral}}<p>Left in that Prism Central, to delete there if nothing else uses them:</p>
+  <ul>{{range .Data.Res.LeftInPrismCentral}}<li>{{.}}</li>{{end}}</ul>{{end}}
+  <div class="actions"><a class="button primary" href="/setup">Back to the setup</a></div>
+</section>
+{{end}}

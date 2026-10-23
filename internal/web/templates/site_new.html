@@ -1,20 +1,58 @@
 {{define "content"}}
-<section class="card narrow" style="margin-top:1rem">
-  <h1>New site</h1>
-  <p class="muted">A site is one Prism Central, shown to tenants by its code. After saving, create its service account and its SAML trust on the site's page, then apply.</p>
-  <form method="post" action="/setup/sites/new">
+<div class="page-head"><div><h1>Add a site</h1><p>A site is one Prism Central, shown to tenants by its code. <a href="/setup">Back to the setup</a></p></div></div>
+
+<section class="card narrow" id="card-site-new">
+  <form id="form-site-new" hx-post="/setup/sites/new" hx-target="#site-run" hx-indicator="#site-running">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
-    <label>Code <input type="text" name="code" value="{{.Data.Code}}" pattern="[A-Z0-9][A-Z0-9-]{1,31}" placeholder="AZ-IT-MI1" required autofocus>
+    <h2>1. The address</h2>
+    <label>Code <input type="text" name="code" value="{{.Data.S.Code}}" pattern="[A-Z0-9][A-Z0-9-]{1,31}" placeholder="AZ-IT-MI1" required autofocus>
       <span class="muted">what tenants see: upper-case letters, digits and dashes</span></label>
-    <label>Name <input type="text" name="name" value="{{.Data.Name}}" placeholder="Milan"></label>
-    <label>Order <input type="number" name="order" value="{{.Data.Order}}"></label>
-    <label>Prism Central URL <input type="url" name="url" value="{{.Data.URL}}" placeholder="https://10.0.0.10:9440" required></label>
-    <label class="inline"><input type="checkbox" name="tls_verify" value="on"{{if .Data.TLSVerify}} checked{{end}}> verify the TLS certificate</label>
-    <label>CA certificate (PEM, when verifying a private CA) <textarea name="ca_pem" rows="4">{{.Data.CAPEM}}</textarea></label>
-    <div class="actions">
-      <button type="submit" class="primary">Add site</button>
-      <a class="button" href="/setup">Cancel</a>
-    </div>
+    <label>Name <input type="text" name="name" value="{{.Data.S.Name}}" placeholder="Milan"></label>
+    <label>Order (optional) <input type="number" name="order" value="" placeholder="last"></label>
+    <label>Prism Central address <input type="url" name="url" value="{{.Data.S.URL}}" placeholder="https://10.0.0.10:9440" required></label>
+    <details><summary>Advanced</summary>
+      <label>CA certificate (PEM), when Prism Central's certificate comes from a private CA <textarea name="ca_pem" rows="4">{{.Data.S.CAPEM}}</textarea></label>
+      <label>Service account to create <input type="text" name="service_account" value="{{.Data.ServiceAccount}}">
+        <span class="muted">change it when a user of that name exists in Prism Central and is not a service account</span></label>
+      <p class="muted">Manual path: the API key of a service account created in Prism Central by hand, and the name of a SAML identity provider made by hand. With the key, the site is added without the administrator's credentials.</p>
+      <label>Service account API key <input type="password" name="api_key" value="" autocomplete="new-password"></label>
+      <label>SAML identity provider name <input type="text" name="saml_idp_name" value="" placeholder="portico-keycloak"></label>
+    </details>
+    <div class="actions"><button type="button" hx-post="/setup/sites/new/inspect" hx-include="#form-site-new" hx-target="#site-cert">Read the certificate</button></div>
+    <div id="site-cert" class="check-result"></div>
+    <p id="site-running" class="htmx-indicator muted">Setting up the site, this takes up to two minutes…</p>
   </form>
+  <div id="site-run" class="check-result"></div>
 </section>
+{{end}}
+
+{{/* Step 1's answer: the certificate, and step 2 once it is trusted or confirmed. */}}
+{{define "site_cert"}}{{with .Data}}
+{{if .Error}}<div class="banner error">{{.Error}}</div>
+{{else if .Info.Trusted}}<div class="banner notice">The certificate is trusted: issued by {{.Info.Issuer}}.</div>
+{{template "site-admin" $}}
+{{else}}
+<div class="banner warning">The certificate is not trusted by the system or by the CA certificate under Advanced (Prism Central's factory certificate is not). Compare it with the one your browser shows on the Prism Central address (Chrome: the padlock, "Certificate is not valid", Details, SHA-256 fingerprint). Portico then pins it: it accepts this certificate only.</div>
+<dl class="cert">
+  <dt>SHA-256 fingerprint</dt><dd><code>{{.Info.Fingerprint}}</code></dd>
+  <dt>Subject</dt><dd>{{.Info.Subject}}</dd>
+  <dt>Names</dt><dd>{{range $i, $n := .Info.Names}}{{if $i}}, {{end}}{{$n}}{{else}}none{{end}}</dd>
+  <dt>Valid until</dt><dd>{{.Info.NotAfter.Format "2006-01-02"}}</dd>
+</dl>
+<input type="hidden" name="pin" value="{{.Info.Fingerprint}}">
+<label class="inline"><input type="checkbox" name="confirmed" value="on"{{if .Confirmed}} checked{{end}} hx-post="/setup/sites/new/inspect" hx-include="#form-site-new" hx-target="#site-cert" hx-trigger="change"> I compared it: this is my Prism Central's certificate</label>
+{{if .Confirmed}}{{template "site-admin" $}}{{end}}
+{{end}}
+{{end}}{{end}}
+
+{{/* Step 2: the administrator, used for this run only. */}}
+{{define "site-admin"}}
+<h2>2. The administrator</h2>
+<p>The username and password of a Prism Central account allowed to create users, roles and identity providers. Portico uses them for this run and does not store them.</p>
+<label>Username <input type="text" name="username" value="" autocomplete="off"></label>
+<label>Password <input type="password" name="password" value="" autocomplete="new-password"></label>
+<div class="actions">
+  <button type="submit" class="primary">Add the site</button>
+  <a class="button" href="/setup">Cancel</a>
+</div>
 {{end}}

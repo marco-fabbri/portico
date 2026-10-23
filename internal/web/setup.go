@@ -93,6 +93,9 @@ func (h *Handler) renderSetup(w http.ResponseWriter, r *http.Request, status int
 	d := toSetupData(s, source, h.setup.Mode)
 	for i := range d.Sites {
 		d.Sites[i].Tenants = h.siteTenants(r, d.Sites[i].S.ID)
+		if h.setup.Runtime != nil {
+			d.Sites[i].Status = string(h.setup.Runtime.Status(d.Sites[i].S.ID))
+		}
 	}
 	h.render(w, r, status, "setup", "Setup", d, errMsg)
 }
