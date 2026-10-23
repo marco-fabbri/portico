@@ -308,13 +308,20 @@ func (r *setupRun) serviceAccount() bool {
 		return r.line(step, "kept", "service account "+r.name+": the stored key is accepted")
 	}
 	key := acct.Key
+	// A key stored without its account's id (before Part C) was not
+	// checked and cannot be revoked by id: it is replaced, not revoked.
+	earlier := r.site.APIKey != "" && r.site.ServiceAccountExtID == ""
 	if err := r.patch(func(s *Site) {
 		s.APIKey, s.ServiceAccountExtID, s.APIKeyExtID = Secret(key.Key), acct.User.ExtID, key.ExtID
 	}); err != nil {
 		acct.discard()
 		return r.line(step, "failed", err.Error()+", so the new key was revoked")
 	}
-	return r.line(step, "ok", fmt.Sprintf("service account %s with a new key %s (%s)", r.name, key.Name, strings.Join(acct.Created, ", ")))
+	msg = fmt.Sprintf("service account %s with a new key %s (%s)", r.name, key.Name, strings.Join(acct.Created, ", "))
+	if earlier {
+		msg += "; the key stored before stays valid in Prism Central and is no longer held by Portico; revoke it there"
+	}
+	return r.line(step, "ok", msg)
 }
 
 // samlTrust: Portico's identity provider (created, or the one found) and
@@ -327,6 +334,14 @@ func (r *setupRun) samlTrust() bool {
 	}
 	trust, msg := r.b.samlTrust(r.ctx, r.pc, KeycloakAdmin(r.keycloakURL, r.doc, r.b.log), r.doc, r.site.ID, name, r.own, r.descriptor, true)
 	if msg != "" {
+		// The provider made before the failure is recorded by its id
+		// alone, so removing the site deletes it; without the name the
+		// site stays incomplete.
+		if trust.IdPExtID != "" {
+			if err := r.patch(func(s *Site) { s.SAMLIdPExtID = trust.IdPExtID }); err != nil {
+				msg += "; " + err.Error()
+			}
+		}
 		return r.line(step, "failed", msg)
 	}
 	old := r.site.SAMLIdPExtID
