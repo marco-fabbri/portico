@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -142,27 +141,9 @@ func PrismTLS(targetHost, caFile string, verify bool) (*tls.Config, error) {
 			return nil, fmt.Errorf("prism_central.ca_file: %w", err)
 		}
 	}
-	cfg, err := PrismTLSPEM(targetHost, pemData, verify)
+	cfg, err := PrismTLSFor(targetHost, SiteTrust{CAPEM: pemData, Verify: verify})
 	if err != nil {
 		return nil, fmt.Errorf("prism_central.ca_file: %w", err)
-	}
-	return cfg, nil
-}
-
-// PrismTLSPEM is PrismTLS with the CA certificate given as PEM bytes
-// (the settings store holds it that way); empty means the system roots.
-func PrismTLSPEM(targetHost string, caPEM []byte, verify bool) (*tls.Config, error) {
-	cfg := &tls.Config{ServerName: targetHost, MinVersion: tls.VersionTLS12}
-	if !verify {
-		cfg.InsecureSkipVerify = true
-		return cfg, nil
-	}
-	if len(caPEM) > 0 {
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(caPEM) {
-			return nil, errors.New("no certificate found in the CA PEM")
-		}
-		cfg.RootCAs = pool
 	}
 	return cfg, nil
 }

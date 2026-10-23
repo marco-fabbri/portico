@@ -81,7 +81,11 @@ func (b *Bootstrapper) PrismCentral(ctx context.Context, s Settings, siteID stri
 		return PrismResult{}, s, &StateError{Msg: "the service account name must be lower-case letters, digits, dots, dashes and underscores"}
 	}
 	res := PrismResult{Created: []string{}, ServiceAccount: name}
-	tlsCfg, err := proxy.PrismTLSPEM(u.Hostname(), []byte(in.CAPEM), in.TLSVerify)
+	trust := proxy.SiteTrust{CAPEM: []byte(in.CAPEM), Verify: in.TLSVerify}
+	if in.URL == site.URL {
+		trust.Pin = site.TLSPin // the pin belongs to the stored address only
+	}
+	tlsCfg, err := proxy.PrismTLSFor(u.Hostname(), trust)
 	if err != nil {
 		return PrismResult{}, s, &StateError{Msg: "the CA certificate is not usable: " + err.Error()}
 	}
@@ -183,7 +187,7 @@ func (b *Bootstrapper) PrismCentral(ctx context.Context, s Settings, siteID stri
 
 	// Verification with the new key, which also fills the pickers and
 	// refuses a Prism Central older than pc.7.6.
-	site.URL, site.TLSVerify, site.CAPEM = in.URL, in.TLSVerify, in.CAPEM
+	site.URL, site.TLSVerify, site.CAPEM, site.TLSPin = in.URL, in.TLSVerify, in.CAPEM, trust.Pin
 	check := NewChecker(b.log).PrismCentral(ctx, site, key.Key)
 	if !check.OK {
 		return failed("the new key was refused: " + check.Message)
@@ -195,7 +199,7 @@ func (b *Bootstrapper) PrismCentral(ctx context.Context, s Settings, siteID stri
 			return
 		}
 		found = true
-		d.Sites[i].URL, d.Sites[i].TLSVerify, d.Sites[i].CAPEM = in.URL, in.TLSVerify, in.CAPEM
+		d.Sites[i].URL, d.Sites[i].TLSVerify, d.Sites[i].CAPEM, d.Sites[i].TLSPin = in.URL, in.TLSVerify, in.CAPEM, trust.Pin
 		d.Sites[i].APIKey = Secret(key.Key)
 	}
 	out := s

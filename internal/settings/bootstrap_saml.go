@@ -102,7 +102,7 @@ func (b *Bootstrapper) SAML(ctx context.Context, keycloakURL string, s Settings,
 	if err != nil || u.Host == "" {
 		return SAMLResult{}, s, &StateError{Msg: fmt.Sprintf("the Prism Central URL %q is not valid", site.URL)}
 	}
-	tlsCfg, err := proxy.PrismTLSPEM(u.Hostname(), []byte(site.CAPEM), site.TLSVerify)
+	tlsCfg, err := proxy.PrismTLSFor(u.Hostname(), site.Trust())
 	if err != nil {
 		return SAMLResult{}, s, &StateError{Msg: "the CA certificate is not usable: " + err.Error()}
 	}

@@ -205,7 +205,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// site (design sites §4.6): the one named in the settings, else the
 	// first by order.
 	ptSite, _ := runDoc.PassthroughSiteOrFirst()
-	ptURL, ptTLS, err := siteTarget(ptSite, log)
+	ptURL, ptTLS, err := siteTarget(ptSite)
 	if err != nil {
 		return fmt.Errorf("pass-through site %s: %w", ptSite.ID, err)
 	}
@@ -221,7 +221,11 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		log.Warn("site not served until it is complete", "site", inc)
 	}
 	for _, site := range runDoc.ServedSites() {
-		siteURL, siteTLS, err := siteTarget(site, log)
+		if site.TLSPin == "" && !site.TLSVerify {
+			// Logged here only: the pass-through's site is built twice.
+			log.Warn("tls_verify is false: the certificate of this Prism Central is not checked; pin it on the site page", "site", site.ID)
+		}
+		siteURL, siteTLS, err := siteTarget(site)
 		if err != nil {
 			return fmt.Errorf("site %s: %w", site.ID, err)
 		}
@@ -339,7 +343,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 }
 
 // siteTarget returns a site's Prism Central URL and client TLS settings.
-func siteTarget(site settings.Site, log *slog.Logger) (*url.URL, *tls.Config, error) {
+func siteTarget(site settings.Site) (*url.URL, *tls.Config, error) {
 	u, err := url.Parse(site.URL)
 	if err != nil || u.Host == "" {
 		return nil, nil, fmt.Errorf("url %q is not valid", site.URL)
@@ -347,10 +351,7 @@ func siteTarget(site settings.Site, log *slog.Logger) (*url.URL, *tls.Config, er
 	if u.Scheme != "https" {
 		return u, nil, nil
 	}
-	if !site.TLSVerify {
-		log.Warn("tls_verify is false: the certificate of this Prism Central is not checked", "site", site.ID)
-	}
-	t, err := proxy.PrismTLSPEM(u.Hostname(), []byte(site.CAPEM), site.TLSVerify)
+	t, err := proxy.PrismTLSFor(u.Hostname(), site.Trust())
 	if err != nil {
 		return nil, nil, fmt.Errorf("ca: %w", err)
 	}
