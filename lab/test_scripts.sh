@@ -143,9 +143,9 @@ if grep -nE '\$S/carol' lab/tenants/acceptance.sh | grep -q .; then ko "tenants/
 if grep -q '^gone()' lab/tenants/acceptance.sh && ! grep -q 'absent || echo present)" absent' lab/tenants/acceptance.sh; then ok "tenants/acceptance.sh: a failed lookup is not absent"; else ko "tenants/acceptance.sh reads a failed lookup as absent"; fi
 if grep -q 'realm="${LAB_REALM:-portico-lab}"' lab/auth/probe-local-login.sh && grep -q 'LAB_PASSTHROUGH:-exposed' lab/auth/probe-local-login.sh && ! grep -q 'realms/portico-lab/' lab/auth/probe-local-login.sh; then ok "probe-local-login.sh: realm and pass-through from LAB_*"; else ko "probe-local-login.sh hardcodes the lab VM"; fi
 
-# Sites usability measurements (write-up 24): each script prints its usage
+# Sites usability measurements (write-ups 24 and 25): each script prints its usage
 # without the lab environment.
-for sc in project-contents admin-rights container-kinds; do
+for sc in project-contents admin-rights container-kinds connections; do
   out=$(env -i PATH="$PATH" HOME="$HOME" bash "lab/sites/$sc.sh" --help 2>&1); rc=$?
   if [ "$rc" -eq 0 ] && grep -q "lab/sites/$sc.sh" <<<"$out"; then ok "$sc.sh --help"; else ko "$sc.sh --help (rc=$rc)"; fi
 done
