@@ -205,7 +205,7 @@ func (b *Bootstrapper) SAML(ctx context.Context, keycloakURL string, s Settings,
 
 	patch := func(d *Settings) {
 		if i := d.siteIndex(siteID); i >= 0 {
-			d.Sites[i].SAMLIdPName, d.Sites[i].SAMLEntityID = name, entityID
+			d.Sites[i].SAMLIdPName, d.Sites[i].SAMLEntityID, d.Sites[i].SAMLIdPExtID = name, entityID, res.IdPExtID
 		}
 	}
 	out := s

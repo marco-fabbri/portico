@@ -38,8 +38,12 @@ func (s *Service) site(id string) (Site, error) {
 	return site, nil
 }
 
-// idp returns the site's single SAML identity provider named in the settings.
+// idp returns the site's SAML identity provider: by the id stored at
+// setup, or for a site set up before, the single one of the stored name.
 func (s *Service) idp(ctx context.Context, site Site) (*nutanix.SAMLIdP, error) {
+	if site.SAMLIdPExtID != "" {
+		return site.PC.GetSAMLIdP(ctx, site.SAMLIdPExtID)
+	}
 	idps, err := site.PC.ListSAMLIdPs(ctx)
 	if err != nil {
 		return nil, err
@@ -373,6 +377,11 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string) 
 	if p.SAMLGroupExtID != "" || p.IdPShared {
 		if idp, err = s.idp(ctx, site); err != nil {
 			s.log.Warn("identity provider lookup during delete", "tenant", tenantID, "site", siteID, "err", err.Error())
+			if site.SAMLIdPExtID != "" {
+				// The stored id is enough to tell Portico's group apart and to
+				// unshare; the steps read the provider again themselves.
+				idp = &nutanix.SAMLIdP{ExtID: site.SAMLIdPExtID}
+			}
 		}
 	}
 	// Provisioning adopts an existing project or SAML group of the right
@@ -548,11 +557,16 @@ func (s *Service) foreignProject(ctx context.Context, pc PrismCentral, tenantID 
 }
 
 // foreignGroup says why the placement's SAML group is not Portico's to
-// delete: Prism Central reports it bound to another identity provider.
-// A group listed without its identity provider is deleted, as before.
+// delete: Prism Central reports it bound to another identity provider, or
+// the site's identity provider is unknown (no stored id and the lookup
+// failed), so the group cannot be attributed and is kept. A group listed
+// without its identity provider is deleted, as before.
 func (s *Service) foreignGroup(ctx context.Context, pc PrismCentral, tenantID string, p *store.Placement, idp *nutanix.SAMLIdP) (string, error) {
-	if p.SAMLGroupExtID == "" || idp == nil {
+	if p.SAMLGroupExtID == "" {
 		return "", nil
+	}
+	if idp == nil {
+		return "identity provider unknown: group kept", nil
 	}
 	g, err := pc.FindUserGroup(ctx, s.groupName(tenantID))
 	switch {

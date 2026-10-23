@@ -233,7 +233,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		if err != nil {
 			return fmt.Errorf("site %s: %w", site.ID, err)
 		}
-		tenantSites = append(tenantSites, tenant.Site{ID: site.ID, Code: site.Code, Name: site.Name, URL: site.URL, PC: c, SAMLIdPName: site.SAMLIdPName,
+		tenantSites = append(tenantSites, tenant.Site{ID: site.ID, Code: site.Code, Name: site.Name, URL: site.URL, PC: c, SAMLIdPName: site.SAMLIdPName, SAMLIdPExtID: site.SAMLIdPExtID,
 			ClusterExtID: site.ClusterExtID, StorageContainerExtID: site.StorageContainerExtID})
 		probes[site.ID] = func(ctx context.Context) error {
 			_, err := c.PrismCentralVersion(ctx)
@@ -247,7 +247,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 			},
 			PrismBase: &url.URL{Scheme: siteURL.Scheme, Host: siteURL.Host},
-			IdPExtID:  cachedIdPLookup(c, site.SAMLIdPName, 10*time.Minute),
+			IdPExtID:  idpLookup(c, site),
 		}
 	}
 	tenants := tenant.NewService(st, tenantSites, kcClient, tenant.Config{
@@ -435,6 +435,16 @@ func serveListeners(ctx context.Context, listeners []listener, restart <-chan st
 			return nil
 		}
 	}
+}
+
+// idpLookup returns the site's identity provider id: the one stored at
+// setup, with no call (sites usability design 4.8), or for a site set up
+// before, the lookup by name.
+func idpLookup(pc *nutanix.Client, site settings.Site) func(ctx context.Context) (string, error) {
+	if id := site.SAMLIdPExtID; id != "" {
+		return func(context.Context) (string, error) { return id, nil }
+	}
+	return cachedIdPLookup(pc, site.SAMLIdPName, 10*time.Minute)
 }
 
 // cachedIdPLookup resolves the SAML identity provider's extId by name
