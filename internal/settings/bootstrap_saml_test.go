@@ -154,3 +154,14 @@ func TestSAMLClientHasNoBackchannelLogoutURL(t *testing.T) {
 		t.Fatalf("adminUrl after a second run = %v, want empty", cl["adminUrl"])
 	}
 }
+
+func TestSAMLBootstrapStoresIdPExtID(t *testing.T) {
+	_, kc, s := samlEnv(t)
+	res, out, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{})
+	if err != nil || !res.OK {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if out.Sites[0].SAMLIdPExtID != "idp-portico-keycloak" {
+		t.Fatalf("stored extId = %q", out.Sites[0].SAMLIdPExtID)
+	}
+}

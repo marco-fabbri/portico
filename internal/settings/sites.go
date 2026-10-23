@@ -32,6 +32,15 @@ type Site struct {
 	// SAMLEntityID is the service-provider entity id of the site's IdP,
 	// which is the Keycloak SAML client id (design sites §4.5).
 	SAMLEntityID string `json:"saml_entity_id"`
+	// SAMLIdPExtID is the identity provider's id in Prism Central, stored
+	// at setup so sign-in and Disconnect need no lookup by name
+	// (sites usability design 4.8).
+	SAMLIdPExtID string `json:"saml_idp_ext_id,omitempty"`
+	// ServiceAccountExtID and APIKeyExtID name the service account and the
+	// key Portico holds, for "Remove" (usability 4.1); older keys are not
+	// Portico's to revoke (a pair node may hold one).
+	ServiceAccountExtID string `json:"service_account_ext_id,omitempty"`
+	APIKeyExtID         string `json:"api_key_ext_id,omitempty"`
 	// Defaults offered when a tenant is placed on the site.
 	ClusterExtID          string `json:"cluster_ext_id"`
 	StorageContainerExtID string `json:"storage_container_ext_id"`

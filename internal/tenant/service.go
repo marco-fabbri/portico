@@ -50,6 +50,7 @@ type Site struct {
 	URL                                 string // Prism Central's address, for links in the admin UI
 	PC                                  PrismCentral
 	SAMLIdPName                         string
+	SAMLIdPExtID                        string // stored at setup; "" on a site set up before
 	ClusterExtID, StorageContainerExtID string
 }
 

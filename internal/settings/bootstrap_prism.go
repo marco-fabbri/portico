@@ -201,6 +201,7 @@ func (b *Bootstrapper) PrismCentral(ctx context.Context, s Settings, siteID stri
 		found = true
 		d.Sites[i].URL, d.Sites[i].TLSVerify, d.Sites[i].CAPEM, d.Sites[i].TLSPin = in.URL, in.TLSVerify, in.CAPEM, trust.Pin
 		d.Sites[i].APIKey = Secret(key.Key)
+		d.Sites[i].ServiceAccountExtID, d.Sites[i].APIKeyExtID = user.ExtID, key.ExtID
 	}
 	out := s
 	out.Sites = append([]Site(nil), s.Sites...)
