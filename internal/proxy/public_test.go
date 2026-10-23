@@ -54,7 +54,7 @@ func newPublicHarnessWith(t *testing.T, prismURL string, mutate func(*PublicOpti
 		PrismHost: "prism.test",
 		IDHost:    "id.test",
 		Sites: &SiteRouting{
-			Backends: map[string]*SiteBackend{"site-a": site},
+			Backends: NewBackendSet(map[string]*SiteBackend{"site-a": site}),
 			Connections: func(context.Context, string) ([]sites.Connection, error) {
 				return []sites.Connection{{SiteID: "site-a"}}, nil
 			},

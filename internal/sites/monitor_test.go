@@ -146,3 +146,28 @@ func TestUnreachableOnlyAfterConsecutiveFailures(t *testing.T) {
 		t.Fatalf("the count restarts after an answer: a = %s, want available", m.Status("a"))
 	}
 }
+
+func TestSetProbesKeepsFailures(t *testing.T) {
+	m := NewMonitor(openStore(t), map[string]Prober{
+		"a": func(ctx context.Context) error { return errors.New("down") },
+		"c": func(ctx context.Context) error { return nil },
+	}, nil)
+	for i := 0; i < FailuresToUnreachable-1; i++ {
+		m.ProbeOnce(context.Background(), time.Second)
+	}
+	var bProbed atomic.Int32
+	m.SetProbes(map[string]Prober{
+		"a": func(ctx context.Context) error { return errors.New("down") },
+		"b": func(ctx context.Context) error { bProbed.Add(1); return errors.New("down") },
+	})
+	m.ProbeOnce(context.Background(), time.Second)
+	if m.Status("a") != Unreachable {
+		t.Fatal("site a lost its failure count across SetProbes")
+	}
+	if m.Status("b") != Available || bProbed.Load() != 1 {
+		t.Fatalf("site b: %s after %d probe(s), want a fresh count", m.Status("b"), bProbed.Load())
+	}
+	if m.Status("c") != Unreachable {
+		t.Fatal("a dropped site is still reported reachable")
+	}
+}
