@@ -336,16 +336,17 @@ func (m *Monitor) record(id string, err error) {
 	case errors.As(err, &cc):
 		m.certChanged[id] = cc.Fingerprint
 	case errors.As(err, &inc):
+		// A refusal is an answer through a connection that passed the
+		// pin, so the certificate is no longer changed; a failure to
+		// connect says nothing about it.
 		m.refusals[id]++
 		m.failures[id] = 0
 		m.lastReason[id] = inc.Reason
+		delete(m.certChanged, id)
 	default:
 		m.failures[id]++
 		m.refusals[id] = 0
 		m.lastReason[id] = err.Error()
-	}
-	if err != nil && cc == nil {
-		delete(m.certChanged, id)
 	}
 	n := m.failures[id] + m.refusals[id]
 	m.mu.Unlock()
