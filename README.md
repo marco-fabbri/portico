@@ -163,12 +163,11 @@ how to measure again after an upgrade.
 | 1 Core binary, 2026-10-17 | A browser reaches the console only after the Keycloak login; `curl -u admin:…` and every other `Authorization` scheme get 403 from Portico; VM console WebSockets through the proxy; fail closed with Keycloak down; 8 MiB binary (write-ups 09, 10, 12) |
 | 2 Tenant arrival, 2026-10-18 | Tenant created in 77 s with seven recorded steps, its user signs in once with a forced password change and sees only her project; disable locks her out; deletion leaves `_internal` unchanged. Admin UI and JSON API; MSP branding on the Keycloak login page; settings sealed in the store; a fresh appliance bootstrapped from the setup page in 41 s (write-ups 11 to 18) |
 | 3 Appliance image, 2026-10-19 | Rocky Linux 9 qcow2 (1.36 GB) built by the CI in 20 to 25 min: CIS Level 1 Server with OpenSCAP (271 rules pass, three documented exceptions), console wizard on tty1, factory password changed at the first login, `cloudflared` option, secrets and TLS pairs made at the first boot; boot-tested on the runner with AHV's config drive and a NoCloud seed; imported into Prism Central and booted on NTNX-01 with an OpenTofu module, set up through the API, a tenant active and its user signing in (write-up 19) |
-| 4 Sites, 2026-10-20 | Several Prism Centrals behind one Portico on one public name: site page, routing checked against the tenant's placements on every request, per-site cookies, maintenance with the users still connected, tenants added to and removed from sites. Built and tested against two fake Prism Centrals; the acceptance on the appliance with one site and the live test with a second pc.7.6 cluster come with write-ups 20 and 21 |
+| 4 Sites, 2026-10-20 | Several Prism Centrals behind one Portico on one public name: site page, routing checked against the tenant's placements on every request, per-site cookies, maintenance with the users still connected, tenants added to and removed from sites. Built and tested against two fake Prism Centrals and accepted on the appliance with one site (write-ups 20 and 21). Then with a second pc.7.6 cluster: a tenant on two sites opens both consoles from the site page with one login, and its connections are added, suspended and disconnected, Disconnect deleting only an empty project Portico created (write-ups 23 to 25) |
 | 5 Backlog sweep, 6 First release `v0.1.0` | Later |
 
-Not verified yet: two real Prism Centrals behind one Portico, tenant
-API keys, brokering to a customer's own directory, brownfield projects,
-any production load. Deferred findings of the reviews are listed in
+Not verified yet: tenant API keys, brokering to a customer's own
+directory, brownfield projects, any production load. Deferred findings of the reviews are listed in
 [`docs/backlog.md`](docs/backlog.md).
 
 ## Security considerations
