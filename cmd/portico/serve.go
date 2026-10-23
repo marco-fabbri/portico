@@ -200,57 +200,9 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 
 	stripped := auth.PorticoCookies()
 	kcUp := proxy.NewUpstream(proxy.UpstreamOptions{Target: kcURL, HostHeader: cfg.Public.IDHost, StripCookies: stripped, Log: log, ErrorPage: pages.Error})
-	// The pass-through keeps the caller's Host so Prism Central builds its
-	// redirects for the address the administrator used. It serves one
-	// site (design sites §4.6): the one named in the settings, else the
-	// first by order.
-	ptSite, _ := runDoc.PassthroughSiteOrFirst()
-	ptURL, ptTLS, err := siteTarget(ptSite)
-	if err != nil {
-		return fmt.Errorf("pass-through site %s: %w", ptSite.ID, err)
-	}
-	passthrough := proxy.NewPassthrough(proxy.NewUpstream(proxy.UpstreamOptions{Target: ptURL, HostHeader: "", TLS: ptTLS, Log: log}), log)
-
-	// One Prism Central per site (design sites §4.1): the client of its
-	// service account for tenant provisioning and the probe, and the
-	// upstream and landing parts the public path routes to.
-	var tenantSites []tenant.Site
-	probes := map[string]sites.Prober{}
-	backends := map[string]*proxy.SiteBackend{}
-	for _, inc := range runDoc.IncompleteSites() {
-		log.Warn("site not served until it is complete", "site", inc)
-	}
-	for _, site := range runDoc.ServedSites() {
-		if site.TLSPin == "" && !site.TLSVerify {
-			// Logged here only: the pass-through's site is built twice.
-			log.Warn("tls_verify is false: the certificate of this Prism Central is not checked; pin it on the site page", "site", site.ID)
-		}
-		siteURL, siteTLS, err := siteTarget(site)
-		if err != nil {
-			return fmt.Errorf("site %s: %w", site.ID, err)
-		}
-		c, err := nutanix.New(site.URL, string(site.APIKey), siteTLS, log)
-		if err != nil {
-			return fmt.Errorf("site %s: %w", site.ID, err)
-		}
-		tenantSites = append(tenantSites, tenant.Site{ID: site.ID, Code: site.Code, Name: site.Name, URL: site.URL, PC: c, SAMLIdPName: site.SAMLIdPName, SAMLIdPExtID: site.SAMLIdPExtID,
-			ClusterExtID: site.ClusterExtID, StorageContainerExtID: site.StorageContainerExtID})
-		probes[site.ID] = func(ctx context.Context) error {
-			_, err := c.PrismCentralVersion(ctx)
-			return err
-		}
-		backends[site.ID] = &proxy.SiteBackend{ID: site.ID, Code: site.Code, Name: site.Name, Order: site.Order,
-			Upstream: proxy.NewUpstream(proxy.UpstreamOptions{Target: siteURL, HostHeader: cfg.Public.PrismHost, TLS: siteTLS, StripCookies: stripped, Log: log, ErrorPage: pages.Error}),
-			PrismHTTP: &http.Client{
-				Transport:     &http.Transport{TLSClientConfig: siteTLS, ForceAttemptHTTP2: false},
-				Timeout:       30 * time.Second,
-				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-			},
-			PrismBase: &url.URL{Scheme: siteURL.Scheme, Host: siteURL.Host},
-			IdPExtID:  idpLookup(c, site),
-		}
-	}
-	tenants := tenant.NewService(st, tenantSites, kcClient, tenant.Config{
+	// The sites (design sites §4.1) are built by the site runtime, from
+	// this document now and from every later save (usability 4.9).
+	tenants := tenant.NewService(st, nil, kcClient, tenant.Config{
 		ProjectPrefix: cfg.Tenants.ProjectPrefix, GroupPrefix: cfg.Tenants.GroupPrefix, RoleName: cfg.Tenants.Role,
 		OperationTimeout: cfg.Tenants.OperationTimeout,
 	}, log)
@@ -265,10 +217,19 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// for a few minutes on NTNX-01, then 0.6 s again), the maintenance flags, the
 	// sessions on each site; the index of the tenants' active placements,
 	// dropped when they change.
-	monitor := sites.NewMonitor(st, probes, log)
+	monitor := sites.NewMonitor(st, nil, log)
 	if err := monitor.Load(ctx); err != nil {
 		return fmt.Errorf("site state: %w", err)
 	}
+	runtime := newSiteRuntime(siteDeps{prismHost: cfg.Public.PrismHost, strip: stripped, errorPage: pages.Error, settings: settingsSvc, log: log}, monitor, tenants)
+	runtime.Apply(ctx, runDoc)
+	settingsSvc.OnChange(func(ctx context.Context, s settings.Settings) error {
+		// A site change is served at once; what the runtime cannot build
+		// is logged, and the save stands.
+		runtime.Apply(ctx, s)
+		return nil
+	})
+	go runtime.reload(ctx, settingsSvc, sitesReload)
 	go monitor.Run(ctx, 30*time.Second, 10*time.Second)
 	placements := sites.NewIndex(st, 5*time.Second)
 	tenants.OnPlacementChange(placements.Invalidate)
@@ -315,7 +276,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	public := proxy.NewPublic(proxy.PublicOptions{
 		PrismHost: cfg.Public.PrismHost, IDHost: cfg.Public.IDHost,
 		Sites: &proxy.SiteRouting{
-			Backends:     backends,
+			Backends:     runtime.backends,
 			Connections:  placements.Connections,
 			Status:       monitor.Status,
 			SetSite:      sessions.SetSite,
@@ -330,7 +291,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	})
 	listeners := []listener{
 		{"public", newServer(cfg.Public.Listen, public, log), publicTLS},
-		{"passthrough", newServer(cfg.Internal.PassthroughListen, passthrough, log), internalTLS},
+		{"passthrough", newServer(cfg.Internal.PassthroughListen, runtime.passthrough, log), internalTLS},
 		admin,
 	}
 	return serveListeners(ctx, listeners, restart, func(now time.Time) {

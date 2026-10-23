@@ -131,12 +131,16 @@ func (c Config) withDefaults() Config {
 
 // Service runs tenant operations.
 type Service struct {
-	st    store.Store
-	sites map[string]Site
-	order []string
-	kc    Keycloak
-	cfg   Config
-	log   *slog.Logger
+	st store.Store
+	// sites and order change at runtime (SetSites, usability 4.9); read
+	// them through lookupSite and Sites. An operation keeps the Site value
+	// it read when it started.
+	sitesMu sync.RWMutex
+	sites   map[string]Site
+	order   []string
+	kc      Keycloak
+	cfg     Config
+	log     *slog.Logger
 
 	mu      sync.Mutex
 	running map[string]bool
@@ -150,16 +154,37 @@ func NewService(st store.Store, sites []Site, kc Keycloak, cfg Config, log *slog
 	if log == nil {
 		log = slog.Default()
 	}
-	s := &Service{st: st, sites: map[string]Site{}, kc: kc, cfg: cfg.withDefaults(), log: log, running: map[string]bool{}}
-	for _, site := range sites {
-		s.sites[site.ID] = site
-		s.order = append(s.order, site.ID)
-	}
+	s := &Service{st: st, kc: kc, cfg: cfg.withDefaults(), log: log, running: map[string]bool{}}
+	s.SetSites(sites)
 	return s
+}
+
+// SetSites replaces the configured sites (sites usability design 4.9).
+// Operations already running finish on the sites they read.
+func (s *Service) SetSites(sites []Site) {
+	m := make(map[string]Site, len(sites))
+	order := make([]string, 0, len(sites))
+	for _, site := range sites {
+		m[site.ID] = site
+		order = append(order, site.ID)
+	}
+	s.sitesMu.Lock()
+	s.sites, s.order = m, order
+	s.sitesMu.Unlock()
+}
+
+// lookupSite returns a configured site.
+func (s *Service) lookupSite(id string) (Site, bool) {
+	s.sitesMu.RLock()
+	defer s.sitesMu.RUnlock()
+	site, ok := s.sites[id]
+	return site, ok
 }
 
 // Sites returns the configured sites in order.
 func (s *Service) Sites() []Site {
+	s.sitesMu.RLock()
+	defer s.sitesMu.RUnlock()
 	out := make([]Site, 0, len(s.order))
 	for _, id := range s.order {
 		out = append(out, s.sites[id])
@@ -169,7 +194,7 @@ func (s *Service) Sites() []Site {
 
 // SiteCode returns the code of a configured site, or the id itself.
 func (s *Service) SiteCode(id string) string {
-	if site, ok := s.sites[id]; ok && site.Code != "" {
+	if site, ok := s.lookupSite(id); ok && site.Code != "" {
 		return site.Code
 	}
 	return id
@@ -208,7 +233,7 @@ type CreateRequest struct {
 
 // placementFor resolves a request against the configured sites.
 func (s *Service) placementFor(tenantID string, r PlacementRequest) (*store.Placement, error) {
-	site, ok := s.sites[r.Site]
+	site, ok := s.lookupSite(r.Site)
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrUnknownSite, r.Site)
 	}
@@ -364,7 +389,7 @@ func (s *Service) Resume(ctx context.Context, id, siteID string) error {
 }
 
 func (s *Service) setPlacementStatus(ctx context.Context, id, siteID string, from, to store.PlacementStatus) error {
-	if _, ok := s.sites[siteID]; !ok {
+	if _, ok := s.lookupSite(siteID); !ok {
 		return fmt.Errorf("%w: %q", ErrUnknownSite, siteID)
 	}
 	if !s.acquire(id) {
@@ -656,8 +681,8 @@ func (s *Service) UserCount(ctx context.Context, id string) (int, error) {
 // only site when exactly one is configured, otherwise none (the tenant
 // is connected later, design sites usability 4.4).
 func (s *Service) DefaultSites() []PlacementRequest {
-	if len(s.order) == 1 {
-		return []PlacementRequest{{Site: s.order[0]}}
+	if sites := s.Sites(); len(sites) == 1 {
+		return []PlacementRequest{{Site: sites[0].ID}}
 	}
 	return []PlacementRequest{}
 }
@@ -764,7 +789,7 @@ const targetsTimeout = 10 * time.Second
 // cannot be read it returns the defaults alone with the error, so the
 // page can still offer them.
 func (s *Service) Targets(ctx context.Context, siteID string) (Targets, error) {
-	site, ok := s.sites[siteID]
+	site, ok := s.lookupSite(siteID)
 	if !ok {
 		return Targets{}, ErrUnknownSite
 	}

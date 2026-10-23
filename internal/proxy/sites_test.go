@@ -51,10 +51,10 @@ func newSitesHarness(t *testing.T) *sitesHarness {
 	}, h.store, nil, log)
 	pages := branding.NewPages(func(context.Context) branding.Branding { return branding.Default() })
 	routing := &SiteRouting{
-		Backends: map[string]*SiteBackend{
+		Backends: NewBackendSet(map[string]*SiteBackend{
 			"site-a": {ID: "site-a", Code: "AZ-IT-MI1", Name: "Milan", Order: 1, Upstream: upstreamFor(t, upA.URL, "prism.test")},
 			"site-b": {ID: "site-b", Code: "AZ-US-NYC1", Name: "New York", Order: 2, Upstream: upstreamFor(t, upB.URL, "prism.test")},
-		},
+		}),
 		Connections: func(ctx context.Context, tenant string) ([]sites.Connection, error) {
 			h.mu.Lock()
 			defer h.mu.Unlock()
@@ -338,7 +338,8 @@ func TestLandingUsesSiteIdP(t *testing.T) {
 	}
 	pa, pb := mk("idp-a"), mk("idp-b")
 	h := newSitesHarness(t)
-	routing := &SiteRouting{Backends: map[string]*SiteBackend{}, SetSite: h.store.SetSite,
+	backends := map[string]*SiteBackend{}
+	routing := &SiteRouting{SetSite: h.store.SetSite,
 		Connections: func(context.Context, string) ([]sites.Connection, error) {
 			return []sites.Connection{{SiteID: "site-a"}, {SiteID: "site-b"}}, nil
 		},
@@ -346,10 +347,11 @@ func TestLandingUsesSiteIdP(t *testing.T) {
 	for id, p := range map[string]*pc{"site-a": pa, "site-b": pb} {
 		base, _ := url.Parse(p.srv.URL)
 		idp := map[string]string{"site-a": "idp-a", "site-b": "idp-b"}[id]
-		routing.Backends[id] = &SiteBackend{ID: id, Code: strings.ToUpper(id), Upstream: upstreamFor(t, p.srv.URL, "prism.test"),
+		backends[id] = &SiteBackend{ID: id, Code: strings.ToUpper(id), Upstream: upstreamFor(t, p.srv.URL, "prism.test"),
 			PrismHTTP: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 			PrismBase: base, IdPExtID: func(context.Context) (string, error) { return idp, nil }}
 	}
+	routing.Backends = NewBackendSet(backends)
 	pages := branding.NewPages(func(context.Context) branding.Branding { return branding.Default() })
 	routing.Pages = pages
 	a := auth.NewAuthenticator(auth.OIDCConfig{Issuer: "https://id.test/realms/x", DiscoveryURL: "https://127.0.0.1:1/realms/x", ClientID: "portico", ClientSecret: "s", RedirectURL: "https://prism.test/.portico/callback"}, h.store, nil, nil)
@@ -472,9 +474,9 @@ func TestSignOutThenOtherSiteRestoresItsStash(t *testing.T) {
 
 func TestSAMLStartFailureWithSeveralSitesLinksSitePage(t *testing.T) {
 	h := newSitesHarness(t)
-	h.routing.Backends["site-a"].PrismHTTP = &http.Client{}
-	h.routing.Backends["site-a"].PrismBase, _ = url.Parse("https://127.0.0.1:1")
-	h.routing.Backends["site-a"].IdPExtID = func(context.Context) (string, error) { return "", errors.New("slow") }
+	mustGet(t, h, "site-a").PrismHTTP = &http.Client{}
+	mustGet(t, h, "site-a").PrismBase, _ = url.Parse("https://127.0.0.1:1")
+	mustGet(t, h, "site-a").IdPExtID = func(context.Context) (string, error) { return "", errors.New("slow") }
 	h.withLanding()
 	h.session("s1", "acme", "site-a")
 	rec := h.do("GET", "/.portico/saml-start", "s1", map[string]string{"Accept": "text/html", "Cookie": "iam-sessionid=abc"}, nil)

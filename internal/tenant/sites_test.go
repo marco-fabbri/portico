@@ -738,3 +738,32 @@ func TestDisconnectKeepsGroupWhenIdPUnknown(t *testing.T) {
 		t.Fatal("the role membership was kept: the tenant still has access")
 	}
 }
+
+func TestSetSitesDuringOperation(t *testing.T) {
+	e := newEnv2(t)
+	ctx := context.Background()
+	e.createOn(t, "acme", "site-b")
+	e.pcA.GateCreate = tenanttest.NewGate()
+	if err := e.svc.AddSite(ctx, "acme", PlacementRequest{Site: "site-a"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-e.pcA.GateCreate.Started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the connection did not start")
+	}
+	// site-a leaves the configuration while its operation runs.
+	e.svc.SetSites([]Site{e.svc.Sites()[1]})
+	close(e.pcA.GateCreate.Release)
+	e.svc.Wait()
+	if p := e.placement(t, "acme", "site-a"); p.Status != store.PlacementActive {
+		t.Fatalf("the running operation did not finish on the site it read: %+v", p)
+	}
+	e.createOn(t, "beta", "site-b")
+	if err := e.svc.AddSite(ctx, "beta", PlacementRequest{Site: "site-a"}); !errors.Is(err, ErrUnknownSite) {
+		t.Fatalf("AddSite on a removed site = %v", err)
+	}
+	if got := e.svc.Sites(); len(got) != 1 || got[0].ID != "site-b" {
+		t.Fatalf("sites = %+v", got)
+	}
+}
