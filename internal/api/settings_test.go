@@ -18,6 +18,7 @@ import (
 	"github.com/marco-fabbri/portico/internal/branding"
 	"github.com/marco-fabbri/portico/internal/secrets"
 	"github.com/marco-fabbri/portico/internal/settings"
+	"github.com/marco-fabbri/portico/internal/settings/settingstest"
 	"github.com/marco-fabbri/portico/internal/store"
 	"github.com/marco-fabbri/portico/internal/tenant"
 	"github.com/marco-fabbri/portico/internal/tenant/tenanttest"
@@ -37,6 +38,7 @@ type settingsEnv struct {
 	st        store.Store
 	sealer    *secrets.Sealer
 	tenants   *tenant.Service
+	kc        *settingstest.KC // set by withSetup
 }
 
 func sampleSettings(pcURL string) settings.Settings {

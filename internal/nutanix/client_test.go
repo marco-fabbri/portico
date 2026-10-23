@@ -73,6 +73,25 @@ func TestDeleteProjectSendsIfMatch(t *testing.T) {
 	}
 }
 
+func TestDeleteSAMLIdPSendsIfMatch(t *testing.T) {
+	f := newFakePC(t)
+	c := newClient(t, f, nil)
+	if err := c.DeleteSAMLIdP(context.Background(), "idp-1"); err != nil {
+		t.Fatalf("DeleteSAMLIdP: %v", err)
+	}
+	del := find(f.requests(), "DELETE", PathIAM1+"/authn/saml-identity-providers/idp-1")
+	if del == nil {
+		t.Fatal("no DELETE")
+	}
+	if del.Header.Get("If-Match") != f.etag {
+		t.Fatalf("If-Match = %q, want %q", del.Header.Get("If-Match"), f.etag)
+	}
+	f.fail["GET "+PathIAM1+"/authn/saml-identity-providers/idp-gone"] = 404
+	if err := c.DeleteSAMLIdP(context.Background(), "idp-gone"); err != nil {
+		t.Fatalf("DeleteSAMLIdP of a missing provider: %v", err)
+	}
+}
+
 func TestShareIdPUsesSingularProjectExtId(t *testing.T) {
 	f := newFakePC(t)
 	c := newClient(t, f, nil)

@@ -20,6 +20,8 @@ type SitesRuntime interface {
 	Report(siteID string, err error)
 	Maintenance(siteID string) bool
 	SetMaintenance(ctx context.Context, siteID string, on bool) error
+	// ClearMaintenance drops a removed site's flag.
+	ClearMaintenance(ctx context.Context, siteID string) error
 	Sessions(siteID string, now time.Time) []auth.Session
 	Disconnect(siteID string) int
 }
@@ -37,6 +39,10 @@ func (r *Runtime) Report(id string, err error)   { r.Monitor.Report(id, err) }
 func (r *Runtime) Maintenance(id string) bool    { return r.Monitor.Maintenance(id) }
 func (r *Runtime) SetMaintenance(ctx context.Context, id string, on bool) error {
 	return r.Monitor.SetMaintenance(ctx, id, on)
+}
+
+func (r *Runtime) ClearMaintenance(ctx context.Context, id string) error {
+	return r.Monitor.ClearMaintenance(ctx, id)
 }
 
 // Sessions lists the live tenant sessions on the site, most recent

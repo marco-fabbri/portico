@@ -131,6 +131,13 @@ func (f *fakeKC) handleAdmin(w http.ResponseWriter, r *http.Request, rec recorde
 		rep["id"] = parts[1]
 		a.clients[parts[1]] = rep
 		w.WriteHeader(204)
+	case len(parts) == 2 && parts[0] == "clients" && r.Method == "DELETE":
+		if _, ok := a.clients[parts[1]]; !ok {
+			w.WriteHeader(404)
+			return true
+		}
+		delete(a.clients, parts[1])
+		w.WriteHeader(204)
 	case len(parts) == 3 && parts[0] == "clients" && parts[2] == "client-secret":
 		json.NewEncoder(w).Encode(map[string]any{"type": "secret", "value": "sec-" + strings.TrimPrefix(parts[1], "cli-")})
 	case len(parts) == 3 && parts[0] == "clients" && parts[2] == "service-account-user":
@@ -264,6 +271,36 @@ func TestEnsureClientCreatesThenUpdates(t *testing.T) {
 	uid, err := c.ServiceAccountUserID(ctx, id)
 	if err != nil || uid != "sa-portico" {
 		t.Fatalf("ServiceAccountUserID = %q %v", uid, err)
+	}
+}
+
+func TestDeleteClient(t *testing.T) {
+	f := newFakeKC(t)
+	c := adminClient(f, nil)
+	ctx := context.Background()
+	if _, _, err := c.EnsureClient(ctx, map[string]any{"clientId": "pc-sp"}); err != nil {
+		t.Fatalf("EnsureClient: %v", err)
+	}
+	if err := c.DeleteClient(ctx, "pc-sp"); err != nil {
+		t.Fatalf("DeleteClient: %v", err)
+	}
+	if _, err := c.FindClient(ctx, "pc-sp"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("client after delete: %v", err)
+	}
+	if err := c.DeleteClient(ctx, "absent-sp"); err != nil {
+		t.Fatalf("DeleteClient of an absent client: %v", err)
+	}
+	dels := 0
+	for _, r := range f.requests() {
+		if r.Method == "DELETE" {
+			dels++
+			if r.Path != "/admin/realms/msp/clients/cli-pc-sp" {
+				t.Errorf("DELETE %s", r.Path)
+			}
+		}
+	}
+	if dels != 1 {
+		t.Fatalf("%d DELETE requests, want 1", dels)
 	}
 }
 

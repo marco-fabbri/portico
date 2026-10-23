@@ -400,7 +400,7 @@ func (h *Handler) siteDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := h.setup.DeleteSite(r.Context(), h.st, s.ID); err != nil {
+	if _, err := h.setup.RemoveSite(r.Context(), h.st, s.ID, nil); err != nil {
 		h.renderSite(w, r, siteStatus(err), s, err.Error())
 		return
 	}
