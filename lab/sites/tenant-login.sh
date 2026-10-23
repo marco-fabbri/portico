@@ -37,7 +37,7 @@ if [ "${1:-}" = "--ensure-probe" ]; then
     echo "reset password: $(tail -1 "$tmp/code")"
   fi
   gid=$(lab/saml/kc.sh GET "/$REALM/groups?search=tenant-$slug&exact=true" 2>/dev/null | jq -r '.[0].id // empty')
-  [ -n "$id" ] && [ -n "$gid" ] || { echo "user or group tenant-$slug missing" >&2; exit 1; }
+  if [ -z "$id" ] || [ -z "$gid" ]; then echo "user or group tenant-$slug missing" >&2; exit 1; fi
   lab/saml/kc.sh PUT "/$REALM/users/$id/groups/$gid" >/dev/null 2>"$tmp/code"
   echo "probe user $email in tenant-$slug: $(tail -1 "$tmp/code")"
   exit
