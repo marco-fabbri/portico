@@ -356,23 +356,33 @@ with an **API key** sent as `X-ntnx-api-key` (write-up 07). The account is
 a member of the predefined `Project Manager_acp` authorization policy,
 which was measured sufficient for the whole tenant cycle plus probe-user
 creation; no custom role in step 1. This mirrors SP Central's
-`sp_svc_acc_<uuid>` pattern. The setup wizard offers two paths:
+`sp_svc_acc_<uuid>` pattern. Each site offers two paths (sites
+usability design 4.1, 2026-10-23):
 
-1. **Pre-created**: the MSP creates the service account and an API key in
-   Prism Central (Admin Center → IAM → Identities → Service Accounts), adds
-   it to `Project Manager_acp`, and enters the key.
-2. **Bootstrap**: the MSP enters, once, the credentials of any account
-   allowed to create users and edit authorization policies (it need not be
-   the built-in `admin`). Portico creates the service account, generates
-   the key, adds the account to the policy, verifies the key works, stores
-   only the key (encrypted), and discards the bootstrap credentials (held in
-   memory only, never written to disk or logs).
+1. **One page, the main path** ("Add a site", and "Finish setup" or
+   "Repair" on the site's page): Portico reads the site's certificate
+   first (trusted, or pinned once the MSP compared its fingerprint), and
+   only then asks, once, for the credentials of any account allowed to
+   create users, roles and identity providers (it need not be the
+   built-in `admin`). One run checks the version and the rights, creates
+   the service account and its key, adds the account to the policy,
+   verifies the key, creates the SAML trust and picks the defaults; it
+   stores only the key (encrypted) and discards the credentials (held in
+   memory only, never written to disk or logs). The summary shows one
+   line per step; a failed step leaves the site incomplete and not
+   served, and running it again goes on from there.
+2. **Pre-created, under "Advanced"**: the MSP creates the service account
+   and an API key in Prism Central (Admin Center → IAM → Identities →
+   Service Accounts), adds it to `Project Manager_acp`, and enters the
+   key; a SAML provider made by hand is named there too. The API keeps
+   both, never as the main path.
 
 Key rotation (create second key, switch, revoke first) is a step 2 UI
 feature; step 1 logs the key expiry. The UI says "an account that can
 create users and edit authorization policies", not "the admin account".
 
-Bootstrap details (Milestone 2e). The bootstrap is one call,
+Bootstrap details (Milestone 2e; the one-page run of path 1 reuses these
+steps, sites usability design 4.1). The bootstrap is one call,
 `POST /api/v1/settings/bootstrap/prism-central`, carrying the one-time
 credentials, the Prism Central URL and its TLS settings. Portico opens a
 Basic-auth client for that call only; the credentials live in the request

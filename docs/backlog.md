@@ -216,9 +216,11 @@ drawn across the logo on the Keycloak login page.
   sign-out link (a transient Keycloak error strands the user for the
   session); an index read in flight during an invalidation can keep the
   old list up to 5 s; a settings save copies the sites read outside the
-  lock and can revert a concurrent site change; removing a site has no
-  busy check and checks placements outside the patch, and maintenance
-  flags of removed sites linger; "Disconnect" shows outside maintenance,
+  lock and can revert a concurrent site change; removing a site checks
+  its connections before the deletions in Prism Central and outside the
+  patch, so a tenant connected to it during the removal (up to two
+  minutes with credentials) is left on a removed site; "Disconnect"
+  shows outside maintenance,
   where one-site sessions are re-attached at once; an upstream
   `Set-Cookie` carrying a stash or Portico cookie name is not filtered;
   the sites design §5 still says the site is held in a cookie.
@@ -237,8 +239,15 @@ drawn across the logo on the Keycloak login page.
 - Minor findings of the appliance acceptance (write-up 21): the legacy
   adoption line ("the single Prism Central of the stored document is now
   site site-1") is written in plain text before the JSON logger exists;
-  the `tls_verify is false` warning is logged twice per site at start;
   a maintenance change is logged twice (monitor and API); re-running
   `install.sh` on an appliance also upgrades the packages it installs
   (cloudflared went to 2026.10.2), which docs/install.md does not say.
-
+- The service account's role (`Project Manager_acp`) cannot list
+  floating IPs (403, write-up 25) nor Flow security policies, so
+  Disconnect does not count them and relies on Prism Central refusing to
+  delete a project that still holds one. A role or an authorization
+  policy granting those reads is to be measured; the one-step setup of
+  sites (Part C) creates no custom role.
+- The other node of a pair reads the sites every 30 seconds but the
+  maintenance flags only at its start: a site put in maintenance on one
+  node still takes new entries on the other until it restarts.
