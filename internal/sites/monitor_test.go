@@ -239,6 +239,15 @@ func TestCertChangedAtOnce(t *testing.T) {
 	}
 }
 
+func TestCertChangedSurvivesATimeout(t *testing.T) {
+	m := NewMonitor(openStore(t), map[string]Prober{"a": scripted(&CertChangedError{Fingerprint: "AB:CD"}, errors.New("dial tcp: i/o timeout"))}, nil)
+	m.ProbeOnce(context.Background(), time.Second)
+	m.ProbeOnce(context.Background(), time.Second)
+	if d := m.Detail("a"); d.Reason != "certificate changed" || d.NewFingerprint != "AB:CD" {
+		t.Fatalf("a timeout cleared the certificate change: %+v", d)
+	}
+}
+
 func TestMaintenanceWinsOverIncomplete(t *testing.T) {
 	m := NewMonitor(openStore(t), map[string]Prober{"a": scripted()}, nil)
 	m.SetTrustChecks(map[string]Prober{"a": scripted(&IncompleteError{Reason: "x", Immediate: true})})
