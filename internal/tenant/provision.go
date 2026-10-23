@@ -31,7 +31,7 @@ func (s *Service) record(ctx context.Context, tenantID, siteID, name string, fn 
 
 // site returns the configured site of a placement.
 func (s *Service) site(id string) (Site, error) {
-	site, ok := s.sites[id]
+	site, ok := s.lookupSite(id)
 	if !ok {
 		return Site{}, fmt.Errorf("site %s is not configured in Portico", id)
 	}

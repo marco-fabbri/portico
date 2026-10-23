@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
 
@@ -23,13 +22,14 @@ type SiteBackend struct {
 	PrismHTTP      *http.Client // to the site's Prism Central, no redirects
 	PrismBase      *url.URL     // https://<pc>:9440
 	IdPExtID       func(ctx context.Context) (string, error)
+	missing        bool // a connection's site with no backend: never routed
 }
 
 // SiteRouting decides, per request, which site's Prism Central a tenant
 // session reaches: the session's chosen site, checked against the
 // tenant's active placements every time (design sites §4.4).
 type SiteRouting struct {
-	Backends map[string]*SiteBackend
+	Backends *BackendSet
 	// Connections returns the sites the tenant is connected to, active or
 	// suspended (design sites usability 4.5).
 	Connections func(ctx context.Context, tenantID string) ([]sites.Connection, error)
@@ -83,20 +83,28 @@ func (s *SiteRouting) connections(ctx context.Context, tenant string) ([]*SiteBa
 	var out []*SiteBackend
 	suspended := map[string]bool{}
 	for _, c := range cs {
-		if b, ok := s.Backends[c.SiteID]; ok {
-			out = append(out, b)
-			if c.Suspended {
-				suspended[b.ID] = true
-			}
+		b, ok := s.Backends.Get(c.SiteID)
+		if !ok {
+			// A connection to a site no longer served (removed, or left
+			// incomplete): shown and answered as unreachable, never routed.
+			b = &SiteBackend{ID: c.SiteID, Code: c.SiteID, Order: int(^uint(0) >> 1), missing: true}
+		}
+		out = append(out, b)
+		if c.Suspended {
+			suspended[b.ID] = true
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Order != out[j].Order {
-			return out[i].Order < out[j].Order
-		}
-		return out[i].Code < out[j].Code
-	})
+	sortBackends(out)
 	return out, suspended, nil
+}
+
+// status is the monitor's status of a backend's site; a site with no
+// backend is unreachable whatever the monitor last said.
+func (s *SiteRouting) status(b *SiteBackend) sites.Status {
+	if b.missing {
+		return sites.Unreachable
+	}
+	return s.Status(b.ID)
 }
 
 func find(bs []*SiteBackend, id string) *SiteBackend {
@@ -173,7 +181,7 @@ func (s *SiteRouting) route(w http.ResponseWriter, r *http.Request, sess auth.Se
 		s.noSite(w, r)
 		return nil, false
 	}
-	if b := find(bs, sess.Site); b != nil && !suspended[b.ID] {
+	if b := find(bs, sess.Site); b != nil && !suspended[b.ID] && !b.missing {
 		return b, true
 	}
 	if len(bs) == 1 {
@@ -182,7 +190,7 @@ func (s *SiteRouting) route(w http.ResponseWriter, r *http.Request, sess auth.Se
 			s.suspendedPage(w, r, b)
 			return nil, false
 		}
-		if st := s.Status(b.ID); st != sites.Available {
+		if st := s.status(b); st != sites.Available {
 			s.unavailable(w, r, b, st)
 			return nil, false
 		}
@@ -230,7 +238,7 @@ func (s *SiteRouting) sitesPage(w http.ResponseWriter, r *http.Request) {
 	}
 	tiles := make([]branding.SiteTile, 0, len(bs))
 	for _, b := range bs {
-		st := string(s.Status(b.ID))
+		st := string(s.status(b))
 		if suspended[b.ID] {
 			st = "suspended"
 		}
@@ -259,7 +267,7 @@ func (s *SiteRouting) selectSite(w http.ResponseWriter, r *http.Request) {
 		s.page(w, r, http.StatusForbidden, "site-not-allowed", "Site not available", "This site is not available for your account.", sitesPath)
 		return
 	}
-	if st := s.Status(b.ID); st != sites.Available {
+	if st := s.status(b); st != sites.Available {
 		s.unavailable(w, r, b, st)
 		return
 	}

@@ -112,6 +112,10 @@ func newWithAuth(baseURL string, auth func(*http.Request), tlsCfg *tls.Config, l
 	}, nil
 }
 
+// CloseIdleConnections closes the client's idle connections, once a
+// site's client is replaced (sites usability design 4.9).
+func (c *Client) CloseIdleConnections() { c.http.CloseIdleConnections() }
+
 // do performs one call. body (nil for none) is JSON-encoded; out (nil to
 // discard) receives the "data" member of the envelope. The ETag header of
 // the response is returned so a write can follow a GET.

@@ -102,6 +102,20 @@ func (m *Monitor) Status(siteID string) Status {
 	return Available
 }
 
+// SetProbes replaces the probed sites (sites usability design 4.9): a
+// site kept keeps its failure count, a new one starts from none, a
+// dropped one is no longer probed and reports unreachable.
+func (m *Monitor) SetProbes(probes map[string]Prober) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id := range m.failures {
+		if _, ok := probes[id]; !ok {
+			delete(m.failures, id)
+		}
+	}
+	m.probes = probes
+}
+
 // Maintenance reports the site's maintenance flag.
 func (m *Monitor) Maintenance(siteID string) bool {
 	m.mu.RLock()
@@ -141,8 +155,11 @@ func (m *Monitor) SetMaintenance(ctx context.Context, siteID string, on bool) er
 // logs the first result of each site and every change of its
 // reachability.
 func (m *Monitor) ProbeOnce(ctx context.Context, timeout time.Duration) {
+	m.mu.RLock()
+	probes := m.probes
+	m.mu.RUnlock()
 	var wg sync.WaitGroup
-	for id, probe := range m.probes {
+	for id, probe := range probes {
 		wg.Add(1)
 		go func(id string, probe Prober) {
 			defer wg.Done()
@@ -150,6 +167,10 @@ func (m *Monitor) ProbeOnce(ctx context.Context, timeout time.Duration) {
 			err := probe(pctx)
 			cancel()
 			m.mu.Lock()
+			if _, kept := m.probes[id]; !kept {
+				m.mu.Unlock() // dropped by SetProbes while it was probed
+				return
+			}
 			n, probed := m.failures[id]
 			was := n < FailuresToUnreachable
 			if err == nil {
