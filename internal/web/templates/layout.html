@@ -34,6 +34,14 @@
 <footer>Portico {{.Version}}</footer>
 </body>
 </html>
+{{/* A setup run's summary, one line per step, or a refusal (sites usability design 4.1). */}}
+{{define "site_summary"}}{{with .Data}}<div id="site-summary">
+{{if .Error}}<div class="banner error">{{.Error}}</div>{{else}}
+<div class="banner {{if or .Complete .Manual}}notice{{else}}error{{end}}">{{if .Manual}}Site {{.Site.Code}} added from the typed API key; its page says what is missing.{{else if .Complete}}Site {{.Site.Code}} is set up and serving.{{else}}Site {{.Site.Code}} is incomplete and not served. What was done is kept; Finish setup on its page runs the remaining steps again.{{end}}</div>
+{{if .Steps}}<ul class="steps">{{range .Steps}}<li class="step step-{{.Status}}"><span class="state {{if eq .Status "failed"}}todo{{else}}done{{end}}"><strong>{{.Name}}</strong> {{.Status}}</span> <span class="muted">{{.Message}}</span></li>{{end}}</ul>{{end}}
+<div class="actions"><a class="button primary" href="/setup/sites/{{.Site.ID}}">Open site {{.Site.Code}}</a></div>
+{{end}}
+</div>{{end}}{{end}}
 {{define "lockup"}}<div class="lockup"><img class="mark-large" src="/static/portico-mark.svg?v={{.Version}}" alt=""><span class="wordmark">Portico</span><span class="claim">Admin console</span></div>{{end}}
 {{/* One connection in the tenant and site tables: status, users now, and the actions its status allows. */}}
 {{define "connection-cells"}}

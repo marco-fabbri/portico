@@ -233,13 +233,13 @@ func TestSetupSecretInputsStopPasswordManagers(t *testing.T) {
 	e := newEnv(t, true)
 	withSetup(t, e, true)
 	e.login(t)
-	for _, path := range []string{"/setup", "/setup/sites/site-a"} {
+	for path, min := range map[string]int{"/setup": 3, "/setup/sites/site-a": 2, "/setup/sites/new": 1} {
 		page := e.do("GET", path, nil, true).Body.String()
 		if regexp.MustCompile(`type="password"[^>]*autocomplete="off"`).MatchString(page) {
 			t.Fatalf("%s: a password input still says autocomplete=off", path)
 		}
-		if n := strings.Count(page, `autocomplete="new-password"`); n < 3 {
-			t.Fatalf("%s: %d new-password inputs, want at least 3:\n%s", path, n, page)
+		if n := strings.Count(page, `autocomplete="new-password"`); n < min {
+			t.Fatalf("%s: %d new-password inputs, want at least %d:\n%s", path, n, min, page)
 		}
 	}
 }
@@ -264,14 +264,11 @@ func TestSetupPageStatesWhatIsConfigured(t *testing.T) {
 			t.Fatalf("setup page lacks %q:\n%s", want, body)
 		}
 	}
+	// The site page says nothing from Portico's own row: its status card
+	// asks Prism Central and Keycloak (sites usability design 4.2).
 	site := e.do("GET", "/setup/sites/site-a", nil, true).Body.String()
-	if n := strings.Count(site, `<p class="state done">`); n != 2 || strings.Contains(site, `<details open>`) {
-		t.Fatalf("site page on a complete site: %d done states:\n%s", n, site)
-	}
-	for _, want := range []string{`<summary>Let Portico create the service account</summary>`, `<summary>Let Portico create the SAML trust</summary>`} {
-		if !strings.Contains(site, want) {
-			t.Fatalf("site page lacks %q:\n%s", want, site)
-		}
+	if strings.Contains(site, "Configured:") || strings.Contains(site, `<details open>`) || !strings.Contains(site, `hx-get="/setup/sites/site-a/status"`) {
+		t.Fatalf("site page on a complete site:\n%s", site)
 	}
 
 	e = newEnv(t, true)

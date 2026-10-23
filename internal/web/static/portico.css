@@ -158,3 +158,14 @@ fieldset.logo-source input[type="file"] { display: block; margin: .2rem 0 .4rem 
 .bp-powered svg { height: .8rem; width: auto; }
 .site-row { padding: .6rem 0 .2rem; border-top: 1px solid var(--line-soft); }
 .site-row > div { margin-left: 1.6rem; }
+/* Setup runs and the site's status card (sites usability 4.1, 4.2). htmx's own indicator style is an inline <style>, which the CSP refuses. */
+.htmx-indicator { display: none; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { display: block; }
+.steps { list-style: none; padding: 0; margin: 0 0 1rem; }
+.steps .step .state { margin: 0; }
+.steps .step .muted { margin-left: 1.1rem; }
+.status-card th { text-align: left; white-space: nowrap; }
+.status-card .state { margin: 0; }
+.cert { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; margin: 0 0 1rem; }
+.cert dt { color: var(--muted); }
+.cert dd { margin: 0; overflow-wrap: anywhere; }

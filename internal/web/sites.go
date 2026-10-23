@@ -16,12 +16,14 @@ import (
 )
 
 // siteRow is a site as the setup pages show it: the key blanked, whether
-// one is held, whether the site is complete, the tenants placed on it.
+// one is held, whether the site is complete, the tenants placed on it,
+// and the monitor's status in running mode.
 type siteRow struct {
 	S       settings.Site
 	KeySet  bool
 	Done    bool
 	Tenants []string
+	Status  string
 }
 
 func toSiteRow(s settings.Site, tenants []string) siteRow {
@@ -38,11 +40,6 @@ type siteData struct {
 	Mode string
 	// Live is the site's live state; nil in setup mode.
 	Live *siteLive
-	// OOB marks the inputs a bootstrap fragment swaps into the page.
-	OOB bool
-	// Form keeps the non-secret bootstrap fields as typed; passwords are
-	// never echoed.
-	Form map[string]string
 	// Running is set when the tenant service runs: Connections are the
 	// tenants on this site, Connectable the active tenants not on it.
 	Running     bool
@@ -60,12 +57,10 @@ type siteFragment struct {
 }
 
 func (h *Handler) siteRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /setup/sites/new", h.siteNew)
-	mux.HandleFunc("POST /setup/sites/new", h.siteCreate)
+	h.siteSetupRoutes(mux)
 	mux.HandleFunc("GET /setup/sites/{id}", h.sitePage)
 	mux.HandleFunc("POST /setup/sites/{id}/save", h.siteSave)
 	mux.HandleFunc("POST /setup/sites/{id}/check", h.siteCheck)
-	mux.HandleFunc("POST /setup/sites/{id}/bootstrap/{target}", h.siteBootstrap)
 	mux.HandleFunc("POST /setup/sites/{id}/delete", h.siteDelete)
 	mux.HandleFunc("POST /setup/sites/{id}/forget", h.siteForget)
 	mux.HandleFunc("POST /setup/sites/{id}/maintenance", h.siteMaintenance)
@@ -123,10 +118,11 @@ func (h *Handler) siteTenants(r *http.Request, id string) []string {
 	return out
 }
 
-// siteFromForm reads the fields the posted card carries: the connection
-// card (code, connection, key, placement defaults) or the SAML card (the
-// identity provider name of a trust created by hand). An empty key keeps the stored one
-// (UpdateSite); the checkbox tls_verify is "on" or absent.
+// siteFromForm reads the fields a posted site form carries: code, name,
+// order, the address, the placement defaults and, under "Advanced", the
+// CA PEM and the manual path's API key and SAML provider name. An empty
+// key keeps the stored one (UpdateSite). The trust is never read from a
+// form: a site is verified or pinned (sites usability design 4.3).
 func siteFromForm(r *http.Request, s *settings.Site) error {
 	v := func(name string) string { return strings.TrimSpace(r.FormValue(name)) }
 	if r.Form == nil {
@@ -143,7 +139,10 @@ func siteFromForm(r *http.Request, s *settings.Site) error {
 		}
 	}
 	if r.Form.Has("url") {
-		s.URL, s.TLSVerify, s.CAPEM = v("url"), r.FormValue("tls_verify") != "", strings.TrimSpace(r.FormValue("ca_pem"))
+		s.URL = v("url")
+	}
+	if r.Form.Has("ca_pem") {
+		s.CAPEM = strings.TrimSpace(r.FormValue("ca_pem"))
 	}
 	if r.Form.Has("api_key") {
 		s.APIKey = settings.Secret(v("api_key"))
@@ -165,44 +164,16 @@ func siteStatus(err error) int {
 	var conflict *api.SiteConflictError
 	var busy *api.BusyError
 	var ve *settings.ValidationError
+	var se *settings.StateError
 	switch {
 	case errors.Is(err, api.ErrUnknownSite):
 		return http.StatusNotFound
-	case errors.As(err, &conflict), errors.As(err, &busy):
+	case errors.As(err, &conflict), errors.As(err, &busy), errors.As(err, &se):
 		return http.StatusConflict
-	case errors.Is(err, api.ErrConfirmMismatch), errors.As(err, &ve):
+	case errors.Is(err, api.ErrConfirmMismatch), errors.As(err, &ve), errors.Is(err, api.ErrNeedsTrust), errors.Is(err, api.ErrVerifyOff):
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError
-}
-
-func (h *Handler) siteNew(w http.ResponseWriter, r *http.Request) {
-	if _, _, ok := h.current(w, r); !ok {
-		return
-	}
-	h.render(w, r, http.StatusOK, "site_new", "New site", settings.Site{TLSVerify: true}, "")
-}
-
-func (h *Handler) siteCreate(w http.ResponseWriter, r *http.Request) {
-	if !h.requireCSRF(w, r) {
-		return
-	}
-	if _, _, ok := h.current(w, r); !ok {
-		return
-	}
-	in := settings.Site{ID: strings.TrimSpace(r.FormValue("id"))}
-	if err := siteFromForm(r, &in); err != nil {
-		h.render(w, r, http.StatusBadRequest, "site_new", "New site", in, err.Error())
-		return
-	}
-	out, err := h.setup.CreateSite(r.Context(), in)
-	if err != nil {
-		in.APIKey = ""
-		h.render(w, r, siteStatus(err), "site_new", "New site", in, err.Error())
-		return
-	}
-	h.log.Info("site created", "via", "ui", "id", out.ID, "code", out.Code)
-	http.Redirect(w, r, "/setup/sites/"+url.PathEscape(out.ID)+"?notice="+url.QueryEscape("Site "+out.Code+" added: create its service account and its SAML trust, then apply."), http.StatusSeeOther)
 }
 
 // loadSite returns the stored site or renders the not-found page.
@@ -232,7 +203,7 @@ func (h *Handler) siteConnections(r *http.Request, d *siteData) {
 		return
 	}
 	if _, ok := h.siteOf(d.S.ID); !ok {
-		// Saved but not applied yet: the running service has no such site.
+		// Not served yet (incomplete): the tenant service has no such site.
 		return
 	}
 	d.Running = true
@@ -285,7 +256,7 @@ func (h *Handler) siteSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.log.Info("site updated", "via", "ui", "id", out.ID, "code", out.Code)
-	http.Redirect(w, r, "/setup/sites/"+url.PathEscape(out.ID)+"?notice="+url.QueryEscape("Saved. Changes take effect after Apply."), http.StatusSeeOther)
+	http.Redirect(w, r, "/setup/sites/"+url.PathEscape(out.ID)+"?notice="+url.QueryEscape("Saved."), http.StatusSeeOther)
 }
 
 func (h *Handler) writeSiteFragment(w http.ResponseWriter, r *http.Request, status int, name string, f siteFragment) {
@@ -307,7 +278,7 @@ func (h *Handler) siteCheck(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	cand := settings.Site{ID: s.ID}
+	cand := settings.Site{ID: s.ID, TLSVerify: s.TLSVerify, TLSPin: s.TLSPin, CAPEM: s.CAPEM}
 	if err := siteFromForm(r, &cand); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -326,72 +297,6 @@ func (h *Handler) siteCheck(w http.ResponseWriter, r *http.Request) {
 	h.writeSiteFragment(w, r, http.StatusOK, "site_check", f)
 }
 
-// siteBootstrap runs the service-account or the SAML bootstrap of one
-// site; the one-time credentials travel in this request only.
-func (h *Handler) siteBootstrap(w http.ResponseWriter, r *http.Request) {
-	if !h.requireCSRF(w, r) {
-		return
-	}
-	target := r.PathValue("target")
-	if target != "prism-central" && target != "saml" {
-		http.NotFound(w, r)
-		return
-	}
-	cur, _, ok := h.current(w, r)
-	if !ok {
-		return
-	}
-	s, found := cur.Site(r.PathValue("id"))
-	if !found {
-		http.NotFound(w, r)
-		return
-	}
-	v := func(name string) string { return strings.TrimSpace(r.FormValue(name)) }
-	b := h.setup.Bootstrapper
-	f := siteFragment{}
-	form := map[string]string{"username": v("username"), "service_account": v("service_account")}
-	var (
-		okRes   bool
-		message string
-		err     error
-	)
-	switch target {
-	case "prism-central":
-		var res settings.PrismResult
-		in := settings.PrismInput{Username: v("username"), Password: r.FormValue("password"), ServiceAccount: v("service_account")}
-		if u := v("url"); u != "" {
-			in.URL, in.TLSVerify, in.CAPEM = u, r.FormValue("tls_verify") != "", strings.TrimSpace(r.FormValue("ca_pem"))
-		}
-		res, _, err = b.PrismCentral(r.Context(), cur, s.ID, in)
-		okRes, message, f.Clusters, f.Containers = res.OK, res.Message, res.Clusters, res.Containers
-	case "saml":
-		var res settings.SAMLResult
-		res, _, err = b.SAML(r.Context(), h.setup.KeycloakURL, cur, s.ID, settings.SAMLInput{Name: v("saml_idp_name"), Username: v("username"), Password: r.FormValue("password")})
-		okRes, message = res.OK, res.Message
-	}
-	status := http.StatusOK
-	var se *settings.StateError
-	switch {
-	case errors.As(err, &se):
-		status, f.Status, f.Message = http.StatusConflict, "error", err.Error()
-	case err != nil:
-		h.log.Error("site bootstrap failed", "via", "ui", "site", s.ID, "target", target, "err", err.Error())
-		status, f.Status, f.Message = http.StatusInternalServerError, "error", err.Error()
-	case !okRes:
-		f.Status, f.Message = "error", message
-	default:
-		if now, err := h.setup.Service.Get(r.Context()); err == nil {
-			if fresh, ok := now.Site(s.ID); ok {
-				s = fresh
-			}
-		}
-		f.OK, f.Status, f.Message = true, "notice", message
-	}
-	h.log.Info("site bootstrap", "via", "ui", "site", s.ID, "target", target, "ok", f.OK, "status", status)
-	f.Data = siteData{siteRow: toSiteRow(s, nil), OOB: true, Form: form}
-	h.writeSiteFragment(w, r, status, "site_bootstrap_"+strings.ReplaceAll(target, "-", "_"), f)
-}
-
 func (h *Handler) siteDelete(w http.ResponseWriter, r *http.Request) {
 	if !h.requireCSRF(w, r) {
 		return
@@ -400,12 +305,23 @@ func (h *Handler) siteDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, err := h.setup.RemoveSite(r.Context(), h.st, s.ID, nil); err != nil {
+	var admin *settings.SetupInput
+	if user, pw := strings.TrimSpace(r.FormValue("username")), r.FormValue("password"); user != "" || pw != "" {
+		admin = &settings.SetupInput{Username: user, Password: pw}
+	}
+	res, err := h.setup.RemoveSite(r.Context(), h.st, s.ID, admin)
+	if err != nil {
 		h.renderSite(w, r, siteStatus(err), s, err.Error())
 		return
 	}
-	h.log.Info("site deleted", "via", "ui", "id", s.ID)
-	http.Redirect(w, r, "/setup?notice="+url.QueryEscape("Site "+s.Code+" removed. Apply to stop serving it."), http.StatusSeeOther)
+	h.log.Warn("site removed", "via", "ui", "id", s.ID, "with_credentials", admin != nil, "deleted", res.Deleted, "left_in_prism_central", res.LeftInPrismCentral)
+	h.render(w, r, http.StatusOK, "site_removed", "Site removed", removedData{Code: s.Code, Res: res}, "")
+}
+
+// removedData is the page after a site was removed.
+type removedData struct {
+	Code string
+	Res  api.RemoveResult
 }
 
 // forgetData is the page after a site was forgotten.
