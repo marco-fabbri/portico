@@ -286,3 +286,20 @@ func TestIncompleteSiteDoesNotBlockTheOthers(t *testing.T) {
 		t.Fatalf("an incomplete site served the pass-through: %+v", p)
 	}
 }
+
+func TestSiteTrustPinWins(t *testing.T) {
+	s := Site{URL: "https://pc.example:9440", TLSPin: "AB:CD", TLSVerify: false, CAPEM: "x"}
+	tr := s.Trust()
+	if tr.Pin != "AB:CD" || string(tr.CAPEM) != "x" || tr.Verify {
+		t.Fatalf("trust = %+v", tr)
+	}
+}
+
+func TestSecretFieldsUnchangedByPin(t *testing.T) {
+	doc := Settings{Sites: []Site{{ID: "site-1", Code: "SITE-1", TLSPin: "AB:CD"}}}
+	for _, f := range secretFields(&doc) {
+		if strings.Contains(f.name, "pin") {
+			t.Fatalf("the pin is sealed: %s", f.name)
+		}
+	}
+}

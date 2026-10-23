@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/marco-fabbri/portico/internal/proxy"
 	"github.com/marco-fabbri/portico/internal/store"
 )
 
@@ -16,13 +17,16 @@ import (
 // sessions and stash cookies reference; the code is what tenants see and
 // the MSP may rename.
 type Site struct {
-	ID          string `json:"id"`
-	Code        string `json:"code"`
-	Name        string `json:"name"`
-	Order       int    `json:"order"`
-	URL         string `json:"url"`
-	TLSVerify   bool   `json:"tls_verify"`
-	CAPEM       string `json:"ca_pem"`
+	ID        string `json:"id"`
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	Order     int    `json:"order"`
+	URL       string `json:"url"`
+	TLSVerify bool   `json:"tls_verify"`
+	CAPEM     string `json:"ca_pem"`
+	// TLSPin is the SHA-256 of the leaf certificate the MSP confirmed, in
+	// proxy.Fingerprint form; set, it wins over TLSVerify (usability 4.3).
+	TLSPin      string `json:"tls_pin,omitempty"`
 	APIKey      Secret `json:"api_key"`
 	SAMLIdPName string `json:"saml_idp_name"`
 	// SAMLEntityID is the service-provider entity id of the site's IdP,
@@ -31,6 +35,11 @@ type Site struct {
 	// Defaults offered when a tenant is placed on the site.
 	ClusterExtID          string `json:"cluster_ext_id"`
 	StorageContainerExtID string `json:"storage_container_ext_id"`
+}
+
+// Trust is how Portico trusts the site's Prism Central.
+func (s Site) Trust() proxy.SiteTrust {
+	return proxy.SiteTrust{CAPEM: []byte(s.CAPEM), Pin: s.TLSPin, Verify: s.TLSVerify}
 }
 
 // The site a single-Prism Central document becomes (design sites §4.7).
