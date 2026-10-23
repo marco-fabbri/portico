@@ -357,6 +357,28 @@ func TestCreateSiteWithAdminRunsSetup(t *testing.T) {
 	}
 }
 
+// A complete run clears what the monitor holds against the site at once:
+// otherwise its tenants stay out until the next trust check, up to five
+// minutes after Repair said the site is served (write-up 26).
+func TestCompleteSetupClearsIncompleteAtOnce(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	pc, fp := withSetup(t, e)
+	mon, _ := withRuntime(t, e)
+	addSetUpSite(t, e, pc, fp)
+	mon.SetProbes(map[string]sites.Prober{"az-us-nyc1": func(context.Context) error { return nil }})
+	mon.Report("az-us-nyc1", &sites.IncompleteError{Reason: "the identity provider portico-keycloak is missing in Prism Central", Immediate: true})
+	if mon.Status("az-us-nyc1") != sites.Incomplete {
+		t.Fatal("the monitor did not take the missing provider")
+	}
+	rec, out := e.do("POST", "/api/v1/sites/az-us-nyc1/setup", `{"username":"admin","password":"pc-pw-1"}`)
+	if rec.Code != 200 || out["complete"] != true {
+		t.Fatalf("repair: %d %s", rec.Code, rec.Body.String())
+	}
+	if st := mon.Status("az-us-nyc1"); st == sites.Incomplete {
+		t.Fatalf("status after a complete repair = %v", st)
+	}
+}
+
 func TestPinEndpointRefusesChangedFingerprint(t *testing.T) {
 	e := newSettingsEnv(t, true)
 	pc, fp := withSetup(t, e)

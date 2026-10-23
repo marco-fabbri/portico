@@ -176,7 +176,14 @@ func (o *SettingsOptions) SetupSite(ctx context.Context, id string, in settings.
 	if err := o.patchSites(ctx, func(*settings.Settings) error { return nil }); err != nil {
 		return settings.SetupResult{}, err
 	}
-	return o.Bootstrapper.SetupSite(ctx, o.KeycloakURL, id, in)
+	res, err := o.Bootstrapper.SetupSite(ctx, o.KeycloakURL, id, in)
+	// A complete run has just checked the key and the trust: the monitor
+	// takes it now, not at its next trust check, so the tenants enter at
+	// once.
+	if err == nil && res.Complete && o.Runtime != nil {
+		o.Runtime.Report(id, nil)
+	}
+	return res, err
 }
 
 // PinSite pins the certificate the site presents now, when it is the one
