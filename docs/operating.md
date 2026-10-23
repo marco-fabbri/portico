@@ -113,9 +113,12 @@ its next start).
 - **Remove**: a site no tenant is connected to is removed from its page.
   Portico deletes the site's SAML client in Keycloak, its maintenance
   flag and its row. With an administrator's username and password it
-  also deletes, in that Prism Central, Portico's identity provider and
-  the service account's API key; the account itself stays, since it may
-  be one you made. Without them, the page lists what stays there for a
+  also deletes, in that Prism Central, Portico's identity provider,
+  after the users Prism Central made at sign-in through it (Prism Central
+  keeps a provider while it has users), and the service account's API
+  key; the account itself stays, since it may be one you made. A site
+  set up before this release has no key id recorded, so its key is
+  listed as left. Without them, the page lists what stays there for a
   clean-up by hand. A site whose Prism Central is gone for good is
   **forgotten**: type its code, Portico deletes its records of the site
   and of the tenants connected to it and its Keycloak client without

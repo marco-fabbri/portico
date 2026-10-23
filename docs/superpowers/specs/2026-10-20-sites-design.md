@@ -193,8 +193,10 @@ operation runs. Removing it always deletes Portico's side: the site's
 Keycloak SAML client (a trust left there would stay live), its
 maintenance flag and its row. With the credentials of a Prism Central
 administrator, given for that removal only and checked after the
-certificate, Portico also deletes its identity provider and the service
-account's API key there; without them, it lists what it leaves: the
+certificate, Portico also deletes its identity provider there, after the
+users Prism Central made at sign-in through it (Prism Central refuses
+to delete a provider that still has users, write-up 26), and the service
+account's API key; without them, it lists what it leaves: the
 identity provider, the service account and its key (sites usability
 design 4.1). There is one exception to "no tenant connected" (builder's
 call): **forget**, for a Prism Central that is gone for good. After an explicit confirmation naming the site, Portico deletes

@@ -275,6 +275,52 @@ func TestRemoveSiteWithCredentials(t *testing.T) {
 	}
 }
 
+// Prism Central refuses to delete an identity provider while users it
+// made at sign-in through it exist (IAM-21016): the removal deletes them
+// first, and names them by count, not by address (write-up 26).
+func TestRemoveSiteDeletesTheProvidersSAMLUsersFirst(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	pc, fp := withSetup(t, e)
+	site := addSetUpSite(t, e, pc, fp)
+	pc.AddSAMLUser("su-1", "carol@acme.example", site.SAMLIdPExtID)
+	pc.AddSAMLUser("su-2", "probe@acme.example", site.SAMLIdPExtID)
+	pc.AddSAMLUser("su-3", "other@example.test", "idp-another")
+	rec, out := e.do("DELETE", "/api/v1/sites/az-us-nyc1", `{"username":"admin","password":"pc-pw-1"}`)
+	if rec.Code != 200 || out["removed"] != true {
+		t.Fatalf("remove: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(pc.IdPs) != 0 || len(pc.SAMLUsers) != 1 || pc.SAMLUsers[0]["extId"] != "su-3" {
+		t.Fatalf("Prism Central after remove: idps %v saml users %v", pc.IdPs, pc.SAMLUsers)
+	}
+	deleted := strings.Join(strs(out["deleted"]), "; ")
+	if !strings.Contains(deleted, "the identity provider's 2 SAML users") || !strings.Contains(deleted, "identity provider portico-keycloak") {
+		t.Fatalf("deleted %q", deleted)
+	}
+	if strings.Contains(rec.Body.String(), "carol@acme.example") || strings.Contains(e.log.String(), "carol@acme.example") {
+		t.Fatal("a user's address in the answer or the log")
+	}
+}
+
+// A deletion Prism Central refuses is left with Prism Central's own
+// reason, not a connection failure.
+func TestRemoveSiteLeavesTheProviderWithPrismCentralsReason(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	pc, fp := withSetup(t, e)
+	site := addSetUpSite(t, e, pc, fp)
+	pc.AddSAMLUser("su-1", "carol@acme.example", site.SAMLIdPExtID)
+	pc.UserDeleteForbidden = true
+	rec, out := e.do("DELETE", "/api/v1/sites/az-us-nyc1", `{"username":"admin","password":"pc-pw-1"}`)
+	if rec.Code != 200 || out["removed"] != true {
+		t.Fatalf("remove: %d %s", rec.Code, rec.Body.String())
+	}
+	left := strings.Join(strs(out["left_in_prism_central"]), "; ")
+	if !strings.Contains(left, "SAML users (made by Prism Central at sign-in): not deleted, Prism Central answered 403") ||
+		!strings.Contains(left, "identity provider portico-keycloak") || !strings.Contains(left, "Prism Central answered 400: Failed to delete SamlIdentityProvider") ||
+		strings.Contains(left, "connection failed") {
+		t.Fatalf("left %q", left)
+	}
+}
+
 func TestRemoveSiteRefusedWithTenant(t *testing.T) {
 	e := newSettingsEnv(t, true)
 	placeTenant(t, e.st, "acme", "site-a")

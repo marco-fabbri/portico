@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/marco-fabbri/portico/internal/nutanix"
@@ -45,7 +46,9 @@ func (s Site) keyLabel() string {
 
 // RemoveFromPrismCentral deletes Portico's objects in a site's Prism
 // Central with an administrator's credentials (sites usability design
-// 4.1, "Removing a site"): its identity provider and the key Portico
+// 4.1, "Removing a site"): its identity provider, after the users Prism
+// Central made at sign-in through it (while one exists the provider
+// cannot go, IAM-21016, write-ups 15 and 26), and the key Portico
 // holds. The service account stays and is named as left: the design
 // revokes the credential, and the account may be one the MSP made. The
 // certificate (the setup's first step, with no new confirmation) and the
@@ -73,7 +76,7 @@ func (b *Bootstrapper) RemoveFromPrismCentral(ctx context.Context, doc Settings,
 	deleted, left = []string{}, []string{}
 	gone := func(label string, err error) {
 		if err != nil {
-			left = append(left, label+": not deleted, "+errClass(err))
+			left = append(left, label+": not deleted, "+refusal(err))
 			return
 		}
 		deleted = append(deleted, label)
@@ -93,6 +96,7 @@ func (b *Bootstrapper) RemoveFromPrismCentral(ctx context.Context, doc Settings,
 			}
 		}
 		if idpID != "" {
+			b.deleteSAMLUsers(ctx, pc, idpID, gone)
 			gone(site.idpLabel(), pc.DeleteSAMLIdP(ctx, idpID))
 		}
 	}
@@ -114,4 +118,34 @@ func (b *Bootstrapper) RemoveFromPrismCentral(ctx context.Context, doc Settings,
 	}
 	b.log.Info("site removed from its Prism Central", "site", siteID, "deleted", len(deleted), "left", len(left))
 	return deleted, left, nil
+}
+
+// deleteSAMLUsers deletes the users Prism Central made at sign-in through
+// the identity provider; without it they can no longer sign in. They are
+// counted, never named: their names are the tenants' users' addresses.
+func (b *Bootstrapper) deleteSAMLUsers(ctx context.Context, pc *nutanix.Client, idpID string, gone func(string, error)) {
+	users, err := pc.ListSAMLUsers(ctx, idpID)
+	if err != nil {
+		gone("the identity provider's SAML users", err)
+		return
+	}
+	if len(users) == 0 {
+		return
+	}
+	for _, u := range users {
+		if err = pc.DeleteUser(ctx, u.ExtID); err != nil {
+			break
+		}
+	}
+	gone(fmt.Sprintf("the identity provider's %d SAML users (made by Prism Central at sign-in)", len(users)), err)
+}
+
+// refusal is why a deletion did not happen: Prism Central's own answer
+// when it gave one, else the class of the connection error.
+func refusal(err error) string {
+	var api *nutanix.APIError
+	if errors.As(err, &api) {
+		return fmt.Sprintf("Prism Central answered %d: %s", api.Status, api.Message)
+	}
+	return errClass(err)
 }
