@@ -21,6 +21,8 @@ type User struct {
 	ExtID    string `json:"extId"`
 	Username string `json:"username"`
 	UserType string `json:"userType"`
+	// IdPID is the identity provider a SAML user signed in through.
+	IdPID string `json:"idpId,omitempty"`
 }
 
 // APIKey is a key issued to a service account. Key is only ever
@@ -52,6 +54,30 @@ func (c *Client) FindUser(ctx context.Context, username string) (*User, error) {
 		}
 	}
 	return nil, notFound("user " + username)
+}
+
+// ListSAMLUsers returns the users Prism Central made at sign-in through
+// the identity provider (filter measured in write-up 15).
+func (c *Client) ListSAMLUsers(ctx context.Context, idpExtID string) ([]User, error) {
+	var users []User
+	if err := c.listAll(ctx, PathIAM1+"/authn/users", url.Values{"$filter": {"userType eq Schema.Enums.UserType'SAML'"}}, &users); err != nil {
+		return nil, err
+	}
+	out := []User{}
+	for _, u := range users {
+		if u.IdPID == idpExtID {
+			out = append(out, u)
+		}
+	}
+	return out, nil
+}
+
+// DeleteUser deletes a user; one that is already gone is not an error.
+func (c *Client) DeleteUser(ctx context.Context, extID string) error {
+	if err := c.deleteSync(ctx, PathIAM1+"/authn/users/"+extID); err != nil && !IsNotFound(err) {
+		return err
+	}
+	return nil
 }
 
 // CreateServiceAccount creates a SERVICE_ACCOUNT user

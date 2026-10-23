@@ -179,6 +179,12 @@ type PC struct {
 	Posts        []string
 	// DeletedKeys are the API keys revoked, by extId.
 	DeletedKeys []string
+	// SAMLUsers are the users Prism Central made at sign-in through an
+	// identity provider; while one names a provider, deleting it is
+	// refused as on pc.7.6 (IAM-21016, write-up 15). UserDeleteForbidden
+	// refuses their deletion with 403.
+	SAMLUsers           []map[string]any
+	UserDeleteForbidden bool
 }
 
 // OpCatalog is the operations the double lists by name.
@@ -211,6 +217,13 @@ func (f *PC) Created(suffix string) bool {
 		}
 	}
 	return false
+}
+
+// AddSAMLUser adds a user made at sign-in through the identity provider.
+func (f *PC) AddSAMLUser(extID, username, idpExtID string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.SAMLUsers = append(f.SAMLUsers, map[string]any{"extId": extID, "username": username, "userType": "SAML", "idpId": idpExtID})
 }
 
 // AddIdP pre-seeds an identity provider.
@@ -267,6 +280,13 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"data":{"error":"no such identity provider"}}`))
 	case strings.Contains(p, "/authn/saml-identity-providers/") && r.Method == "DELETE":
 		id := p[strings.LastIndex(p, "/")+1:]
+		for _, u := range f.SAMLUsers {
+			if u["idpId"] == id {
+				w.WriteHeader(400)
+				w.Write([]byte(`{"data":{"error":{"message":"Failed to delete SamlIdentityProvider as users or user groups associated with the directory service are still present or in use."}}}`))
+				return
+			}
+		}
 		for i, idp := range f.IdPs {
 			if idp["extId"] == id && r.Header.Get("If-Match") == `"i"` {
 				f.IdPs = append(f.IdPs[:i:i], f.IdPs[i+1:]...)
@@ -302,7 +322,31 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 		if f.User != nil {
 			out = append(out, f.User)
 		}
+		if strings.Contains(r.URL.Query().Get("$filter"), "SAML") {
+			out = f.SAMLUsers
+		}
 		reply(200, out)
+	case strings.Contains(p, "/authn/users/su-") && (r.Method == "GET" || r.Method == "DELETE"):
+		id := p[strings.LastIndex(p, "/")+1:]
+		for i, u := range f.SAMLUsers {
+			if u["extId"] != id {
+				continue
+			}
+			switch {
+			case r.Method == "GET":
+				w.Header().Set("ETag", `"u"`)
+				reply(200, u)
+			case f.UserDeleteForbidden:
+				w.WriteHeader(403)
+				w.Write([]byte(`{"data":{"error":{"message":"user is not authorized"}}}`))
+			default:
+				f.SAMLUsers = append(f.SAMLUsers[:i:i], f.SAMLUsers[i+1:]...)
+				w.WriteHeader(204)
+			}
+			return
+		}
+		w.WriteHeader(404)
+		w.Write([]byte(`{"data":{"error":"no such user"}}`))
 	case strings.HasSuffix(p, "/authn/users") && r.Method == "POST":
 		f.User = map[string]any{"extId": "sa-1", "username": body["username"], "userType": "SERVICE_ACCOUNT"}
 		reply(201, f.User)
