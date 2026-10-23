@@ -70,7 +70,7 @@ func (c *Checker) PrismCentral(ctx context.Context, s Site, apiKey string) Check
 		// Not echoed: the userinfo is a password in clear.
 		return fail("the Prism Central URL must not carry credentials")
 	}
-	tlsCfg, err := proxy.PrismTLSPEM(u.Hostname(), []byte(s.CAPEM), s.TLSVerify)
+	tlsCfg, err := proxy.PrismTLSFor(u.Hostname(), s.Trust())
 	if err != nil {
 		return fail("the CA certificate is not usable: %v", err)
 	}
