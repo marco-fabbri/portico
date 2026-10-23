@@ -415,7 +415,7 @@ func TestServeSetupModeWithEmptyStore(t *testing.T) {
 		t.Fatalf("PUT: %v %d", err, resp.StatusCode)
 	}
 	resp.Body.Close()
-	site := `{"code":"SITE-1","url":"https://127.0.0.1:1","tls_verify":false,"api_key":"k","saml_idp_name":"idp"}`
+	site := `{"code":"SITE-1","url":"https://127.0.0.1:1","tls_pin":"AB:CD","api_key":"k","saml_idp_name":"idp"}`
 	req, _ = http.NewRequest("POST", "http://"+cfg.Internal.AdminListen+"/api/v1/sites", strings.NewReader(site))
 	req.SetBasicAuth("admin", "pw-12345678")
 	req.Header.Set("Content-Type", "application/json")

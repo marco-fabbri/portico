@@ -25,7 +25,9 @@ type KC struct {
 	Realms                                 map[string]map[string]any
 	Clients                                map[string]map[string]any
 	Mapped, MapperNames                    map[string][]string
-	tokens                                 int
+	// FailClientCreate, when set, is the status of every client creation.
+	FailClientCreate int
+	tokens           int
 }
 
 // NewKC starts a Keycloak double.
@@ -97,6 +99,8 @@ func (f *KC) handle(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		json.NewEncoder(w).Encode(out)
+	case p == "clients" && r.Method == "POST" && f.FailClientCreate != 0:
+		w.WriteHeader(f.FailClientCreate)
 	case p == "clients" && r.Method == "POST":
 		id := "cli-" + strings.NewReplacer("/", "_", ":", "_").Replace(body["clientId"].(string))
 		body["id"] = id
@@ -147,22 +151,56 @@ func (f *KC) handle(w http.ResponseWriter, r *http.Request) {
 
 // PC is a Prism Central double: Basic auth admin/Password on every
 // call, the issued Key on the lists; service account, key, policy and
-// SAML identity providers.
+// SAML identity providers; the admin's policies, role and operations.
 type PC struct {
 	Srv           *httptest.Server
 	Password, Key string
-	mu            sync.Mutex
-	User          map[string]any
-	IdPs          []map[string]any
-	Posts         []string
+	// Version, when set, is Prism Central's own entry in the clusters list.
+	Version string
+	// AdminOps are the operations the admin's role grants (OpCatalog when
+	// nil); RolesForbidden refuses the role read with 403.
+	AdminOps       []string
+	RolesForbidden bool
+	// Containers replaces the storage containers list when set.
+	Containers []map[string]any
+	// Credentialed counts the requests that carried Basic credentials.
+	Credentialed int
+	mu           sync.Mutex
+	User         map[string]any
+	IdPs         []map[string]any
+	Posts        []string
 }
 
-// NewPC starts a Prism Central double.
+// OpCatalog is the operations the double lists by name.
+var OpCatalog = []string{"Create_User", "Create_User_Key", "Update_Authorization_Policy", "Create_Saml_Identity_Provider", "Create_Role", "Update_Role", "Share_Saml_Identity_Provider"}
+
+// NewPC starts a Prism Central double over http.
 func NewPC(t *testing.T) *PC {
 	f := &PC{Password: "pc-pw-1", Key: "issued-key-4242"}
 	f.Srv = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.Srv.Close)
 	return f
+}
+
+// NewTLSPC starts a Prism Central double over https, with httptest's
+// certificate (trusted by no root).
+func NewTLSPC(t *testing.T) *PC {
+	f := &PC{Password: "pc-pw-1", Key: "issued-key-4242"}
+	f.Srv = httptest.NewTLSServer(http.HandlerFunc(f.handle))
+	t.Cleanup(f.Srv.Close)
+	return f
+}
+
+// Created reports whether a POST to a path ending in suffix was made.
+func (f *PC) Created(suffix string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, p := range f.Posts {
+		if strings.HasSuffix(p, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // AddIdP pre-seeds an identity provider.
@@ -177,6 +215,9 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	user, pw, basic := r.BasicAuth()
+	if basic {
+		f.Credentialed++
+	}
 	if r.Header.Get("X-Ntnx-Api-Key") != f.Key && !(basic && user == "admin" && pw == f.Password) {
 		w.WriteHeader(401)
 		w.Write([]byte(`{"data":{"error":"unauthorized"}}`))
@@ -200,7 +241,7 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		reply(200, out)
 	case strings.HasSuffix(p, "/authn/saml-identity-providers") && r.Method == "POST":
-		idp := map[string]any{"extId": "idp-" + body["name"].(string), "name": body["name"], "redirectURL": body["redirectURL"]}
+		idp := map[string]any{"extId": "idp-" + body["name"].(string), "name": body["name"], "redirectURL": body["redirectURL"], "entityIssuer": body["entityIssuer"]}
 		f.IdPs = append(f.IdPs, idp)
 		reply(201, idp)
 	case strings.Contains(p, "/authn/saml-identity-providers/") && !strings.HasSuffix(p, "/sp-metadata") && r.Method == "GET":
@@ -214,14 +255,28 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
 		w.Write([]byte(`{"data":{"error":"no such identity provider"}}`))
 	case strings.HasSuffix(p, "/sp-metadata"):
+		entity := "https://prism.example.test/api/iam/authn"
+		for _, idp := range f.IdPs {
+			if s, _ := idp["entityIssuer"].(string); s != "" && strings.Contains(p, "/"+idp["extId"].(string)+"/") {
+				entity = s
+			}
+		}
 		w.Header().Set("Content-Type", "application/xml")
-		w.Write([]byte(`<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://prism.example.test/api/iam/authn"><md:SPSSODescriptor><md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://prism.example.test/api/iam/authn/callback" index="1"/></md:SPSSODescriptor></md:EntityDescriptor>`))
+		fmt.Fprintf(w, `<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="%s"><md:SPSSODescriptor><md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://prism.example.test/api/iam/authn/callback" index="1"/></md:SPSSODescriptor></md:EntityDescriptor>`, entity)
 	case strings.HasSuffix(p, "/config/clusters"):
-		reply(200, []map[string]any{{"extId": "cl-1", "name": "NTNX-01", "config": map[string]any{"clusterFunction": []string{"AOS"}}}})
+		out := []map[string]any{{"extId": "cl-1", "name": "NTNX-01", "config": map[string]any{"clusterFunction": []string{"AOS"}}}}
+		if f.Version != "" {
+			out = append(out, map[string]any{"extId": "pc-1", "name": "pc", "config": map[string]any{"clusterFunction": []string{"PRISM_CENTRAL"}, "buildInfo": map[string]any{"version": f.Version}}})
+		}
+		reply(200, out)
 	case strings.HasSuffix(p, "/config/storage-containers"):
-		reply(200, []map[string]any{{"containerExtId": "sc-1", "name": "default"}})
+		out := f.Containers
+		if out == nil {
+			out = []map[string]any{{"containerExtId": "sc-1", "name": "default", "clusterExtId": "cl-1"}}
+		}
+		reply(200, out)
 	case strings.HasSuffix(p, "/authn/users") && r.Method == "GET":
-		out := []map[string]any{}
+		out := []map[string]any{{"extId": "u-admin", "username": "admin", "userType": "LOCAL"}}
 		if f.User != nil {
 			out = append(out, f.User)
 		}
@@ -232,7 +287,32 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(p, "/authn/users/sa-1/keys") && r.Method == "POST":
 		reply(201, map[string]any{"extId": "key-1", "name": body["name"], "keyDetails": map[string]any{"apiKey": f.Key}, "expiryTime": "2126-10-18T00:00:00Z"})
 	case strings.HasSuffix(p, "/authz/authorization-policies"):
-		reply(200, []map[string]any{{"extId": "pol-pm", "displayName": "Project Manager_acp"}})
+		named := func(u string) []any {
+			return []any{map[string]any{"identityFilter": map[string]any{"user": map[string]any{"uuid": map[string]any{"anyof": []any{u}}}}}}
+		}
+		reply(200, []map[string]any{{"extId": "pol-pm", "displayName": "Project Manager_acp", "role": "role-pm", "identities": named("u-existing")},
+			{"extId": "pol-sa", "displayName": "Super Admin_acp", "role": "role-sa", "identities": named("u-admin")}})
+	case strings.Contains(p, "/authz/roles/") && f.RolesForbidden:
+		w.WriteHeader(403)
+		w.Write([]byte(`{"data":{"error":"forbidden"}}`))
+	case strings.HasSuffix(p, "/authz/roles/role-sa"):
+		ops := []string{}
+		names := f.AdminOps
+		if names == nil {
+			names = OpCatalog
+		}
+		for _, n := range names {
+			ops = append(ops, "op-"+n)
+		}
+		reply(200, map[string]any{"extId": "role-sa", "displayName": "Super Admin", "operations": ops})
+	case strings.HasSuffix(p, "/authz/operations"):
+		out := []map[string]any{}
+		for _, n := range OpCatalog {
+			if strings.Contains(r.URL.Query().Get("$filter"), "'"+n+"'") {
+				out = append(out, map[string]any{"extId": "op-" + n, "displayName": n})
+			}
+		}
+		reply(200, out)
 	case strings.HasSuffix(p, "/authz/authorization-policies/pol-pm") && r.Method == "GET":
 		w.Header().Set("ETag", `"p"`)
 		reply(200, map[string]any{"extId": "pol-pm", "displayName": "Project Manager_acp", "role": "role-pm",
