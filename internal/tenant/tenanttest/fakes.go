@@ -66,6 +66,23 @@ type PC struct {
 	RGCluster   map[string]string           // resource group extId → the cluster it was created on
 	Contents    map[string]nutanix.Contents // project extId → what it holds; empty when absent
 	seq         int
+	failNth     map[string]failAt
+}
+
+type failAt struct {
+	left int
+	err  error
+}
+
+// FailCall makes the n-th call of method from now (1 is the next one)
+// return err.
+func (p *PC) FailCall(method string, n int, err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.failNth == nil {
+		p.failNth = map[string]failAt{}
+	}
+	p.failNth[method] = failAt{left: n, err: err}
 }
 
 // NewPC returns a Prism Central with one IdP named idpName, the role
@@ -102,6 +119,13 @@ func (p *PC) call(method string) error {
 	if err, ok := p.FailOnce[method]; ok {
 		delete(p.FailOnce, method)
 		return err
+	}
+	if f, ok := p.failNth[method]; ok {
+		if f.left--; f.left == 0 {
+			delete(p.failNth, method)
+			return f.err
+		}
+		p.failNth[method] = f
 	}
 	return nil
 }
@@ -273,6 +297,15 @@ func (p *PC) FindUserGroup(ctx context.Context, name string) (*nutanix.UserGroup
 		}
 	}
 	return nil, notFound("user group " + name)
+}
+
+func (p *PC) ListUserGroups(ctx context.Context) ([]nutanix.UserGroup, error) {
+	if err := p.call("ListUserGroups"); err != nil {
+		return nil, err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]nutanix.UserGroup(nil), p.Groups...), nil
 }
 
 func (p *PC) CreateUserGroup(ctx context.Context, name, idpExtID string) (*nutanix.UserGroup, error) {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/marco-fabbri/portico/internal/settings"
 	"github.com/marco-fabbri/portico/internal/store"
+	"github.com/marco-fabbri/portico/internal/tenant"
 )
 
 // Errors of the site operations, shared by the API and the admin UI.
@@ -539,12 +540,39 @@ func (h *handler) setupSite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
-	res, err := h.so.SetupSite(r.Context(), r.PathValue("id"), settings.SetupInput{Username: in.Username, Password: in.Password, ServiceAccount: in.ServiceAccount, Pin: in.Pin})
+	id := r.PathValue("id")
+	res, err := h.so.SetupSite(r.Context(), id, settings.SetupInput{Username: in.Username, Password: in.Password, ServiceAccount: in.ServiceAccount, Pin: in.Pin})
 	if err != nil {
 		h.siteError(w, err)
 		return
 	}
+	res.Steps = append(res.Steps, RepairLines(r.Context(), h.svc, id, res)...)
 	writeJSON(w, http.StatusOK, h.setupJSON(r, res))
+}
+
+// RepairLines binds the tenants connected to a site again after a
+// complete setup run (design sites 4.1, "Repair on a site in use"), one
+// summary line per tenant. It runs after every complete run, not only
+// when the trust was recreated: "Repair again" for a tenant that failed
+// is the same call. Without a tenant service (setup mode) it does
+// nothing.
+func RepairLines(ctx context.Context, tenants *tenant.Service, siteID string, res settings.SetupResult) []settings.StepLine {
+	if tenants == nil || !res.Complete {
+		return nil
+	}
+	lines, err := tenants.RepairSite(ctx, siteID, res.OldIdPExtID)
+	if err != nil {
+		return []settings.StepLine{{Name: "tenants", Status: "failed", Message: err.Error() + "; Repair again"}}
+	}
+	out := make([]settings.StepLine, 0, len(lines))
+	for _, l := range lines {
+		line := settings.StepLine{Name: "tenant " + l.Tenant, Status: "ok", Message: l.Message}
+		if !l.OK {
+			line.Status, line.Message = "failed", l.Message+"; Repair again"
+		}
+		out = append(out, line)
+	}
+	return out
 }
 
 // pinSite pins the certificate presented now, when it is the one the MSP
