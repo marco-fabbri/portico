@@ -251,3 +251,10 @@ drawn across the logo on the Keycloak login page.
 - The other node of a pair reads the sites every 30 seconds but the
   maintenance flags only at its start: a site put in maintenance on one
   node still takes new entries on the other until it restarts.
+- A site set up before Part C has no service account or key id
+  recorded, so its first Finish setup or Repair makes a new key and
+  leaves the old one valid in Prism Central, held by nobody, and its
+  removal lists its key as left (write-up 26: both revoked by hand on
+  the lab). The run could revoke the old key when it can tell
+  it is Portico's (by its `portico-` name on the account it found), or
+  keep the stored key after checking it belongs to that account.
