@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -188,6 +189,36 @@ func TestFinishSetupReusesOwnIdP(t *testing.T) {
 	}
 	if s := stepOf(res, "service-account"); s.Status != "kept" {
 		t.Fatalf("a working key was replaced: %+v", s)
+	}
+}
+
+func TestRemoveAfterRefusedTrustDeletesTheProvider(t *testing.T) {
+	f := setupEnv(t)
+	f.kc.FailClientCreate = 403
+	f.run(t, f.admin(f.pin))
+	if f.stored(t).Complete() {
+		t.Fatal("a run stopped at the SAML trust made the site complete")
+	}
+	if objs := f.stored(t).PrismObjects(); !slices.ContainsFunc(objs, func(o string) bool { return strings.HasPrefix(o, "identity provider ") }) {
+		t.Fatalf("the provider created is not among the site's objects: %v", objs)
+	}
+	deleted, left, err := f.b.RemoveFromPrismCentral(context.Background(), f.doc(t), "site-a", f.admin(""))
+	if err != nil || len(f.pc.IdPs) != 0 {
+		t.Fatalf("deleted=%v left=%v err=%v, idps=%v", deleted, left, err, f.pc.IdPs)
+	}
+}
+
+func TestSetupSaysTheEarlierKeyStaysValid(t *testing.T) {
+	f := setupEnv(t)
+	// A key stored before Part C: no account id recorded, so the run
+	// cannot tell it is the account's and issues a new one.
+	if err := f.svc.Patch(context.Background(), func(d *Settings) { d.Sites[0].APIKey = "pasted-by-hand" }); err != nil {
+		t.Fatal(err)
+	}
+	res := f.run(t, f.admin(f.pin))
+	s := stepOf(res, "service-account")
+	if s.Status != "ok" || !strings.Contains(s.Message, "the key stored before stays valid in Prism Central and is no longer held by Portico; revoke it there") {
+		t.Fatalf("service-account = %+v", s)
 	}
 }
 

@@ -128,7 +128,8 @@ Part C of the sites usability design
   service account id recorded, and the setup keeps a stored key only
   for the account it recorded (a key pasted by hand may be another
   account's). The old key `portico-20261019-163536` stayed valid in
-  Prism Central, held by nobody, and was revoked by hand (204). Backlog.
+  Prism Central, held by nobody, and was revoked by hand (204). Backlog;
+  since the final review the step's line says so.
 - MEASURED, a defect, fixed: acme's first sign-in after the Repair was
   refused on the site page: the monitor kept the site incomplete until
   its next trust check, every five minutes, or a status call. From
