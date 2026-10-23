@@ -221,7 +221,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	if err := monitor.Load(ctx); err != nil {
 		return fmt.Errorf("site state: %w", err)
 	}
-	runtime := newSiteRuntime(siteDeps{prismHost: cfg.Public.PrismHost, strip: stripped, errorPage: pages.Error, settings: settingsSvc, log: log}, monitor, tenants)
+	runtime := newSiteRuntime(siteDeps{prismHost: cfg.Public.PrismHost, strip: stripped, errorPage: pages.Error, settings: settingsSvc, kc: kcClient, log: log}, monitor, tenants)
 	runtime.Apply(ctx, runDoc)
 	settingsSvc.OnChange(func(ctx context.Context, s settings.Settings) error {
 		// A site change is served at once; what the runtime cannot build

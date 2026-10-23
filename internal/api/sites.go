@@ -307,6 +307,7 @@ func (h *handler) siteRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE "+Prefix+"sites/{id}", h.deleteSite)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/forget", h.forgetSite)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/check", h.checkSite)
+	mux.HandleFunc("GET "+Prefix+"sites/{id}/status", h.siteStatus)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/bootstrap/prism-central", h.bootstrapPrismCentral)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/bootstrap/saml", h.bootstrapSAML)
 	h.runtimeRoutes(mux)
@@ -479,6 +480,44 @@ func (h *handler) checkSite(w http.ResponseWriter, r *http.Request) {
 	}
 	h.log.Info("site check", "id", id, "ok", res.OK, "version", res.Version)
 	writeJSON(w, http.StatusOK, res)
+}
+
+// siteStatusJSON is a site's status read from Prism Central and Keycloak
+// (sites usability design 4.2). Status, reason and new_fingerprint are
+// the monitor's, in running mode only.
+type siteStatusJSON struct {
+	Status         string `json:"status,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+	NewFingerprint string `json:"new_fingerprint,omitempty"`
+	settings.StatusReport
+}
+
+// siteStatus checks the site live and, in running mode, gives the
+// outcome to the monitor so the tile and new entries follow at once.
+func (h *handler) siteStatus(w http.ResponseWriter, r *http.Request) {
+	if h.settingsUnavailable(w) {
+		return
+	}
+	cur, _, err := h.so.Current(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	id := r.PathValue("id")
+	site, ok := cur.Site(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, ErrUnknownSite.Error())
+		return
+	}
+	rep := settings.SiteStatus(r.Context(), settings.KeycloakAdmin(h.so.KeycloakURL, cur, h.log), site, h.log)
+	out := siteStatusJSON{StatusReport: rep}
+	if h.so.Runtime != nil {
+		h.so.Runtime.Report(id, rep.MonitorError())
+		d := h.so.Runtime.Detail(id)
+		out.Status, out.Reason, out.NewFingerprint = string(d.Status), d.Reason, d.NewFingerprint
+	}
+	h.log.Info("site status", "site", id, "status", out.Status, "connection", rep.Connection.OK, "service_account", rep.ServiceAccount.OK, "saml", rep.SAML.OK, "defaults", rep.Defaults.OK)
+	writeJSON(w, http.StatusOK, out)
 }
 
 // bootstrapPrismJSON is the Prism Central bootstrap request body; an

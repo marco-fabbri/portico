@@ -5,12 +5,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
+	"github.com/marco-fabbri/portico/internal/idp/keycloak"
 	"github.com/marco-fabbri/portico/internal/nutanix"
 	"github.com/marco-fabbri/portico/internal/proxy"
 	"github.com/marco-fabbri/portico/internal/settings"
@@ -29,6 +32,7 @@ type siteDeps struct {
 	strip     []string
 	errorPage func(w http.ResponseWriter, r *http.Request, status int, title, text, retry string)
 	settings  *settings.Service // backfills a site's identity provider id
+	kc        *keycloak.Client  // the trust check reads the site's Keycloak client
 	log       *slog.Logger
 }
 
@@ -38,6 +42,7 @@ type siteParts struct {
 	pc      *nutanix.Client
 	tenant  tenant.Site
 	probe   sites.Prober
+	trust   sites.Prober
 	backend *proxy.SiteBackend
 	idle    []func() // close the idle connections of the site's clients
 }
@@ -67,13 +72,43 @@ func newSiteRuntime(deps siteDeps, monitor *sites.Monitor, tenants *tenant.Servi
 	unset := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		proxy.Refuse(w, http.StatusServiceUnavailable, "no-site", "no Prism Central configured")
 	})
-	return &siteRuntime{deps: deps, backends: proxy.NewBackendSet(nil), passthrough: proxy.NewSwapHandler(unset),
+	r := &siteRuntime{deps: deps, backends: proxy.NewBackendSet(nil), passthrough: proxy.NewSwapHandler(unset),
 		monitor: monitor, tenants: tenants, parts: map[string]*siteParts{}, filled: map[string]bool{}}
+	tenants.SetSiteGate(r.gate)
+	return r
+}
+
+// gate refuses a new tenant entry on an incomplete site (sites usability
+// design 4.2); the tenants already there keep working.
+func (r *siteRuntime) gate(id string) error {
+	if r.monitor.Status(id) != sites.Incomplete {
+		return nil
+	}
+	code := id
+	if b, ok := r.backends.Get(id); ok {
+		code = b.Code
+	}
+	return fmt.Errorf("%w: finish the setup of %s first", tenant.ErrSiteIncomplete, code)
+}
+
+// probeError is a probe's error as the monitor counts it: a certificate
+// other than the pinned one stops the site at once; a refused key counts
+// towards incomplete; anything else is a failed probe.
+func probeError(err error) error {
+	var pin *proxy.PinMismatchError
+	var apiErr *nutanix.APIError
+	switch {
+	case errors.As(err, &pin):
+		return &sites.CertChangedError{Fingerprint: pin.Got}
+	case errors.As(err, &apiErr) && (apiErr.Status == http.StatusUnauthorized || apiErr.Status == http.StatusForbidden):
+		return &sites.IncompleteError{Reason: fmt.Sprintf("Prism Central refuses the service account's key (%d)", apiErr.Status)}
+	}
+	return err
 }
 
 // siteFingerprint changes when anything the parts are built from changes.
 func siteFingerprint(s settings.Site) string {
-	b, _ := json.Marshal([]any{s.URL, string(s.APIKey), s.TLSVerify, s.TLSPin, s.CAPEM, s.SAMLIdPName, s.SAMLIdPExtID,
+	b, _ := json.Marshal([]any{s.URL, string(s.APIKey), s.TLSVerify, s.TLSPin, s.CAPEM, s.SAMLIdPName, s.SAMLIdPExtID, s.SAMLEntityID,
 		s.ClusterExtID, s.StorageContainerExtID, s.Code, s.Name, s.Order})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
@@ -124,18 +159,19 @@ func (r *siteRuntime) Apply(ctx context.Context, doc settings.Settings) error {
 	}
 
 	backends := map[string]*proxy.SiteBackend{}
-	probes := map[string]sites.Prober{}
+	probes, trust := map[string]sites.Prober{}, map[string]sites.Prober{}
 	var tenantSites []tenant.Site
 	for _, site := range doc.OrderedSites() {
 		p, ok := next[site.ID]
 		if !ok {
 			continue
 		}
-		backends[site.ID], probes[site.ID] = p.backend, p.probe
+		backends[site.ID], probes[site.ID], trust[site.ID] = p.backend, p.probe, p.trust
 		tenantSites = append(tenantSites, p.tenant)
 	}
 	r.backends.Replace(backends)
 	r.monitor.SetProbes(probes)
+	r.monitor.SetTrustChecks(trust)
 	r.tenants.SetSites(tenantSites)
 	r.parts = next
 	r.applyPassthrough(doc)
@@ -173,7 +209,12 @@ func (r *siteRuntime) build(site settings.Site) (*siteParts, error) {
 			ClusterExtID: site.ClusterExtID, StorageContainerExtID: site.StorageContainerExtID},
 		probe: func(ctx context.Context) error {
 			_, err := c.PrismCentralVersion(ctx)
-			return err
+			return probeError(err)
+		},
+		// The trust check is the status card's check (design 4.2): what
+		// Prism Central and Keycloak hold now, never Portico's records.
+		trust: func(ctx context.Context) error {
+			return settings.SiteStatus(ctx, r.deps.kc, site, r.deps.log).MonitorError()
 		},
 		backend: &proxy.SiteBackend{ID: site.ID, Code: site.Code, Name: site.Name, Order: site.Order,
 			Upstream: up,

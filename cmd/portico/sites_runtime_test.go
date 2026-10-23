@@ -3,12 +3,15 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/marco-fabbri/portico/internal/proxy"
 	"github.com/marco-fabbri/portico/internal/secrets"
 	"github.com/marco-fabbri/portico/internal/settings"
 	"github.com/marco-fabbri/portico/internal/settings/settingstest"
@@ -138,5 +141,53 @@ func TestRuntimePassthroughFollowsSite(t *testing.T) {
 	// reaches site-b's Prism Central, which refuses it.
 	if c := call(); c != http.StatusUnauthorized {
 		t.Fatalf("pass-through after the move: %d, want site-b's 401", c)
+	}
+}
+
+func TestRuntimeProbeCountsRefusedKey(t *testing.T) {
+	e := newRuntimeEnv(t)
+	s := e.site("site-a", "SITE-A", e.pcA)
+	s.APIKey = "revoked-key"
+	e.rt.Apply(context.Background(), settings.Settings{Sites: []settings.Site{s}})
+	e.monitor.ProbeOnce(context.Background(), time.Second)
+	if st := e.monitor.Status("site-a"); st != sites.Available {
+		t.Fatalf("one refusal: %s", st)
+	}
+	e.monitor.ProbeOnce(context.Background(), time.Second)
+	e.monitor.ProbeOnce(context.Background(), time.Second)
+	if d := e.monitor.Detail("site-a"); d.Status != sites.Incomplete || !strings.Contains(d.Reason, "refuses the service account's key (401)") {
+		t.Fatalf("three refusals: %+v", d)
+	}
+}
+
+func TestRuntimeProbeStopsOnChangedCertificate(t *testing.T) {
+	e := newRuntimeEnv(t)
+	srv := httptest.NewTLSServer(e.pcA.Srv.Config.Handler)
+	t.Cleanup(srv.Close)
+	presented := proxy.Fingerprint(srv.Certificate().Raw)
+	s := e.site("site-a", "SITE-A", e.pcA)
+	s.URL = srv.URL
+	s.TLSPin = proxy.Fingerprint(append([]byte{0}, srv.Certificate().Raw...)) // the leaf it had before
+	e.rt.Apply(context.Background(), settings.Settings{Sites: []settings.Site{s}})
+	e.monitor.ProbeOnce(context.Background(), time.Second)
+	if d := e.monitor.Detail("site-a"); d.Status != sites.Unreachable || d.Reason != "certificate changed" || d.NewFingerprint != presented {
+		t.Fatalf("after one probe: %+v", d)
+	}
+}
+
+func TestRuntimeTrustCheckGatesNewEntries(t *testing.T) {
+	e := newRuntimeEnv(t)
+	s := e.site("site-a", "SITE-A", e.pcA)
+	s.SAMLIdPExtID = "idp-gone" // the fake Prism Central has no such provider
+	s.ClusterExtID, s.StorageContainerExtID = "cl-1", "sc-1"
+	e.rt.Apply(context.Background(), settings.Settings{Sites: []settings.Site{s}})
+	e.monitor.ProbeOnce(context.Background(), time.Second)
+	e.monitor.CheckTrust(context.Background(), time.Second)
+	if d := e.monitor.Detail("site-a"); d.Status != sites.Incomplete || !strings.Contains(d.Reason, "missing in Prism Central") {
+		t.Fatalf("trust missing: %+v", d)
+	}
+	_, err := e.tenants.Create(context.Background(), tenant.CreateRequest{Slug: "acme", DisplayName: "ACME", Sites: []tenant.PlacementRequest{{Site: "site-a"}}})
+	if !errors.Is(err, tenant.ErrSiteIncomplete) || !strings.Contains(err.Error(), "finish the setup of SITE-A first") {
+		t.Fatalf("create on an incomplete site: %v", err)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -765,5 +766,26 @@ func TestSetSitesDuringOperation(t *testing.T) {
 	}
 	if got := e.svc.Sites(); len(got) != 1 || got[0].ID != "site-b" {
 		t.Fatalf("sites = %+v", got)
+	}
+}
+
+func TestConnectRefusedOnIncompleteSite(t *testing.T) {
+	e := newEnv2(t)
+	ctx := context.Background()
+	e.createOn(t, "acme", "site-a")
+	e.svc.SetSiteGate(func(id string) error {
+		if id == "site-b" {
+			return fmt.Errorf("%w: SITE-B", ErrSiteIncomplete)
+		}
+		return nil
+	})
+	if err := e.svc.AddSite(ctx, "acme", PlacementRequest{Site: "site-b"}); !errors.Is(err, ErrSiteIncomplete) {
+		t.Fatalf("AddSite on an incomplete site = %v", err)
+	}
+	if _, err := e.st.GetPlacement(ctx, "acme", "site-b"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a placement was created on an incomplete site: %v", err)
+	}
+	if _, err := e.svc.Create(ctx, CreateRequest{Slug: "beta", DisplayName: "Beta", Sites: []PlacementRequest{{Site: "site-b"}}}); !errors.Is(err, ErrSiteIncomplete) {
+		t.Fatalf("Create on an incomplete site = %v", err)
 	}
 }

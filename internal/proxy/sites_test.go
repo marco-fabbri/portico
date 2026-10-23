@@ -582,3 +582,32 @@ func TestActivePlusSuspendedIsSeveralSites(t *testing.T) {
 		t.Fatalf("sign-out with active plus suspended: %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 }
+
+func TestIncompleteSiteTileGreyAndRefused(t *testing.T) {
+	h := newSitesHarness(t)
+	h.mu.Lock()
+	h.status["site-b"] = sites.Incomplete
+	h.mu.Unlock()
+	h.session("s1", "acme", "")
+	rec := h.do("GET", "/.portico/sites", "s1", nav, nil)
+	if !strings.Contains(rec.Body.String(), `value="site-b" disabled`) || !strings.Contains(rec.Body.String(), "Not available") {
+		t.Fatalf("incomplete tile: %d %v\n%s", rec.Code, rec.Header(), rec.Body.String())
+	}
+	rec = h.do("POST", "/.portico/sites/select", "s1", nav, url.Values{"site": {"site-b"}})
+	if rec.Code != 503 || rec.Header().Get("X-Portico-Rule") != "site-incomplete" || h.site("s1") != "" {
+		t.Fatalf("choosing an incomplete site: %d %q site=%q", rec.Code, rec.Header().Get("X-Portico-Rule"), h.site("s1"))
+	}
+}
+
+func TestOnlyIncompleteSiteNotAvailablePage(t *testing.T) {
+	h := newSitesHarness(t)
+	h.mu.Lock()
+	h.status["site-a"] = sites.Incomplete
+	h.mu.Unlock()
+	h.session("s1", "solo", "")
+	rec := h.do("GET", "/console/", "s1", nav, nil)
+	body := rec.Body.String()
+	if rec.Code != 503 || !strings.Contains(body, "AZ-IT-MI1 is not available at the moment") || strings.Contains(body, "responding slowly") || len(*h.a) != 0 {
+		t.Fatalf("only site incomplete: %d\n%s", rec.Code, body)
+	}
+}

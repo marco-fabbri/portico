@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -169,5 +170,104 @@ func TestSetProbesKeepsFailures(t *testing.T) {
 	}
 	if m.Status("c") != Unreachable {
 		t.Fatal("a dropped site is still reported reachable")
+	}
+}
+
+// scripted is a prober answering errs in turn, then nil.
+func scripted(errs ...error) Prober {
+	var i atomic.Int32
+	return func(context.Context) error {
+		n := int(i.Add(1)) - 1
+		if n < len(errs) {
+			return errs[n]
+		}
+		return nil
+	}
+}
+
+var keyRefused = &IncompleteError{Reason: "the service account's key is refused (401)"}
+
+func TestOneKeyRefusalIsNotIncomplete(t *testing.T) {
+	m := NewMonitor(openStore(t), map[string]Prober{"a": scripted(keyRefused)}, nil)
+	m.ProbeOnce(context.Background(), time.Second)
+	if m.Status("a") != Available {
+		t.Fatalf("one 401: %s", m.Status("a"))
+	}
+	m.ProbeOnce(context.Background(), time.Second)
+	if m.Status("a") != Available {
+		t.Fatalf("after a success: %s", m.Status("a"))
+	}
+}
+
+func TestThreeKeyRefusalsMakeIncomplete(t *testing.T) {
+	m := NewMonitor(openStore(t), map[string]Prober{"a": scripted(keyRefused, keyRefused, keyRefused, keyRefused)}, nil)
+	for i := 0; i < FailuresToUnreachable; i++ {
+		m.ProbeOnce(context.Background(), time.Second)
+	}
+	if d := m.Detail("a"); d.Status != Incomplete || d.Reason != keyRefused.Reason {
+		t.Fatalf("three 401s: %+v", d)
+	}
+}
+
+func TestTrustMissingIsIncompleteAtOnce(t *testing.T) {
+	m := NewMonitor(openStore(t), map[string]Prober{"a": scripted()}, nil)
+	m.SetTrustChecks(map[string]Prober{"a": scripted(&IncompleteError{Reason: "the identity provider is missing in Prism Central", Immediate: true})})
+	m.CheckTrust(context.Background(), time.Second)
+	if d := m.Detail("a"); d.Status != Incomplete || !strings.Contains(d.Reason, "identity provider") {
+		t.Fatalf("trust missing: %+v", d)
+	}
+	m.CheckTrust(context.Background(), time.Second)
+	if m.Status("a") != Available {
+		t.Fatalf("trust back: %s", m.Status("a"))
+	}
+}
+
+func TestTrustCheckNetworkErrorChangesNothing(t *testing.T) {
+	m := NewMonitor(openStore(t), map[string]Prober{"a": scripted()}, nil)
+	m.SetTrustChecks(map[string]Prober{"a": scripted(errors.New("504 upstream request timeout"))})
+	m.CheckTrust(context.Background(), time.Second)
+	if m.Status("a") != Available {
+		t.Fatalf("a slow trust read made the site %s", m.Status("a"))
+	}
+}
+
+func TestCertChangedAtOnce(t *testing.T) {
+	m := NewMonitor(openStore(t), map[string]Prober{"a": scripted(&CertChangedError{Fingerprint: "AB:CD"})}, nil)
+	m.ProbeOnce(context.Background(), time.Second)
+	if d := m.Detail("a"); d.Status != Unreachable || d.Reason != "certificate changed" || d.NewFingerprint != "AB:CD" {
+		t.Fatalf("certificate changed: %+v", d)
+	}
+}
+
+func TestMaintenanceWinsOverIncomplete(t *testing.T) {
+	m := NewMonitor(openStore(t), map[string]Prober{"a": scripted()}, nil)
+	m.SetTrustChecks(map[string]Prober{"a": scripted(&IncompleteError{Reason: "x", Immediate: true})})
+	m.CheckTrust(context.Background(), time.Second)
+	if err := m.SetMaintenance(context.Background(), "a", true); err != nil {
+		t.Fatal(err)
+	}
+	if m.Status("a") != Maintenance {
+		t.Fatalf("status %s", m.Status("a"))
+	}
+}
+
+func TestReportUpdatesAtOnce(t *testing.T) {
+	m := NewMonitor(openStore(t), map[string]Prober{"a": scripted()}, nil)
+	m.Report("a", &IncompleteError{Reason: "the Keycloak client is missing", Immediate: true})
+	if m.Status("a") != Incomplete {
+		t.Fatalf("after Report: %s", m.Status("a"))
+	}
+	m.Report("a", nil)
+	if m.Status("a") != Available {
+		t.Fatalf("after a clean Report: %s", m.Status("a"))
+	}
+}
+
+func TestTrustCheckKeyRefusalIsNotImmediate(t *testing.T) {
+	m := NewMonitor(openStore(t), map[string]Prober{"a": scripted()}, nil)
+	m.SetTrustChecks(map[string]Prober{"a": scripted(keyRefused)})
+	m.CheckTrust(context.Background(), time.Second)
+	if m.Status("a") != Available {
+		t.Fatalf("one refused key from a trust check: %s", m.Status("a"))
 	}
 }

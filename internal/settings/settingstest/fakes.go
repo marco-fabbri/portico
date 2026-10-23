@@ -203,6 +203,16 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 		idp := map[string]any{"extId": "idp-" + body["name"].(string), "name": body["name"], "redirectURL": body["redirectURL"]}
 		f.IdPs = append(f.IdPs, idp)
 		reply(201, idp)
+	case strings.Contains(p, "/authn/saml-identity-providers/") && !strings.HasSuffix(p, "/sp-metadata") && r.Method == "GET":
+		id := p[strings.LastIndex(p, "/")+1:]
+		for _, idp := range f.IdPs {
+			if idp["extId"] == id {
+				reply(200, idp)
+				return
+			}
+		}
+		w.WriteHeader(404)
+		w.Write([]byte(`{"data":{"error":"no such identity provider"}}`))
 	case strings.HasSuffix(p, "/sp-metadata"):
 		w.Header().Set("Content-Type", "application/xml")
 		w.Write([]byte(`<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://prism.example.test/api/iam/authn"><md:SPSSODescriptor><md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://prism.example.test/api/iam/authn/callback" index="1"/></md:SPSSODescriptor></md:EntityDescriptor>`))
