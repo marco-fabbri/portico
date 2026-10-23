@@ -3,6 +3,7 @@ package nutanix
 import (
 	"context"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -96,5 +97,58 @@ func TestProjectContentsMissingAPIIsUncounted(t *testing.T) {
 	}
 	if len(got.Uncounted) != 2 || !got.Empty() {
 		t.Fatalf("contents = %+v", got)
+	}
+}
+
+func TestListStorageContainersFlags(t *testing.T) {
+	f := newFakePC(t)
+	f.lists["/api/clustermgmt/v4.0/config/storage-containers"] = []any{
+		map[string]any{"containerExtId": "sc-int", "name": "NutanixMetadataContainer", "clusterExtId": "cl-1", "isInternal": true},
+		map[string]any{"containerExtId": "sc-obj", "name": "objectsl889411dccd9a44125aa3e31c2596dcf9", "clusterExtId": "cl-1"},
+		map[string]any{"containerExtId": "sc-ss", "name": "SelfServiceContainer", "clusterExtId": "cl-1"},
+		map[string]any{"containerExtId": "sc-def", "name": "default-container-1", "clusterExtId": "cl-1"},
+	}
+	got, err := newClient(t, f, nil).ListStorageContainers(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]StorageContainer{}
+	for _, c := range got {
+		by[c.ExtID] = c
+	}
+	if c := by["sc-int"]; !c.IsInternal || !c.IsSystem || c.IsObjects {
+		t.Errorf("internal container = %+v", c)
+	}
+	if c := by["sc-obj"]; !c.IsObjects || c.IsSystem || c.IsInternal {
+		t.Errorf("objects container = %+v", c)
+	}
+	if c := by["sc-ss"]; !c.IsSystem || c.IsInternal {
+		t.Errorf("SelfServiceContainer = %+v", c)
+	}
+	if c := by["sc-def"]; c.IsSystem || c.IsObjects || c.IsInternal {
+		t.Errorf("default container = %+v", c)
+	}
+}
+
+func TestContainerFreeBytesReadsLastSample(t *testing.T) {
+	f := newFakePC(t)
+	f.objs["/api/clustermgmt/v4.0/stats/storage-containers/sc-1"] = map[string]any{
+		"storageFreeBytes": []any{
+			map[string]any{"value": 100, "timestamp": "2026-10-23T13:20:00Z"},
+			map[string]any{"value": 621750432032, "timestamp": "2026-10-23T13:25:00Z"},
+		},
+	}
+	got, err := newClient(t, f, nil).ContainerFreeBytes(context.Background(), "sc-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 621750432032 {
+		t.Fatalf("free = %d", got)
+	}
+	q := f.requests()[0].Query
+	for _, k := range []string{"%24startTime=", "%24endTime=", "%24statType=LAST"} {
+		if !strings.Contains(q, k) {
+			t.Errorf("query %q lacks %s", q, k)
+		}
 	}
 }
