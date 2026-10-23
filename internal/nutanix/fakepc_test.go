@@ -23,6 +23,7 @@ type fakePC struct {
 	status string           // task status after polls
 	totals map[string]int   // list path → metadata.totalAvailableResults
 	lists  map[string][]any // list path → items, answered as one page
+	objs   map[string]any   // GET path → one object as data
 	iamSt  *iamState        // service account, key and policy (bootstrap_test.go)
 }
 
@@ -33,7 +34,7 @@ type recorded struct {
 }
 
 func newFakePC(t *testing.T) *fakePC {
-	f := &fakePC{t: t, key: "k-secret-123", etag: `"etag-abc"`, fail: map[string]int{}, status: "SUCCEEDED", totals: map[string]int{}, lists: map[string][]any{}}
+	f := &fakePC{t: t, key: "k-secret-123", etag: `"etag-abc"`, fail: map[string]int{}, status: "SUCCEEDED", totals: map[string]int{}, lists: map[string][]any{}, objs: map[string]any{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -77,6 +78,10 @@ func (f *fakePC) handle(w http.ResponseWriter, r *http.Request) {
 	if items, ok := f.lists[p]; ok {
 		w.WriteHeader(200)
 		json.NewEncoder(w).Encode(map[string]any{"data": items, "metadata": map[string]any{"totalAvailableResults": len(items)}})
+		return
+	}
+	if obj, ok := f.objs[p]; ok && r.Method == "GET" {
+		reply(200, obj)
 		return
 	}
 	if n, ok := f.totals[p]; ok {
