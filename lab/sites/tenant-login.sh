@@ -5,7 +5,9 @@
 #   name path httpOnly sameSite maxAge size
 # (never a value). The jar stays in --keep-jar DIR for the next steps.
 #   source lab/env.sh && lab/sites/tenant-login.sh --ensure-probe acme
-#   source lab/env.sh && lab/sites/tenant-login.sh acme [--keep-jar DIR]
+#   source lab/env.sh && lab/sites/tenant-login.sh acme [--keep-jar DIR] [--site ID]
+# With several sites the login lands on the site page; --site picks one
+# there (write-up 26), as the tile's form does.
 # The probe user portico-probe-<slug>@lab.portico.test is a member of
 # tenant-<slug>; its password is generated once into
 # $PORTICO_SECRETS/probe-<slug>-pw (0600) and never printed.
@@ -43,8 +45,15 @@ if [ "${1:-}" = "--ensure-probe" ]; then
   exit
 fi
 
-slug="${1:?usage: tenant-login.sh SLUG [--keep-jar DIR]}"; keep=""
-[ "${2:-}" = "--keep-jar" ] && keep="${3:?}"
+slug="${1:?usage: tenant-login.sh SLUG [--keep-jar DIR] [--site ID]}"; keep=""; site=""
+shift
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --keep-jar) keep="${2:?}"; shift 2 ;;
+    --site) site="${2:?}"; shift 2 ;;
+    *) echo "unknown option $1" >&2; exit 2 ;;
+  esac
+done
 email="portico-probe-$slug@lab.portico.test"; pwf="$S/probe-$slug-pw"
 [ -s "$pwf" ] || { echo "no $pwf: run --ensure-probe $slug first" >&2; exit 1; }
 if [ -n "$keep" ]; then mkdir -p "$keep"; chmod 700 "$keep"; d="$keep"; else d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; fi
@@ -94,6 +103,14 @@ for _ in $(seq 1 25); do
     url=$(abs "$loc" "https://$LAB_ID_HOST"); method=GET
     [ -n "$loc" ] && continue
     echo "login refused (no redirect after the form)"; exit 1
+  fi
+  # Portico's site page: the tile's form posts the chosen site.
+  if grep -q 'action="/.portico/sites/select"' "$d/body"; then
+    [ -n "$site" ] || { echo "the site page asks for a site: pass --site ID"; exit 1; }
+    fetch POST "$base/.portico/sites/select" -H 'Sec-Fetch-Site: same-origin' --data-urlencode "site=$site"
+    url=$(abs "$loc" "$base"); method=GET
+    [ -n "$loc" ] && continue
+    echo "site $site refused (no redirect after the choice)"; exit 1
   fi
   # Portico's landing page: meta refresh to the SAML start.
   if next=$(grep -oE 'url=/[^"]*' "$d/body" | head -1) && [ -n "$next" ]; then
