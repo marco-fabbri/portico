@@ -33,11 +33,16 @@ a project that still holds a VM.
    ends `remove-failed` with Retry. The last site can be disconnected
    too.
    Disconnect deletes only what Portico created: provisioning adopts an
-   existing project or SAML group of the right name, so a project whose
-   description does not start with "Portico tenant " (made by hand) is
-   kept with its resource groups, and a SAML group Prism Central reports
-   bound to another identity provider is kept; the tenant's access is
-   removed either way and the step says what was kept.
+   existing project of the right name, and a SAML group of the right
+   name on the site's identity provider, so a project whose description
+   does not start with "Portico tenant " (made by hand) is kept with its
+   resource groups, and a SAML group Prism Central reports bound to
+   another identity provider is kept; the tenant's access is removed
+   either way and the step says what was kept. Since Part C
+   (2026-10-23) provisioning no longer adopts a group on another
+   provider: Prism Central holds one provider, so such a group is a stale
+   one of a trust created again, no login matches it, and a new group is
+   made; Repair deletes the tenant's groups on the old provider.
 2. **No deletion of resources by Portico.** Portico never deletes a VM,
    an image or any other thing a tenant made; emptying a project is the
    MSP's work in Prism Central. A "danger zone" that would do it was
@@ -56,7 +61,7 @@ a project that still holds a VM.
    takes effect without a restart, and a site whose certificate cannot
    be verified is trusted by the SHA-256 fingerprint of its leaf
    certificate, confirmed by the MSP, instead of "verify off". They are
-   built in Part C of that design.
+   built in Part C of that design (2026-10-23).
 
 ## Consequences
 
@@ -76,3 +81,16 @@ a project that still holds a VM.
   Central directly is not affected, and Prism Central does not know.
 - The old `delete_project` choice is gone from the API and the pages; the
   API has no external users before the first release (sites design 4.6).
+- A site change applies at once on the node where it is saved; the other
+  node of a pair reads the document again every 30 seconds, so for up to
+  that long the two nodes may serve different site lists (a removed site
+  still served, a new one not yet). The maintenance flag is read at start
+  on the other node.
+- A pinned site trusts one certificate. When Prism Central renews it, the
+  site turns "certificate changed": it takes no new entries, and the
+  requests of sessions already on it fail as well, since each connection
+  Portico opens to Prism Central checks the pin. Nothing reconnects by
+  itself until the MSP compares the new fingerprint with the browser's
+  and confirms it on the site's page. An MSP who renews certificates
+  often gives the site a CA instead, so it is verified rather than
+  pinned.
