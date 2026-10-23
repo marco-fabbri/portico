@@ -24,8 +24,11 @@ func (s Site) PrismObjects() []string {
 }
 
 func (s Site) idpLabel() string {
-	if s.SAMLIdPExtID == "" {
+	switch {
+	case s.SAMLIdPExtID == "":
 		return "identity provider " + s.SAMLIdPName
+	case s.SAMLIdPName == "":
+		return "identity provider " + s.SAMLIdPExtID
 	}
 	return fmt.Sprintf("identity provider %s (%s)", s.SAMLIdPName, s.SAMLIdPExtID)
 }

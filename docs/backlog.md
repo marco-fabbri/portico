@@ -255,6 +255,7 @@ drawn across the logo on the Keycloak login page.
   recorded, so its first Finish setup or Repair makes a new key and
   leaves the old one valid in Prism Central, held by nobody, and its
   removal lists its key as left (write-up 26: both revoked by hand on
-  the lab). The run could revoke the old key when it can tell
+  the lab). The service-account step's line says so and asks the MSP to
+  revoke it there. The run could revoke the old key when it can tell
   it is Portico's (by its `portico-` name on the account it found), or
   keep the stored key after checking it belongs to that account.
