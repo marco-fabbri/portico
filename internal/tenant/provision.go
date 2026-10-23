@@ -196,7 +196,6 @@ func (s *Service) provisionPlacement(ctx context.Context, t *store.Tenant, pr pr
 	if err := s.st.UpdatePlacement(ctx, p); err != nil {
 		return err
 	}
-	group := s.groupName(t.ID)
 	project := s.projectName(t.ID)
 	steps := []struct {
 		name string
@@ -231,48 +230,9 @@ func (s *Service) provisionPlacement(ctx context.Context, t *store.Tenant, pr pr
 			p.ResourceGroupExtID = rgs[0].ExtID
 			return rgs[0].ExtID, nil
 		}},
-		{"saml-group", func(ctx context.Context) (string, error) {
-			g, err := pc.FindUserGroup(ctx, group)
-			if nutanix.IsNotFound(err) {
-				g, err = pc.CreateUserGroup(ctx, group, idp.ExtID)
-			}
-			if err != nil {
-				return "", err
-			}
-			p.SAMLGroupExtID = g.ExtID
-			return g.ExtID, nil
-		}},
-		{"idp-share", func(ctx context.Context) (string, error) {
-			cur, err := pc.GetSAMLIdP(ctx, idp.ExtID)
-			if err != nil {
-				return "", err
-			}
-			if !cur.SharedWithAll && !contains(cur.SharedWithProjects, p.ProjectExtID) {
-				if err := pc.ShareIdP(ctx, idp.ExtID, p.ProjectExtID); err != nil {
-					return "", err
-				}
-			}
-			p.IdPShared = true
-			return idp.ExtID, nil
-		}},
-		{"role-membership", func(ctx context.Context) (string, error) {
-			rms, err := pc.ListRoleMemberships(ctx)
-			if err != nil {
-				return "", err
-			}
-			for _, rm := range rms {
-				if rm.IdentityExtID == p.SAMLGroupExtID && rm.ProjectExtID == p.ProjectExtID && rm.RoleExtID == role.ExtID {
-					p.RoleMembershipExtID = rm.ExtID
-					return rm.ExtID, nil
-				}
-			}
-			rm, err := pc.CreateRoleMembership(ctx, p.SAMLGroupExtID, idp.ExtID, p.ProjectExtID, role.ExtID)
-			if err != nil {
-				return "", err
-			}
-			p.RoleMembershipExtID = rm.ExtID
-			return rm.ExtID, nil
-		}},
+		{"saml-group", func(ctx context.Context) (string, error) { return s.samlGroupStep(ctx, pc, t, p, idp) }},
+		{"idp-share", func(ctx context.Context) (string, error) { return s.idpShareStep(ctx, pc, p, idp) }},
+		{"role-membership", func(ctx context.Context) (string, error) { return s.roleMembershipStep(ctx, pc, p, idp, role) }},
 		{"visibility", func(ctx context.Context) (string, error) {
 			v, err := s.visibility(ctx, pc, p)
 			if err != nil {
@@ -294,6 +254,64 @@ func (s *Service) provisionPlacement(ctx context.Context, t *store.Tenant, pr pr
 	}
 	p.Status, p.LastError = store.PlacementActive, ""
 	return s.st.UpdatePlacement(ctx, p)
+}
+
+// samlGroupStep finds the tenant's SAML group on the site's identity
+// provider, or creates it. A group of that name on another provider (the
+// one of a trust that was recreated) is not reused: no login matches it.
+func (s *Service) samlGroupStep(ctx context.Context, pc PrismCentral, t *store.Tenant, p *store.Placement, idp *nutanix.SAMLIdP) (string, error) {
+	name := s.groupName(t.ID)
+	groups, err := pc.ListUserGroups(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, g := range groups {
+		if g.Name == name && (g.IdPExtID == idp.ExtID || g.IdPExtID == "") {
+			p.SAMLGroupExtID = g.ExtID
+			return g.ExtID, nil
+		}
+	}
+	g, err := pc.CreateUserGroup(ctx, name, idp.ExtID)
+	if err != nil {
+		return "", err
+	}
+	p.SAMLGroupExtID = g.ExtID
+	return g.ExtID, nil
+}
+
+// idpShareStep shares the identity provider with the tenant's project.
+func (s *Service) idpShareStep(ctx context.Context, pc PrismCentral, p *store.Placement, idp *nutanix.SAMLIdP) (string, error) {
+	cur, err := pc.GetSAMLIdP(ctx, idp.ExtID)
+	if err != nil {
+		return "", err
+	}
+	if !cur.SharedWithAll && !contains(cur.SharedWithProjects, p.ProjectExtID) {
+		if err := pc.ShareIdP(ctx, idp.ExtID, p.ProjectExtID); err != nil {
+			return "", err
+		}
+	}
+	p.IdPShared = true
+	return idp.ExtID, nil
+}
+
+// roleMembershipStep gives the tenant's group the role in its project.
+func (s *Service) roleMembershipStep(ctx context.Context, pc PrismCentral, p *store.Placement, idp *nutanix.SAMLIdP, role *nutanix.Role) (string, error) {
+	rms, err := pc.ListRoleMemberships(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, rm := range rms {
+		if rm.IdentityExtID == p.SAMLGroupExtID && rm.ProjectExtID == p.ProjectExtID && rm.RoleExtID == role.ExtID {
+			p.RoleMembershipExtID = rm.ExtID
+			return rm.ExtID, nil
+		}
+	}
+	rm, err := pc.CreateRoleMembership(ctx, p.SAMLGroupExtID, idp.ExtID, p.ProjectExtID, role.ExtID)
+	if err != nil {
+		return "", err
+	}
+	p.RoleMembershipExtID = rm.ExtID
+	return rm.ExtID, nil
 }
 
 // remove takes the tenant off every site, then deletes its Keycloak group

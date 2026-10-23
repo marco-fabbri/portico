@@ -70,6 +70,7 @@ type PrismCentral interface {
 	ShareIdP(ctx context.Context, idpExtID, projectExtID string) error
 	UnshareIdP(ctx context.Context, idpExtID, projectExtID string) error
 	FindUserGroup(ctx context.Context, name string) (*nutanix.UserGroup, error)
+	ListUserGroups(ctx context.Context) ([]nutanix.UserGroup, error)
 	CreateUserGroup(ctx context.Context, name, idpExtID string) (*nutanix.UserGroup, error)
 	DeleteUserGroup(ctx context.Context, extID string) error
 	FindRole(ctx context.Context, displayName string) (*nutanix.Role, error)

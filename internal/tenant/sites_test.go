@@ -789,3 +789,97 @@ func TestConnectRefusedOnIncompleteSite(t *testing.T) {
 		t.Fatalf("Create on an incomplete site = %v", err)
 	}
 }
+
+// recreateTrust replaces site-a's identity provider by a new one, idp-2,
+// as a Repair after the trust was deleted in Prism Central does; the
+// tenant service learns the new id as the site runtime tells it.
+func (e *env2) recreateTrust(t *testing.T) {
+	t.Helper()
+	e.pcA.IdPs = []nutanix.SAMLIdP{{ExtID: "idp-2", Name: "portico-idp"}}
+	sites := e.svc.Sites()
+	sites[0].SAMLIdPExtID = "idp-2"
+	e.svc.SetSites(sites)
+}
+
+// boundTo reports whether the placement's group, its one role membership
+// and the provider's sharing all point at idpExtID, and no group of the
+// tenant's name is left on oldIdP.
+func (e *env2) boundTo(t *testing.T, tenant, idpExtID, oldIdP string) {
+	t.Helper()
+	p := e.placement(t, tenant, "site-a")
+	name := e.svc.groupName(tenant)
+	for _, g := range e.pcA.Groups {
+		if g.Name == name && g.IdPExtID == oldIdP {
+			t.Fatalf("%s: a group on the old provider is left: %+v", tenant, g)
+		}
+		if g.ExtID == p.SAMLGroupExtID && g.IdPExtID != idpExtID {
+			t.Fatalf("%s: the placement's group is on %s", tenant, g.IdPExtID)
+		}
+	}
+	n := 0
+	for _, rm := range e.pcA.Memberships {
+		if rm.ProjectExtID == p.ProjectExtID {
+			n++
+			if rm.IdentityExtID != p.SAMLGroupExtID || rm.ExtID != p.RoleMembershipExtID {
+				t.Fatalf("%s: a membership of another group: %+v", tenant, rm)
+			}
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%s: %d role memberships", tenant, n)
+	}
+	if !contains(e.pcA.IdPs[0].SharedWithProjects, p.ProjectExtID) {
+		t.Fatalf("%s: the new provider is not shared with the project", tenant)
+	}
+}
+
+func TestRepairSiteRebindsGroups(t *testing.T) {
+	e := newEnv2(t)
+	e.createOn(t, "acme", "site-a")
+	e.createOn(t, "beta", "site-a")
+	if err := e.svc.Suspend(context.Background(), "beta", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.recreateTrust(t)
+	lines, err := e.svc.RepairSite(context.Background(), "site-a", "idp-1")
+	if err != nil || len(lines) != 2 || lines[0].Tenant != "acme" || !lines[0].OK || lines[1].Tenant != "beta" || !lines[1].OK {
+		t.Fatalf("lines = %+v, err = %v", lines, err)
+	}
+	e.boundTo(t, "acme", "idp-2", "idp-1")
+	e.boundTo(t, "beta", "idp-2", "idp-1")
+	if e.placement(t, "acme", "site-a").Status != store.PlacementActive || e.placement(t, "beta", "site-a").Status != store.PlacementSuspended {
+		t.Fatal("a repair changed a connection's state")
+	}
+	// A repair again finds everything in place and creates nothing.
+	groups, memberships := e.pcA.Creates["CreateUserGroup"], e.pcA.Creates["CreateRoleMembership"]
+	if lines, _ := e.svc.RepairSite(context.Background(), "site-a", ""); len(lines) != 2 || !lines[0].OK || !lines[1].OK ||
+		e.pcA.Creates["CreateUserGroup"] != groups || e.pcA.Creates["CreateRoleMembership"] != memberships {
+		t.Fatalf("a repair of a sound site: %+v", lines)
+	}
+}
+
+func TestRepairSiteOneTenantFails(t *testing.T) {
+	e := newEnv2(t)
+	e.createOn(t, "acme", "site-a")
+	e.createOn(t, "beta", "site-a")
+	e.recreateTrust(t)
+	e.pcA.FailCall("CreateRoleMembership", 2, errors.New("prism central: 403 forbidden"))
+	lines, err := e.svc.RepairSite(context.Background(), "site-a", "idp-1")
+	if err != nil || len(lines) != 2 || !lines[0].OK || lines[1].OK || !strings.Contains(lines[1].Message, "403 forbidden") {
+		t.Fatalf("lines = %+v, err = %v", lines, err)
+	}
+	e.boundTo(t, "acme", "idp-2", "idp-1")
+	if e.placement(t, "beta", "site-a").Status != store.PlacementActive {
+		t.Fatal("a failed repair changed the connection's state")
+	}
+	// Repair again, with the old id no longer known, finishes beta.
+	if lines, _ := e.svc.RepairSite(context.Background(), "site-a", ""); !lines[1].OK {
+		t.Fatalf("repair again: %+v", lines)
+	}
+	p := e.placement(t, "beta", "site-a")
+	for _, g := range e.pcA.Groups {
+		if g.ExtID == p.SAMLGroupExtID && g.IdPExtID != "idp-2" {
+			t.Fatalf("beta's group after repair again: %+v", g)
+		}
+	}
+}

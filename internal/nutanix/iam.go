@@ -158,8 +158,8 @@ func (c *Client) idpAction(ctx context.Context, idpExtID, action, projectExtID s
 
 // FindUserGroup returns the SAML group with the given name.
 func (c *Client) FindUserGroup(ctx context.Context, name string) (*UserGroup, error) {
-	var groups []UserGroup
-	if err := c.listAll(ctx, PathIAM0+"/authn/user-groups", nil, &groups); err != nil {
+	groups, err := c.ListUserGroups(ctx)
+	if err != nil {
 		return nil, err
 	}
 	for i := range groups {
@@ -168,6 +168,13 @@ func (c *Client) FindUserGroup(ctx context.Context, name string) (*UserGroup, er
 		}
 	}
 	return nil, notFound("user group " + name)
+}
+
+// ListUserGroups returns every user group.
+func (c *Client) ListUserGroups(ctx context.Context) ([]UserGroup, error) {
+	var groups []UserGroup
+	err := c.listAll(ctx, PathIAM0+"/authn/user-groups", nil, &groups)
+	return groups, err
 }
 
 // CreateUserGroup registers a SAML group for the identity provider. The
