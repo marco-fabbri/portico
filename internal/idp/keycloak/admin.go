@@ -37,6 +37,23 @@ func (c *Client) FindClient(ctx context.Context, clientID string) (map[string]an
 	return nil, ErrNotFound
 }
 
+// DeleteClient deletes the client with that clientId; an absent client is
+// not an error.
+func (c *Client) DeleteClient(ctx context.Context, clientID string) error {
+	cl, err := c.FindClient(ctx, clientID)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	id, _ := cl["id"].(string)
+	if _, status, err := c.do(ctx, http.MethodDelete, "/clients/"+url.PathEscape(id), nil, nil, nil); err != nil && status != http.StatusNotFound {
+		return err
+	}
+	return nil
+}
+
 // EnsureClient creates the client described by rep (keyed by its
 // clientId) or updates the existing one with rep. It returns the
 // client's internal id and whether it was created.
