@@ -254,3 +254,32 @@ func TestUpdateRefusesTurningVerifyOff(t *testing.T) {
 		t.Fatal("verification was turned off")
 	}
 }
+
+func TestSetupEndpointRepairsWhenIdPChanged(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	pc, fp := withSetup(t, e)
+	if rec, out := e.do("POST", "/api/v1/tenants", `{"slug":"acme","display_name":"ACME","sites":[{"site":"site-a"}]}`); rec.Code != 202 {
+		t.Fatalf("create acme: %d %v", rec.Code, out)
+	}
+	e.tenants.Wait()
+	// site-a's trust is gone from its Prism Central: the setup creates it
+	// again, with a new id.
+	if err := e.svc.Patch(context.Background(), func(d *settings.Settings) {
+		d.Sites[0].URL, d.Sites[0].TLSPin, d.Sites[0].SAMLIdPExtID = pc.Srv.URL, fp, "idp-gone"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rec, out := e.do("POST", "/api/v1/sites/site-a/setup", `{"username":"admin","password":"pc-pw-1"}`)
+	if rec.Code != 200 || out["idp_changed"] != true {
+		t.Fatalf("setup: %d %s", rec.Code, rec.Body.String())
+	}
+	var line map[string]any
+	for _, s := range out["steps"].([]any) {
+		if m := s.(map[string]any); m["name"] == "tenant acme" {
+			line = m
+		}
+	}
+	if line == nil || line["status"] != "ok" {
+		t.Fatalf("no repair line for acme: %s", rec.Body.String())
+	}
+}

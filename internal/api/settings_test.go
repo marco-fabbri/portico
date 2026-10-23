@@ -36,6 +36,7 @@ type settingsEnv struct {
 	pcAdmin   *fakePCAdmin
 	st        store.Store
 	sealer    *secrets.Sealer
+	tenants   *tenant.Service
 }
 
 func sampleSettings(pcURL string) settings.Settings {
@@ -94,7 +95,8 @@ func newSettingsEnv(t *testing.T, stored bool) *settingsEnv {
 		}
 	}
 	log := slog.New(slog.NewJSONHandler(e.log, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	tsvc := tenant.NewService(st, []tenant.Site{{ID: "site-a", Code: "SITE-A", PC: tenanttest.NewPC("portico-idp"), SAMLIdPName: "portico-idp", ClusterExtID: "cl", StorageContainerExtID: "sc"}}, tenanttest.NewKC(), tenant.Config{}, log)
+	tsvc := tenant.NewService(st, []tenant.Site{{ID: "site-a", Code: "SITE-A", PC: tenanttest.NewPC("portico-idp"), SAMLIdPName: "portico-idp", ClusterExtID: "cl", StorageContainerExtID: "sc"}}, tenanttest.NewKC(), tenant.Config{RoleName: "Project Admin", OperationTimeout: 5 * time.Second}, log)
+	e.tenants = tsvc
 	file := sampleSettings(pc.URL)
 	e.busy = 0
 	e.kcAdmin = newFakeKCAdmin(t)
