@@ -1,7 +1,7 @@
 {{define "content"}}
 <section class="card narrow" style="margin-top:1rem">
   <h1>Site {{.Data.Res.Forgotten}} forgotten</h1>
-  <p>Portico removed its records of the site and of the tenants placed on it. It did not contact that Prism Central. Apply to stop serving the site.</p>
+  <p>Portico removed its records of the site and of the tenants placed on it. It did not contact that Prism Central, and no longer serves the site.</p>
   {{if .Data.Res.LeftInPrismCentral}}
   <p>If that Prism Central ever comes back, these objects are still in it:</p>
   <ul>{{range .Data.Res.LeftInPrismCentral}}<li>{{.}}</li>{{end}}</ul>

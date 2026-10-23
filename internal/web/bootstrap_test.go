@@ -42,107 +42,104 @@ func TestSetupBootstrapKeycloakFragmentFillsIdentityCard(t *testing.T) {
 	}
 }
 
-func TestSetupBootstrapPrismCentralFragmentAndRefusal(t *testing.T) {
+// Finish setup on the site page: a refused password is a failed line
+// and stores nothing; the right one completes the site. No secret
+// reaches the page.
+func TestFinishSetupFromTheSitePage(t *testing.T) {
 	e := newEnv(t, true)
-	withSetup(t, e, false)
-	e.web.setup.File, e.web.setup.Mode = nil, "setup"
-	_, pc := withBootstrapFakes(t, e)
+	svc, _, _ := withSetup(t, e, true)
+	_, pc, fp := withSiteFakes(t, e)
+	storeSite(t, svc, settings.Site{ID: "nyc1", Code: "AZ-US-NYC1", URL: pc.Srv.URL, TLSPin: fp})
 	e.login(t)
-	addSite(t, e, pc.Srv.URL)
-	rec := e.do("POST", "/setup/sites/site-a/bootstrap/prism-central", e.form("username", "admin", "password", "wrong", "url", pc.Srv.URL, "service_account", "portico"), true)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "banner error") || !strings.Contains(rec.Body.String(), "refused the credentials") {
-		t.Fatalf("wrong password: %d %s", rec.Code, rec.Body.String())
+	status := e.do("GET", "/setup/sites/nyc1/status", nil, true).Body.String()
+	if !strings.Contains(status, ">Finish setup</button>") || !strings.Contains(status, "no service account key is stored") {
+		t.Fatalf("an incomplete site's card:\n%s", status)
 	}
-	if page := e.do("GET", "/setup/sites/site-a", nil, true).Body.String(); strings.Contains(page, `placeholder="unchanged"`) {
+	rec := e.do("POST", "/setup/sites/nyc1/setup", e.form("username", "admin", "password", "wrong-pw-9"), true)
+	body := rec.Body.String()
+	if rec.Code != 200 || !strings.Contains(body, "refused the credentials") || !strings.Contains(body, "is incomplete and not served") || strings.Contains(body, "wrong-pw-9") {
+		t.Fatalf("a refused password: %d\n%s", rec.Code, body)
+	}
+	if cur, _ := svc.Get(context.Background()); func() bool { s, _ := cur.Site("nyc1"); return s.APIKey != "" }() {
 		t.Fatal("a key was stored after a refusal")
 	}
-	rec = e.do("POST", "/setup/sites/site-a/bootstrap/prism-central", e.form("username", "admin", "password", "pc-pw-1", "url", pc.Srv.URL, "service_account", "portico"), true)
-	body := rec.Body.String()
-	for _, want := range []string{"banner notice", `id="api_key"`, `placeholder="unchanged"`, `id="cluster_ext_id"`, "NTNX-01", `name="password" value=""`} {
-		if rec.Code != 200 || !strings.Contains(body, want) {
-			t.Fatalf("fragment lacks %q: %d %s", want, rec.Code, body)
-		}
+	rec = e.do("POST", "/setup/sites/nyc1/setup", e.form("username", "admin", "password", "pc-pw-1"), true)
+	body = rec.Body.String()
+	if rec.Code != 200 || !strings.Contains(body, "is set up and serving") || strings.Contains(body, "pc-pw-1") || strings.Contains(body, pc.Key) {
+		t.Fatalf("finish setup: %d\n%s", rec.Code, body)
 	}
-	if strings.Contains(body, pc.Key) || strings.Contains(body, "pc-pw-1") {
-		t.Fatal("the key or the password reached the page")
-	}
-	got, _ := e.web.setup.Service.Get(context.Background())
-	if got.Sites[0].APIKey != settings.Secret(pc.Key) || got.Sites[0].URL != pc.Srv.URL {
-		t.Fatalf("stored = %+v", got)
+	cur, _ := svc.Get(context.Background())
+	if s, _ := cur.Site("nyc1"); !s.Complete() {
+		t.Fatalf("stored = %+v", s)
 	}
 }
 
-func TestSetupBootstrapSAMLNeedsPreconditions(t *testing.T) {
+// Finish setup before the Keycloak realm exists is refused with the
+// reason, in the page's summary block.
+func TestFinishSetupNeedsTheRealm(t *testing.T) {
 	e := newEnv(t, true)
-	withSetup(t, e, false)
-	e.web.setup.File, e.web.setup.Mode = nil, "setup"
-	_, pc := withBootstrapFakes(t, e)
-	e.login(t)
-	addSite(t, e, pc.Srv.URL)
-	rec := e.do("POST", "/setup/sites/site-a/bootstrap/saml", e.form("saml_idp_name", "portico-keycloak"), true)
-	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "must be set first") || strings.Contains(rec.Body.String(), "<html") {
-		t.Fatalf("saml on a fresh store: %d %s", rec.Code, rec.Body.String())
+	svc, _, _ := withSetup(t, e, true)
+	_, pc, fp := withSiteFakes(t, e)
+	if err := svc.Patch(context.Background(), func(d *settings.Settings) {
+		d.Keycloak.AdminClientSecret = ""
+		d.Sites[0].URL, d.Sites[0].TLSPin = pc.Srv.URL, fp
+	}); err != nil {
+		t.Fatal(err)
 	}
-	for _, path := range []string{"/setup/bootstrap/nope", "/setup/bootstrap/saml", "/setup/sites/site-a/bootstrap/nope", "/setup/sites/nope/bootstrap/saml"} {
+	e.login(t)
+	rec := e.do("POST", "/setup/sites/site-a/setup", e.form("username", "admin", "password", "pc-pw-1"), true)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "must be set first") || strings.Contains(rec.Body.String(), "<html") || pc.Credentialed != 0 {
+		t.Fatalf("setup before the realm: %d %s", rec.Code, rec.Body.String())
+	}
+	for _, path := range []string{"/setup/bootstrap/nope", "/setup/bootstrap/saml", "/setup/sites/site-a/bootstrap/prism-central", "/setup/sites/nope/setup"} {
 		if rec := e.do("POST", path, e.form(), true); rec.Code != 404 {
 			t.Fatalf("%s: %d", path, rec.Code)
 		}
 	}
 }
 
-func TestSetupBootstrapSAMLFragmentStoresTheName(t *testing.T) {
+// The manual path sits under Advanced on the site page: a typed key and
+// a provider name made by hand are stored; an empty name keeps the
+// stored one.
+func TestSiteAdvancedSavesTheManualPath(t *testing.T) {
 	e := newEnv(t, true)
-	svc, _, _ := withSetup(t, e, false)
-	e.web.setup.File, e.web.setup.Mode = nil, "setup"
-	kc, pc := withBootstrapFakes(t, e)
-	kc.Realms["msp"] = map[string]any{"realm": "msp"}
-	doc := setupSample(pc.Srv.URL)
-	doc.Keycloak.Realm, doc.OIDC.Issuer, doc.Sites[0].APIKey, doc.Sites[0].SAMLIdPName = "msp", "https://id.example.test/realms/msp", settings.Secret(pc.Key), ""
-	if err := svc.Set(context.Background(), doc); err != nil {
-		t.Fatal(err)
-	}
-	e.login(t)
-	rec := e.do("POST", "/setup/sites/site-a/bootstrap/saml", e.form("saml_idp_name", "msp-idp"), true)
-	body := rec.Body.String()
-	for _, want := range []string{"banner notice", `id="saml_idp_name"`, `value="msp-idp"`, `hx-swap-oob`} {
-		if rec.Code != 200 || !strings.Contains(body, want) {
-			t.Fatalf("fragment lacks %q: %d %s", want, rec.Code, body)
-		}
-	}
-	got, _ := svc.Get(context.Background())
-	if got.Sites[0].SAMLIdPName != "msp-idp" || len(got.Missing()) != 0 {
-		t.Fatalf("stored = %+v missing=%v", got, got.Missing())
-	}
-}
-
-// The site page shows its SAML trust; the name is set by the bootstrap.
-func TestSitePageShowsTheSAMLTrust(t *testing.T) {
-	e := newEnv(t, true)
-	withSetup(t, e, true)
+	svc, pc, _ := withSetup(t, e, true)
 	e.login(t)
 	page := e.do("GET", "/setup/sites/site-a", nil, true).Body.String()
-	for _, want := range []string{"SAML trust", `id="form-site_saml"`, `value="portico-idp"`, "trusts the identity provider", `hx-post="/setup/sites/site-a/bootstrap/saml"`} {
+	for _, want := range []string{"<summary>Advanced</summary>", `name="saml_idp_name" value="portico-idp"`, `name="api_key"`} {
 		if !strings.Contains(page, want) {
-			t.Fatalf("site page lacks %q: %s", want, page)
+			t.Fatalf("site page lacks %q:\n%s", want, page)
 		}
 	}
-	if strings.Contains(e.do("GET", "/setup", nil, true).Body.String(), `id="card-saml"`) {
-		t.Fatal("the setup page still has a single SAML card")
+	if strings.Contains(page, "/bootstrap/") || strings.Contains(e.do("GET", "/setup", nil, true).Body.String(), `id="card-saml"`) {
+		t.Fatal("a bootstrap form or the single SAML card is still offered")
+	}
+	if rec := e.do("POST", "/setup/sites/site-a/save", e.form("code", "SITE-A", "url", pc.URL, "api_key", "key-secret-2", "saml_idp_name", "msp-idp"), true); rec.Code != 303 {
+		t.Fatalf("save: %d", rec.Code)
+	}
+	got, _ := svc.Get(context.Background())
+	if got.Sites[0].APIKey != "key-secret-2" || got.Sites[0].SAMLIdPName != "msp-idp" {
+		t.Fatalf("stored = %+v", got.Sites[0])
+	}
+	e.do("POST", "/setup/sites/site-a/save", e.form("code", "SITE-A", "url", pc.URL, "saml_idp_name", ""), true)
+	if got, _ := svc.Get(context.Background()); got.Sites[0].SAMLIdPName != "msp-idp" || got.Sites[0].APIKey != "key-secret-2" {
+		t.Fatalf("an empty field changed the stored site: %+v", got.Sites[0])
 	}
 }
 
 func TestSetupBootstrapRequiresCSRF(t *testing.T) {
 	e := newEnv(t, true)
-	withSetup(t, e, false)
-	kc, pc := withBootstrapFakes(t, e)
+	withSetup(t, e, true)
+	kc, pc, fp := withSiteFakes(t, e)
 	e.login(t)
-	for _, path := range []string{"/setup/bootstrap/keycloak", "/setup/sites/site-a/bootstrap/prism-central", "/setup/sites/site-a/bootstrap/saml"} {
-		rec := e.do("POST", path, map[string][]string{"admin_username": {"kcadmin"}, "admin_password": {"adm-pw-1"}, "username": {"admin"}, "password": {"pc-pw-1"}, "url": {pc.Srv.URL}}, true)
+	for _, path := range []string{"/setup/bootstrap/keycloak", "/setup/sites/new/inspect", "/setup/sites/new", "/setup/sites/site-a/setup", "/setup/sites/site-a/pin"} {
+		rec := e.do("POST", path, map[string][]string{"admin_username": {"kcadmin"}, "admin_password": {"adm-pw-1"}, "code": {"AZ-X"}, "username": {"admin"}, "password": {"pc-pw-1"},
+			"url": {pc.Srv.URL}, "confirmed": {"on"}, "pin": {fp}, "fingerprint": {fp}}, true)
 		if rec.Code != 403 {
 			t.Errorf("%s without CSRF: %d", path, rec.Code)
 		}
 	}
-	if len(kc.Realms) != 0 || len(pc.Posts) != 0 {
+	if len(kc.Realms) != 1 || len(pc.Posts) != 0 || pc.Credentialed != 0 {
 		t.Fatal("a backend was called without CSRF")
 	}
 }
@@ -153,34 +150,13 @@ func TestSetupBootstrapFailureKeepsTypedFields(t *testing.T) {
 	e := newEnv(t, true)
 	withSetup(t, e, false)
 	e.web.setup.File, e.web.setup.Mode = nil, "setup"
-	_, pc := withBootstrapFakes(t, e)
+	withBootstrapFakes(t, e)
 	e.login(t)
-	addSite(t, e, pc.Srv.URL)
-	rec := e.do("POST", "/setup/sites/site-a/bootstrap/prism-central", e.form("username", "admin", "password", "wrong-pw-9", "url", pc.Srv.URL, "service_account", "svc-x"), true)
+	rec := e.do("POST", "/setup/bootstrap/keycloak", e.form("admin_username", "kcadmin", "admin_password", "wrong-pw-9", "realm", "msp", "display_name", "ACME MSP"), true)
 	body := rec.Body.String()
-	for _, want := range []string{"banner error", `name="username" value="admin"`, `name="service_account" value="svc-x"`, `name="password" value=""`} {
-		if rec.Code != 200 || !strings.Contains(body, want) {
-			t.Fatalf("fragment lacks %q: %d %s", want, rec.Code, body)
-		}
-	}
-	if strings.Contains(body, "wrong-pw-9") {
-		t.Fatal("the password reached the page")
-	}
-	rec = e.do("POST", "/setup/bootstrap/keycloak", e.form("admin_username", "kcadmin", "admin_password", "wrong-pw-9", "realm", "msp", "display_name", "ACME MSP"), true)
-	body = rec.Body.String()
 	for _, want := range []string{"banner error", `name="admin_username" value="kcadmin"`, `name="display_name" value="ACME MSP"`, `name="admin_password" value=""`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("keycloak fragment lacks %q: %d %s", want, rec.Code, body)
 		}
-	}
-}
-
-// addSite creates site SITE-A (id site-a) through the page, as an
-// administrator does before its bootstraps.
-func addSite(t *testing.T, e *env, pcURL string) {
-	t.Helper()
-	rec := e.do("POST", "/setup/sites/new", e.form("code", "SITE-A", "name", "Milan", "url", pcURL, "tls_verify", ""), true)
-	if rec.Code != 303 || !strings.HasPrefix(rec.Header().Get("Location"), "/setup/sites/site-a?") {
-		t.Fatalf("add site: %d %q %s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
 	}
 }

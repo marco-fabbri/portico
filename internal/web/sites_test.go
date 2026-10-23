@@ -37,26 +37,37 @@ func TestSetupPageListsSites(t *testing.T) {
 
 func TestSiteNewForm(t *testing.T) {
 	e := newEnv(t, true)
-	svc, pc, _ := withSetup(t, e, true)
+	svc, _, _ := withSetup(t, e, true)
+	_, pc, fp := withSiteFakes(t, e)
 	e.login(t)
-	if body := e.do("GET", "/setup/sites/new", nil, true).Body.String(); !strings.Contains(body, `name="code"`) || !strings.Contains(body, `name="tls_verify" value="on" checked`) {
+	if body := e.do("GET", "/setup/sites/new", nil, true).Body.String(); !strings.Contains(body, `name="code"`) || !strings.Contains(body, "<h1>Add a site</h1>") {
 		t.Fatalf("new site form: %s", body)
 	}
-	rec := e.do("POST", "/setup/sites/new", e.form("code", "AZ-US-NYC1", "name", "New York", "order", "2", "url", pc.URL, "tls_verify", "on"), true)
-	if rec.Code != 303 || !strings.HasPrefix(rec.Header().Get("Location"), "/setup/sites/az-us-nyc1?notice=") {
-		t.Fatalf("create: %d %q %s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
+	// Refusals come back in the summary block, the typed values kept by
+	// the page around it.
+	for _, c := range []struct {
+		form []string
+		want string
+	}{
+		{[]string{"code", "SITE-A", "url", pc.Srv.URL, "confirmed", "on", "pin", fp, "username", "admin", "password", "pc-pw-1"}, "exists"},
+		{[]string{"code", "AZ-2", "order", "x"}, "order"},
+		{[]string{"code", "AZ-3", "url", pc.Srv.URL, "username", "admin", "password", "pc-pw-1"}, "the certificate is not confirmed"},
+		{[]string{"code", "AZ-4", "url", pc.Srv.URL, "confirmed", "on", "pin", fp}, "username and password are required"},
+	} {
+		rec := e.do("POST", "/setup/sites/new", e.form(c.form...), true)
+		if body := rec.Body.String(); rec.Code != 200 || !strings.Contains(body, "banner error") || !strings.Contains(body, c.want) || strings.Contains(body, "pc-pw-1") {
+			t.Fatalf("%v: %d %s", c.form, rec.Code, body)
+		}
+	}
+	// The manual path: a typed key adds the site without credentials, last
+	// in the order (after SITE-A and the incomplete AZ-3).
+	rec := e.do("POST", "/setup/sites/new", e.form("code", "AZ-US-NYC1", "name", "New York", "url", pc.Srv.URL, "confirmed", "on", "pin", fp, "api_key", "nyc-key-1"), true)
+	if body := rec.Body.String(); rec.Code != 200 || !strings.Contains(body, "added from the typed API key") || strings.Contains(body, "nyc-key-1") {
+		t.Fatalf("manual path: %d %s", rec.Code, body)
 	}
 	got, _ := svc.Get(context.Background())
-	if s, ok := got.Site("az-us-nyc1"); !ok || s.Code != "AZ-US-NYC1" || s.Order != 2 || !s.TLSVerify || s.APIKey != "" {
+	if s, ok := got.Site("az-us-nyc1"); !ok || s.Order != 2 || s.TLSPin != fp || s.APIKey != "nyc-key-1" {
 		t.Fatalf("stored site = %+v %v", s, ok)
-	}
-	rec = e.do("POST", "/setup/sites/new", e.form("code", "AZ-US-NYC1", "url", pc.URL), true)
-	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "exists") || !strings.Contains(rec.Body.String(), `value="AZ-US-NYC1"`) {
-		t.Fatalf("duplicate: %d %s", rec.Code, rec.Body.String())
-	}
-	rec = e.do("POST", "/setup/sites/new", e.form("code", "AZ-2", "order", "x"), true)
-	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "order") {
-		t.Fatalf("bad order: %d", rec.Code)
 	}
 	if rec := e.do("GET", "/setup/sites/nope", nil, true); rec.Code != 404 {
 		t.Fatalf("unknown site page: %d", rec.Code)
@@ -67,9 +78,7 @@ func TestSiteRemoveAndForgetFromThePage(t *testing.T) {
 	e := newEnv(t, true)
 	svc, pc, _ := withSetup(t, e, true)
 	e.login(t)
-	if rec := e.do("POST", "/setup/sites/new", e.form("code", "AZ-SECOND", "url", pc.URL), true); rec.Code != 303 {
-		t.Fatalf("add a second site: %d", rec.Code)
-	}
+	storeSite(t, svc, settings.Site{ID: "az-second", Code: "AZ-SECOND", URL: pc.URL})
 	ctx := context.Background()
 	e.st.CreateTenant(ctx, &store.Tenant{ID: "acme", Status: store.StatusActive})
 	e.st.CreatePlacement(ctx, &store.Placement{TenantID: "acme", SiteID: "site-a", Status: store.PlacementActive, ProjectID: "portico-acme", ProjectExtID: "p-1"})
@@ -96,8 +105,8 @@ func TestSiteRemoveAndForgetFromThePage(t *testing.T) {
 	}
 	// The second site, without tenants, is removed plainly.
 	rec = e.do("POST", "/setup/sites/az-second/delete", e.form(), true)
-	if rec.Code != 303 || !strings.HasPrefix(rec.Header().Get("Location"), "/setup?notice=") {
-		t.Fatalf("delete: %d %q", rec.Code, rec.Header().Get("Location"))
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Site AZ-SECOND removed") {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
 	}
 	if got, _ := svc.Get(ctx); len(got.Sites) != 0 {
 		t.Fatalf("sites left: %+v", got.Sites)

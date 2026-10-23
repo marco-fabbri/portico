@@ -4,7 +4,7 @@
 <div class="banner warning">Setup mode: the public listener is off until every card is saved and applied.</div>
 {{end}}
 {{if .Data.Stored}}
-<p class="muted">Settings are stored in Portico's database and sealed with the master key. Saved changes take effect after <strong>Apply and restart</strong>.</p>
+<p class="muted">Settings are stored in Portico's database and sealed with the master key. Saved changes to the public names, Keycloak and the tenants' naming take effect after <strong>Apply and restart</strong>; a site changes as soon as it is saved.</p>
 {{else if eq .Data.Source "file"}}
 <div class="banner warning">Portico is running from the file: save a card to move the settings into the store, which wins from the next start.</div>
 {{else}}
@@ -30,10 +30,11 @@
   {{if .Data.Incomplete}}<p class="state todo">Not served until complete (the other sites keep running): {{range $i, $s := .Data.Incomplete}}{{if $i}}; {{end}}{{$s}}{{end}}.</p>{{end}}
   {{if .Data.Sites}}
   <table>
-    <thead><tr><th>Code</th><th>Name</th><th>Prism Central</th><th>Service account</th><th>SAML trust</th><th>Tenants</th></tr></thead>
+    <thead><tr><th>Code</th><th>Name</th><th>Prism Central</th><th>Status</th><th>Service account</th><th>SAML trust</th><th>Tenants</th></tr></thead>
     <tbody>
     {{range .Data.Sites}}<tr>
       <td><a href="/setup/sites/{{.S.ID}}">{{.S.Code}}</a></td><td>{{.S.Name}}</td><td><code>{{.S.URL}}</code></td>
+      <td>{{with .Status}}<span class="status status-{{.}}">{{.}}</span>{{else}}<span class="muted">not running</span>{{end}}</td>
       <td>{{if .KeySet}}key stored{{else}}<span class="state todo">missing</span>{{end}}</td>
       <td>{{with .S.SAMLIdPName}}<code>{{.}}</code>{{else}}<span class="state todo">missing</span>{{end}}</td>
       <td>{{len .Tenants}}</td>

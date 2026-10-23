@@ -1,6 +1,11 @@
 {{define "content"}}
 <div class="page-head"><div><h1>Site {{.Data.S.Code}}{{with .Data.Live}} <span class="status status-{{.Status}}">{{.Status}}</span>{{end}}</h1><p>{{with .Data.S.Name}}{{.}} · {{end}}<a href="/setup">Back to the setup</a></p></div></div>
 
+<section class="card" id="card-status">
+  <h2>Status</h2>
+  <div id="site-status" hx-get="/setup/sites/{{.Data.S.ID}}/status" hx-trigger="load" hx-swap="outerHTML"><p class="muted">Checking Prism Central and Keycloak…</p></div>
+</section>
+
 {{if .Data.Running}}
 <section class="card" id="card-tenants">
   <h2>Tenants on this site</h2>
@@ -51,38 +56,27 @@
 
 <section class="card" id="card-connection">
   <h2>Connection</h2>
-  {{if and .Data.S.URL .Data.KeySet}}<p class="state done">Configured: Portico works on <code>{{.Data.S.URL}}</code> with its service account; the API key is stored.</p>{{else}}<p class="state todo">Not configured yet: the URL and a service account API key are needed, typed here or created by Portico below.</p>{{end}}
   <form method="post" action="/setup/sites/{{.Data.S.ID}}/save" id="form-site">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
     <label>Code <input type="text" name="code" value="{{.Data.S.Code}}" pattern="[A-Z0-9][A-Z0-9-]{1,31}" required></label>
     <label>Name <input type="text" name="name" value="{{.Data.S.Name}}"></label>
     <label>Order <input type="number" name="order" value="{{.Data.S.Order}}"></label>
-    <label>Prism Central URL <input type="url" name="url" value="{{.Data.S.URL}}" required></label>
-    <label class="inline"><input type="checkbox" name="tls_verify" value="on"{{if .Data.S.TLSVerify}} checked{{end}}> verify the TLS certificate</label>
-    <label>CA certificate (PEM, when verifying a private CA) <textarea name="ca_pem" rows="4">{{.Data.S.CAPEM}}</textarea></label>
-    <label>Service account API key {{template "input-site_api_key" .Data}}</label>
-    <p class="muted">Default placement of new tenants on this site; a successful check or bootstrap fills the pickers.</p>
+    <label>Prism Central address <input type="url" name="url" value="{{.Data.S.URL}}" required></label>
+    <p class="muted">Default placement of new tenants on this site; Check fills the menus from Prism Central.</p>
     <label>Cluster <input type="text" name="cluster_ext_id" id="cluster_ext_id" value="{{.Data.S.ClusterExtID}}"></label>
     <label>Storage container <input type="text" name="storage_container_ext_id" id="storage_container_ext_id" value="{{.Data.S.StorageContainerExtID}}"></label>
+    <details><summary>Advanced</summary>
+      <label>CA certificate (PEM), when Prism Central's certificate comes from a private CA <textarea name="ca_pem" rows="4">{{.Data.S.CAPEM}}</textarea></label>
+      <p class="muted">Manual path: the API key of a service account created in Prism Central by hand, and the name of a SAML identity provider made by hand. Finish setup and Repair do both for you.</p>
+      <label>Service account API key {{template "input-site_api_key" .Data}}</label>
+      <label>SAML identity provider name <input type="text" name="saml_idp_name" value="{{.Data.S.SAMLIdPName}}" placeholder="portico-keycloak"></label>
+    </details>
     <div class="actions">
       <button type="button" hx-post="/setup/sites/{{.Data.S.ID}}/check" hx-include="closest form" hx-target="#check-site">Check</button>
       <button type="submit" class="primary">Save</button>
     </div>
     <div id="check-site" class="check-result"></div>
   </form>
-  <details{{if not .Data.KeySet}} open{{end}}><summary>Let Portico create the service account</summary><div id="boot-site_sa" class="bootstrap">{{template "boot-form-site_sa" .}}</div></details>
-</section>
-
-<section class="card" id="card-saml">
-  <h2>SAML trust</h2>
-  {{if .Data.S.SAMLIdPName}}<p class="state done">Configured: this Prism Central trusts the identity provider <code>{{.Data.S.SAMLIdPName}}</code>.</p>{{else}}<p class="state todo">Not configured yet: create the trust below once the connection and the identity cards are done.</p>{{end}}
-  <form method="post" action="/setup/sites/{{.Data.S.ID}}/save" id="form-site_saml">
-    <input type="hidden" name="_csrf" value="{{.CSRF}}">
-    <label>Identity provider name in Prism Central {{template "input-site_saml_idp_name" .Data}}</label>
-    <p class="muted">Save only for a trust created by hand in Prism Central; otherwise let Portico create it below.</p>
-    <div class="actions"><button type="submit">Save</button></div>
-  </form>
-  <details{{if not .Data.S.SAMLIdPName}} open{{end}}><summary>Let Portico create the SAML trust</summary><div id="boot-site_saml" class="bootstrap">{{template "boot-form-site_saml" .}}</div></details>
 </section>
 
 <section class="card" id="card-remove">
@@ -90,9 +84,12 @@
   {{if .Data.Tenants}}
   <p class="state todo">Tenants placed here: {{range $i, $t := .Data.Tenants}}{{if $i}}, {{end}}<a href="/tenants/{{$t}}">{{$t}}</a>{{end}}. Disconnect them from this site first.</p>
   {{else}}
+  <p>Portico deletes its Keycloak client for this site and stops serving it. With the credentials of a Prism Central administrator it also deletes its identity provider and the service account's API key in Prism Central; without them, it lists what it leaves there. The credentials are used for this removal only.</p>
   <form method="post" action="/setup/sites/{{.Data.S.ID}}/delete">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
-    <div class="actions"><button type="submit">Remove this site</button></div>
+    <label>Username (optional) <input type="text" name="username" value="" autocomplete="off"></label>
+    <label>Password (optional) <input type="password" name="password" value="" autocomplete="new-password"></label>
+    <div class="actions"><button type="submit" class="danger">Remove this site</button></div>
   </form>
   {{end}}
   <details><summary>Forget this site (its Prism Central is gone for good)</summary>
@@ -106,39 +103,8 @@
 </section>
 {{end}}
 
-{{define "input-site_api_key"}}<input type="password" name="api_key" id="api_key" value="" autocomplete="new-password" placeholder="{{if .KeySet}}unchanged{{else}}required{{end}}"{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
-{{define "input-site_saml_idp_name"}}<input type="text" name="saml_idp_name" id="saml_idp_name" value="{{with .S.SAMLIdPName}}{{.}}{{else}}portico-keycloak{{end}}" required{{if .OOB}} hx-swap-oob="true"{{end}}>{{end}}
+{{define "input-site_api_key"}}<input type="password" name="api_key" id="api_key" value="" autocomplete="new-password" placeholder="{{if .KeySet}}unchanged{{else}}none stored{{end}}">{{end}}
 
-{{define "boot-form-site_sa"}}
-<p>Enter once the credentials of an account that can create users and edit authorization policies in this Prism Central. They are used for this call and not stored.</p>
-<form hx-post="/setup/sites/{{.Data.S.ID}}/bootstrap/prism-central" hx-include="#form-site" hx-target="#boot-site_sa">
-  <input type="hidden" name="_csrf" value="{{.CSRF}}">
-  <label>Username <input type="text" name="username" value="{{index .Data.Form "username"}}" autocomplete="off"></label>
-  <label>Password <input type="password" name="password" value="" autocomplete="new-password"></label>
-  <label>Service account to create <input type="text" name="service_account" value="{{with index .Data.Form "service_account"}}{{.}}{{else}}portico{{end}}"></label>
-  <div class="actions"><button type="submit">Create the service account</button></div>
-</form>
-{{end}}
-{{define "boot-form-site_saml"}}
-<p>Portico uses the site's service account; the credentials are needed only when Prism Central refuses it for this step. They are used for this call and not stored.</p>
-<form hx-post="/setup/sites/{{.Data.S.ID}}/bootstrap/saml" hx-include="#form-site_saml" hx-target="#boot-site_saml">
-  <input type="hidden" name="_csrf" value="{{.CSRF}}">
-  <label>Username (optional) <input type="text" name="username" value="{{index .Data.Form "username"}}" autocomplete="off"></label>
-  <label>Password (optional) <input type="password" name="password" value="" autocomplete="new-password"></label>
-  <div class="actions"><button type="submit">Create the SAML trust</button></div>
-</form>
-{{end}}
-
-{{define "site_bootstrap_prism_central"}}
-<div class="banner {{.Status}}">{{.Message}}</div>
-{{template "boot-form-site_sa" .}}
-{{if .OK}}{{template "input-site_api_key" .Data}}{{template "site-pickers" .}}{{end}}
-{{end}}
-{{define "site_bootstrap_saml"}}
-<div class="banner {{.Status}}">{{.Message}}</div>
-{{template "boot-form-site_saml" .}}
-{{if .OK}}{{template "input-site_saml_idp_name" .Data}}{{end}}
-{{end}}
 {{define "site_check"}}
 <div class="banner {{.Status}}">{{.Message}}</div>
 {{if .OK}}{{template "site-pickers" .}}{{end}}
@@ -170,4 +136,47 @@
   {{else}}
   <p class="state done">No user is connected to this site through Portico.</p>
   {{end}}
+</div>{{end}}{{end}}
+
+{{/* The status card (sites usability design 4.2): what Prism Central and Keycloak answer now, and the action each row calls for. */}}
+{{define "site_status"}}{{with .Data}}<div id="site-status">
+{{if .Error}}<div class="banner error">{{.Error}}</div>{{else}}
+{{if .Unverified}}<div class="banner warning">The certificate is not verified: this site was stored with verification off. Compare the fingerprint below with the one your browser shows on the Prism Central address (Chrome: the padlock, "Certificate is not valid", Details, SHA-256 fingerprint), then pin it.</div>{{end}}
+<table class="status-card">
+  <tbody>{{range .Rows}}<tr>
+    <th>{{.Name}}</th>
+    <td>{{if .OK}}<span class="state done">ok</span>{{else if .Unknown}}<span class="muted">not checked</span>{{else}}<span class="state todo">{{with .Action}}{{.}}{{else}}failed{{end}}</span>{{end}}</td>
+    <td>{{.Message}}</td>
+  </tr>{{end}}</tbody>
+</table>
+{{if .CertChanged}}
+<div class="banner error">The certificate changed: Prism Central presents <code>{{.CertChanged}}</code>. The site takes no new entries until you compare it with the one your browser shows on the Prism Central address and confirm it.</div>
+<form method="post" action="/setup/sites/{{.S.ID}}/pin">
+  <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+  <input type="hidden" name="fingerprint" value="{{.CertChanged}}">
+  <div class="actions"><button type="submit" class="primary">Confirm the new certificate</button></div>
+</form>
+{{else if .PinCurrent}}
+<form method="post" action="/setup/sites/{{.S.ID}}/pin">
+  <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+  <input type="hidden" name="fingerprint" value="{{.PinCurrent}}">
+  <p>Prism Central presents <code>{{.PinCurrent}}</code>.</p>
+  <div class="actions"><button type="submit" class="primary">Pin the current certificate</button></div>
+</form>
+{{end}}
+{{if or .Finish .Repair}}
+<form hx-post="/setup/sites/{{.S.ID}}/setup" hx-target="#site-run" hx-indicator="#site-running">
+  <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+  <p>{{if .Finish}}Finish setup runs the steps that are missing{{else}}Repair creates the missing objects again and binds the tenants connected to this site to them{{end}}, with the credentials of a Prism Central account allowed to create users, roles and identity providers. They are used for this run and not stored.</p>
+  <label>Username <input type="text" name="username" value="" autocomplete="off"></label>
+  <label>Password <input type="password" name="password" value="" autocomplete="new-password"></label>
+  <details><summary>Advanced</summary>
+    <label>Service account <input type="text" name="service_account" value="portico"></label>
+  </details>
+  <div class="actions"><button type="submit" class="primary">{{if .Finish}}Finish setup{{else}}Repair{{end}}</button></div>
+  <p id="site-running" class="htmx-indicator muted">Setting up the site, this takes up to two minutes…</p>
+</form>
+<div id="site-run" class="check-result"></div>
+{{end}}
+{{end}}
 </div>{{end}}{{end}}
