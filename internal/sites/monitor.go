@@ -22,7 +22,42 @@ const (
 	Available   Status = "available"
 	Maintenance Status = "maintenance"
 	Unreachable Status = "unreachable"
+	// Incomplete: Prism Central or Keycloak says the site's setup is broken
+	// (key refused, SAML trust or Keycloak client missing). It takes no new
+	// entries until Repair (sites usability design 4.2).
+	Incomplete Status = "incomplete"
 )
+
+// TrustInterval is how often the SAML trust and the Keycloak client of
+// every site are checked; the key is checked by every probe.
+const TrustInterval = 5 * time.Minute
+
+// IncompleteError is a probe or trust check finding the site's setup
+// broken. Immediate (a trust or client missing) counts at once; a refused
+// key counts after FailuresToUnreachable in a row (write-up 25: NTNX-01's
+// IAM answered isolated 401s).
+type IncompleteError struct {
+	Reason    string
+	Immediate bool
+}
+
+func (e *IncompleteError) Error() string { return "site incomplete: " + e.Reason }
+
+// CertChangedError is a pinned site presenting another certificate. It
+// counts at once: no retry makes the old certificate come back.
+type CertChangedError struct {
+	Fingerprint string
+}
+
+func (e *CertChangedError) Error() string { return "certificate changed: presented " + e.Fingerprint }
+
+// Detail is a site's status with why.
+type Detail struct {
+	Status         Status    `json:"status"`
+	Reason         string    `json:"reason,omitempty"`
+	NewFingerprint string    `json:"new_fingerprint,omitempty"`
+	CheckedAt      time.Time `json:"checked_at,omitzero"`
+}
 
 // FailuresToUnreachable is how many failed probes in a row make a site
 // unreachable; one answer makes it available again (write-up 21: one
@@ -42,12 +77,18 @@ type state struct {
 
 // Monitor probes the sites and holds their maintenance flags.
 type Monitor struct {
-	st     store.Store
-	probes map[string]Prober
-	log    *slog.Logger
+	st  store.Store
+	log *slog.Logger
 
 	mu          sync.RWMutex
-	failures    map[string]int // failed probes in a row; absent before the first probe
+	probes      map[string]Prober
+	trust       map[string]Prober
+	failures    map[string]int    // failed probes in a row; absent before the first probe
+	refusals    map[string]int    // refused keys in a row
+	lastReason  map[string]string // the last refusal's reason
+	untrusted   map[string]string // trust or client missing: the reason
+	certChanged map[string]string // the fingerprint now presented
+	checkedAt   map[string]time.Time
 	maintenance map[string]bool
 }
 
@@ -56,7 +97,8 @@ func NewMonitor(st store.Store, probes map[string]Prober, log *slog.Logger) *Mon
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Monitor{st: st, probes: probes, log: log, failures: map[string]int{}, maintenance: map[string]bool{}}
+	return &Monitor{st: st, probes: probes, log: log, failures: map[string]int{}, refusals: map[string]int{}, lastReason: map[string]string{},
+		untrusted: map[string]string{}, certChanged: map[string]string{}, checkedAt: map[string]time.Time{}, maintenance: map[string]bool{}}
 }
 
 // Load reads the maintenance flags from the store.
@@ -83,23 +125,36 @@ func (m *Monitor) Load(ctx context.Context) error {
 	return nil
 }
 
-// Status says what a site is now: maintenance wins over the probe; a
-// site is unreachable after FailuresToUnreachable failed probes in a row
-// and counts as available before that; a site without a prober (not
-// configured in this process) is unreachable.
-func (m *Monitor) Status(siteID string) Status {
+// Status says what a site is now.
+func (m *Monitor) Status(siteID string) Status { return m.Detail(siteID).Status }
+
+// Detail says what a site is now and why, in this order: maintenance; a
+// changed certificate (unreachable, at once); not probed in this process
+// (unreachable); trust or Keycloak client missing (incomplete, at once);
+// the key refused FailuresToUnreachable times in a row (incomplete);
+// FailuresToUnreachable failed probes in a row (unreachable); otherwise
+// available, also before the first probe.
+func (m *Monitor) Detail(siteID string) Detail {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.maintenance[siteID] {
-		return Maintenance
+	d := Detail{CheckedAt: m.checkedAt[siteID]}
+	switch {
+	case m.maintenance[siteID]:
+		d.Status = Maintenance
+	case m.certChanged[siteID] != "":
+		d.Status, d.Reason, d.NewFingerprint = Unreachable, "certificate changed", m.certChanged[siteID]
+	case m.probes[siteID] == nil:
+		d.Status, d.Reason = Unreachable, "not served"
+	case m.untrusted[siteID] != "":
+		d.Status, d.Reason = Incomplete, m.untrusted[siteID]
+	case m.refusals[siteID] >= FailuresToUnreachable:
+		d.Status, d.Reason = Incomplete, m.lastReason[siteID]
+	case m.failures[siteID] >= FailuresToUnreachable:
+		d.Status, d.Reason = Unreachable, m.lastReason[siteID]
+	default:
+		d.Status = Available
 	}
-	if _, known := m.probes[siteID]; !known {
-		return Unreachable
-	}
-	if m.failures[siteID] >= FailuresToUnreachable {
-		return Unreachable
-	}
-	return Available
+	return d
 }
 
 // SetProbes replaces the probed sites (sites usability design 4.9): a
@@ -108,12 +163,89 @@ func (m *Monitor) Status(siteID string) Status {
 func (m *Monitor) SetProbes(probes map[string]Prober) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for id := range m.failures {
-		if _, ok := probes[id]; !ok {
-			delete(m.failures, id)
+	for _, mp := range []map[string]int{m.failures, m.refusals} {
+		for id := range mp {
+			if _, ok := probes[id]; !ok {
+				delete(mp, id)
+			}
+		}
+	}
+	for _, mp := range []map[string]string{m.untrusted, m.certChanged, m.lastReason} {
+		for id := range mp {
+			if _, ok := probes[id]; !ok {
+				delete(mp, id)
+			}
 		}
 	}
 	m.probes = probes
+}
+
+// SetTrustChecks replaces the checks of the sites' SAML trust and
+// Keycloak client, run every TrustInterval by Run and by CheckTrust.
+func (m *Monitor) SetTrustChecks(checks map[string]Prober) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.trust = checks
+}
+
+// CheckTrust runs every trust check once, each bounded by timeout. Only
+// an IncompleteError marks a site; any other error (a slow answer) leaves
+// the last result as it was.
+func (m *Monitor) CheckTrust(ctx context.Context, timeout time.Duration) {
+	m.mu.RLock()
+	checks := m.trust
+	m.mu.RUnlock()
+	var wg sync.WaitGroup
+	for id, check := range checks {
+		wg.Add(1)
+		go func(id string, check Prober) {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, timeout)
+			err := check(cctx)
+			cancel()
+			var inc *IncompleteError
+			switch {
+			case err == nil:
+				m.setUntrusted(id, "")
+			case errors.As(err, &inc) && inc.Immediate:
+				m.setUntrusted(id, inc.Reason)
+			default:
+				// A refused key or a slow answer: the probe counts those.
+				m.log.Warn("site trust not checked", "site", id, "err", err.Error())
+			}
+		}(id, check)
+	}
+	wg.Wait()
+}
+
+func (m *Monitor) setUntrusted(id, reason string) {
+	m.mu.Lock()
+	was := m.untrusted[id]
+	if reason == "" {
+		delete(m.untrusted, id)
+	} else {
+		m.untrusted[id] = reason
+	}
+	m.mu.Unlock()
+	if was != reason {
+		m.log.Info("site trust", "site", id, "ok", reason == "", "reason", reason)
+	}
+}
+
+// Report records the outcome of an on-demand check of a site (its page's
+// status card): nil clears what it covers; an IncompleteError marks the
+// trust or counts a refused key; a CertChangedError marks the certificate;
+// any other error counts as a failed probe.
+func (m *Monitor) Report(id string, err error) {
+	var inc *IncompleteError
+	if errors.As(err, &inc) && inc.Immediate {
+		m.setUntrusted(id, inc.Reason)
+		return
+	}
+	if err == nil {
+		m.setUntrusted(id, "")
+	}
+	m.record(id, err)
 }
 
 // Maintenance reports the site's maintenance flag.
@@ -166,44 +298,74 @@ func (m *Monitor) ProbeOnce(ctx context.Context, timeout time.Duration) {
 			pctx, cancel := context.WithTimeout(ctx, timeout)
 			err := probe(pctx)
 			cancel()
-			m.mu.Lock()
-			if _, kept := m.probes[id]; !kept {
-				m.mu.Unlock() // dropped by SetProbes while it was probed
-				return
-			}
-			n, probed := m.failures[id]
-			was := n < FailuresToUnreachable
-			if err == nil {
-				n = 0
-			} else {
-				n++
-			}
-			m.failures[id] = n
-			now := n < FailuresToUnreachable
-			m.mu.Unlock()
-			if !probed || was != now {
-				attrs := []any{"site", id, "reachable", now}
-				if err != nil {
-					attrs = append(attrs, "failures", n, "err", err.Error())
-				}
-				m.log.Info("site probe", attrs...)
+			m.mu.RLock()
+			_, kept := m.probes[id]
+			m.mu.RUnlock()
+			if kept { // not dropped by SetProbes while it was probed
+				m.record(id, err)
 			}
 		}(id, probe)
 	}
 	wg.Wait()
 }
 
-// Run probes at once, then every interval, until ctx is done.
+// record counts one probe result and logs the first result of a site and
+// every change of its status.
+func (m *Monitor) record(id string, err error) {
+	before := m.Detail(id)
+	m.mu.Lock()
+	_, probed := m.checkedAt[id]
+	m.checkedAt[id] = time.Now()
+	var inc *IncompleteError
+	var cc *CertChangedError
+	switch {
+	case err == nil:
+		m.failures[id], m.refusals[id] = 0, 0
+		delete(m.certChanged, id)
+		delete(m.lastReason, id)
+	case errors.As(err, &cc):
+		m.certChanged[id] = cc.Fingerprint
+	case errors.As(err, &inc):
+		m.refusals[id]++
+		m.failures[id] = 0
+		m.lastReason[id] = inc.Reason
+	default:
+		m.failures[id]++
+		m.refusals[id] = 0
+		m.lastReason[id] = err.Error()
+	}
+	if err != nil && cc == nil {
+		delete(m.certChanged, id)
+	}
+	n := m.failures[id] + m.refusals[id]
+	m.mu.Unlock()
+	after := m.Detail(id)
+	if !probed || before.Status != after.Status {
+		attrs := []any{"site", id, "status", string(after.Status), "reachable", after.Status != Unreachable}
+		if err != nil {
+			attrs = append(attrs, "failures", n, "err", err.Error())
+		}
+		m.log.Info("site probe", attrs...)
+	}
+}
+
+// Run probes and checks the trust at once, then probes every interval and
+// checks the trust every TrustInterval, until ctx is done.
 func (m *Monitor) Run(ctx context.Context, interval, timeout time.Duration) {
 	m.ProbeOnce(ctx, timeout)
+	m.CheckTrust(ctx, timeout)
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	tt := time.NewTicker(TrustInterval)
+	defer tt.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 			m.ProbeOnce(ctx, timeout)
+		case <-tt.C:
+			m.CheckTrust(ctx, timeout)
 		}
 	}
 }

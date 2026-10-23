@@ -221,7 +221,7 @@ func (h *handler) fail(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "counts": ne.Contents.Counts})
 	case errors.Is(err, tenant.ErrCount):
 		writeError(w, http.StatusServiceUnavailable, err.Error())
-	case errors.Is(err, tenant.ErrBusy), errors.Is(err, tenant.ErrState), errors.Is(err, tenant.ErrPlacementExists), errors.Is(err, tenant.ErrHasSites):
+	case errors.Is(err, tenant.ErrBusy), errors.Is(err, tenant.ErrState), errors.Is(err, tenant.ErrPlacementExists), errors.Is(err, tenant.ErrHasSites), errors.Is(err, tenant.ErrSiteIncomplete):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, tenant.ErrInvalidSlug), errors.Is(err, tenant.ErrUnknownSite), errors.Is(err, tenant.ErrNoPlacementTarget):
 		writeError(w, http.StatusBadRequest, err.Error())

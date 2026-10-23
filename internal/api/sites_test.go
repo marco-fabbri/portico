@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/marco-fabbri/portico/internal/settings"
+	"github.com/marco-fabbri/portico/internal/sites"
 	"github.com/marco-fabbri/portico/internal/store"
 )
 
@@ -123,5 +125,39 @@ func TestSitesAPIForget(t *testing.T) {
 	}
 	if !strings.Contains(e.log.String(), "site forgotten") || strings.Contains(e.log.String(), "gone-key") {
 		t.Fatalf("log: %s", e.log.String())
+	}
+}
+
+func TestSiteStatusEndpointReportsToMonitor(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	mon, _ := withRuntime(t, e)
+	// The identity provider Portico created is gone from Prism Central.
+	if err := e.svc.Patch(context.Background(), func(d *settings.Settings) { d.Sites[0].SAMLIdPExtID = "idp-gone" }); err != nil {
+		t.Fatal(err)
+	}
+	rec, out := e.do("GET", "/api/v1/sites/site-a/status", "")
+	if rec.Code != 200 || out["status"] != "incomplete" || !strings.Contains(out["reason"].(string), "missing") {
+		t.Fatalf("status: %d %s", rec.Code, rec.Body.String())
+	}
+	saml := out["saml"].(map[string]any)
+	if saml["ok"] != false || saml["action"] != "Repair" || out["connection"].(map[string]any)["ok"] != true || out["defaults"].(map[string]any)["ok"] != true {
+		t.Fatalf("parts: %s", rec.Body.String())
+	}
+	if d := mon.Detail("site-a"); d.Status != sites.Incomplete || d.Reason != out["reason"] {
+		t.Fatalf("monitor detail = %+v", d)
+	}
+	if rec, _ := e.do("GET", "/api/v1/sites/nope/status", ""); rec.Code != 404 {
+		t.Fatalf("unknown site: %d", rec.Code)
+	}
+}
+
+func TestSiteStatusInSetupMode(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	rec, out := e.do("GET", "/api/v1/sites/site-a/status", "")
+	if rec.Code != 200 || out["connection"].(map[string]any)["ok"] != true {
+		t.Fatalf("status without a runtime: %d %s", rec.Code, rec.Body.String())
+	}
+	if _, has := out["status"]; has {
+		t.Fatalf("a status without a monitor: %v", out)
 	}
 }

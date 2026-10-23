@@ -30,6 +30,9 @@ var (
 	ErrExists = errors.New("tenant: already exists")
 	// ErrUnknownSite: the request names a site that is not configured.
 	ErrUnknownSite = errors.New("tenant: no such site")
+	// ErrSiteIncomplete: the site's setup is broken (sites usability 4.2):
+	// no tenant is connected to it until Repair.
+	ErrSiteIncomplete = errors.New("tenant: the site's setup is incomplete")
 	// ErrHasSites: a tenant is deleted only when it is connected to no
 	// site (design sites usability 4.6).
 	ErrHasSites = errors.New("tenant: the tenant is still connected to a site; disconnect it from every site first")
@@ -138,6 +141,7 @@ type Service struct {
 	sitesMu sync.RWMutex
 	sites   map[string]Site
 	order   []string
+	gate    func(siteID string) error
 	kc      Keycloak
 	cfg     Config
 	log     *slog.Logger
@@ -170,6 +174,15 @@ func (s *Service) SetSites(sites []Site) {
 	}
 	s.sitesMu.Lock()
 	s.sites, s.order = m, order
+	s.sitesMu.Unlock()
+}
+
+// SetSiteGate sets the check a site must pass before a tenant is
+// connected to it: the appliance refuses an incomplete site with an
+// error wrapping ErrSiteIncomplete.
+func (s *Service) SetSiteGate(gate func(siteID string) error) {
+	s.sitesMu.Lock()
+	s.gate = gate
 	s.sitesMu.Unlock()
 }
 
@@ -236,6 +249,14 @@ func (s *Service) placementFor(tenantID string, r PlacementRequest) (*store.Plac
 	site, ok := s.lookupSite(r.Site)
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrUnknownSite, r.Site)
+	}
+	s.sitesMu.RLock()
+	gate := s.gate
+	s.sitesMu.RUnlock()
+	if gate != nil {
+		if err := gate(site.ID); err != nil {
+			return nil, err
+		}
 	}
 	p := &store.Placement{TenantID: tenantID, SiteID: site.ID, Status: store.PlacementCreating,
 		ClusterExtID: r.ClusterExtID, StorageContainerExtID: r.StorageContainerExtID, ProjectID: s.projectName(tenantID)}

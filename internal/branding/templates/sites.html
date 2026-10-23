@@ -18,7 +18,7 @@
   .tile .name { display: block; color: #6b6762; font-size: .9rem; }
   .tile .state { display: flex; align-items: center; gap: .4rem; margin-top: .8rem; font-size: .8rem; color: #2e7d32; }
   .tile .state::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: currentColor; }
-  .tile .state.maintenance, .tile .state.suspended { color: #9a6200; }
+  .tile .state.maintenance, .tile .state.suspended, .tile .state.incomplete { color: #9a6200; }
   .tile .state.unreachable { color: #a73422; }
   .who { font-size: .9rem; opacity: .85; }
   .who a { color: {{.B.TextColor}}; }
@@ -33,7 +33,7 @@
     <button class="tile" type="submit" name="site" value="{{.ID}}"{{if not .Selectable}} disabled{{end}}>
       <span class="code">{{.Code}}</span>
       {{if .Name}}<span class="name">{{.Name}}</span>{{end}}
-      <span class="state {{.Status}}">{{if eq .Status "available"}}Available{{else if eq .Status "maintenance"}}In maintenance{{else if eq .Status "suspended"}}Not available{{else}}Unreachable{{end}}{{if .Current}} · current{{end}}</span>
+      <span class="state {{.Status}}">{{if eq .Status "available"}}Available{{else if eq .Status "maintenance"}}In maintenance{{else if or (eq .Status "suspended") (eq .Status "incomplete")}}Not available{{else}}Unreachable{{end}}{{if .Current}} · current{{end}}</span>
     </button>
   </form>
   {{end}}
