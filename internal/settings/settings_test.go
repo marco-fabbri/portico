@@ -296,6 +296,37 @@ func TestSetRunsTheChangeHooks(t *testing.T) {
 	}
 }
 
+// The hooks get the sites' keys unsealed: the runtime builds each site's
+// client from them (sites usability design 4.9). Sealing a shallow copy
+// sealed the caller's sites too, so after every save the sites called
+// Prism Central with the sealed key until the next reload (401 on the
+// appliance, write-up 26).
+func TestHooksGetTheSitesKeysUnsealed(t *testing.T) {
+	ctx := context.Background()
+	svc := NewService(newStore(t), sealerFor(t, 1))
+	var keys []string
+	svc.OnChange(func(ctx context.Context, s Settings) error {
+		for _, site := range s.Sites {
+			keys = append(keys, string(site.APIKey))
+		}
+		return nil
+	})
+	in := sample()
+	in.Sites = []Site{{ID: "site-a", Code: "SITE-A", URL: "https://10.0.0.10:9440", TLSVerify: true, APIKey: "key-a"}}
+	if err := svc.Set(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	if in.Sites[0].APIKey != "key-a" {
+		t.Fatalf("Set changed the caller's site key to %q", in.Sites[0].APIKey)
+	}
+	if err := svc.Patch(ctx, func(d *Settings) { d.Sites[0].Name = "Milan" }); err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 2 || keys[0] != "key-a" || keys[1] != "key-a" {
+		t.Fatalf("hook keys = %q", keys)
+	}
+}
+
 func TestWriteKeycloakHostnameFile(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "keycloak.hostname.env")
 	if err := WriteKeycloakHostname(p, "id.example.test"); err != nil {

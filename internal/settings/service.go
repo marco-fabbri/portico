@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -128,7 +129,10 @@ func (s *Service) set(ctx context.Context, in Settings) error {
 	if err := in.ValidateFormat(); err != nil {
 		return &ValidationError{Err: err}
 	}
+	// The sites are copied: sealing them in place would seal the
+	// caller's document and the one the hooks get.
 	sealed := in
+	sealed.Sites = slices.Clone(in.Sites)
 	for _, f := range secretFields(&sealed) {
 		if *f.ptr == "" {
 			continue
