@@ -31,7 +31,9 @@ type StepLine struct {
 }
 
 // SetupResult is what a setup run leaves: the stored site, one line per
-// step that ran, and whether the site is complete. IdPChanged says the
+// step that ran, and whether the run completed the site: every step up to
+// "live" passed. A Repair that stops early is not complete although the
+// site's row may be. IdPChanged says the
 // stored identity provider was replaced by a new one, OldIdPExtID (Repair
 // moves the tenants off it).
 type SetupResult struct {
@@ -101,7 +103,7 @@ func (b *Bootstrapper) SetupSite(ctx context.Context, keycloakURL, siteID string
 			r.site = s
 		}
 	}
-	res := SetupResult{Site: r.site, Steps: r.steps, Complete: r.site.Complete(), IdPChanged: r.oldIdP != "", OldIdPExtID: r.oldIdP}
+	res := SetupResult{Site: r.site, Steps: r.steps, Complete: r.live, IdPChanged: r.oldIdP != "", OldIdPExtID: r.oldIdP}
 	b.log.Info("site setup", "site", siteID, "complete", res.Complete, "steps", len(res.Steps), "idp_changed", res.IdPChanged)
 	return res, nil
 }
@@ -123,6 +125,7 @@ type setupRun struct {
 	descriptor []byte
 	own        *nutanix.SAMLIdP
 	oldIdP     string
+	live       bool // the run reached "live" and passed it
 }
 
 func (r *setupRun) line(name, status, msg string) bool {
@@ -158,7 +161,7 @@ func (r *setupRun) run() {
 		}
 	}
 	r.defaults() // a site without defaults is served; the status card says Choose
-	r.live()
+	r.live = r.liveStep()
 }
 
 // certificate: one handshake, before any credential travels (design
@@ -403,9 +406,9 @@ func (r *setupRun) defaults() bool {
 	return r.line(step, "ok", fmt.Sprintf("cluster %s, storage container %s", cluster.Name, scName))
 }
 
-// live: the stores above ran the settings' change hook, which serves a
-// complete site (design sites 4.9).
-func (r *setupRun) live() bool {
+// liveStep is the "live" step: the stores above ran the settings' change
+// hook, which serves a complete site (design sites 4.9).
+func (r *setupRun) liveStep() bool {
 	if !r.site.Complete() {
 		return r.line("live", "failed", "the site lacks its key or its SAML trust")
 	}
