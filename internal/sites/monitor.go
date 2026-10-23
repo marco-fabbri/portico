@@ -283,6 +283,16 @@ func (m *Monitor) SetMaintenance(ctx context.Context, siteID string, on bool) er
 	return nil
 }
 
+// ClearMaintenance drops a removed site's flag, so a site added later
+// with the same id does not start in maintenance; nothing is written
+// when the flag is not set.
+func (m *Monitor) ClearMaintenance(ctx context.Context, siteID string) error {
+	if !m.Maintenance(siteID) {
+		return nil
+	}
+	return m.SetMaintenance(ctx, siteID, false)
+}
+
 // ProbeOnce probes every site in parallel, each bounded by timeout, and
 // logs the first result of each site and every change of its
 // reachability.

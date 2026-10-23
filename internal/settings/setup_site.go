@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -161,44 +162,57 @@ func (r *setupRun) run() {
 }
 
 // certificate: one handshake, before any credential travels (design
-// sites 4.3). The certificate is trusted, or it is the stored pin, or
-// the MSP confirmed it now, which pins it.
+// sites 4.3); a pin the MSP confirmed now is stored at once.
 func (r *setupRun) certificate() bool {
 	const step = "certificate"
-	info, err := InspectCertificate(r.ctx, r.site.URL, []byte(r.site.CAPEM))
+	pc, trusted, msg, err := adminClient(r.ctx, r.site, r.in, r.b.log)
 	if err != nil {
 		return r.line(step, "failed", err.Error())
 	}
-	pin, verify := r.site.TLSPin, r.site.TLSVerify
-	confirmed := strings.ToUpper(strings.TrimSpace(r.in.Pin))
-	var msg string
-	switch {
-	case pin != "" && info.Fingerprint == pin:
-		msg = "the pinned certificate is presented (" + info.Fingerprint + ")"
-	case confirmed != "" && confirmed == info.Fingerprint:
-		pin, msg = info.Fingerprint, "certificate confirmed and pinned ("+info.Fingerprint+")"
-	case pin == "" && info.Trusted:
-		verify, msg = true, "the certificate is trusted: issued by "+info.Issuer
-	case pin != "":
-		return r.line(step, "failed", "certificate changed: Prism Central presents "+info.Fingerprint+"; the certificate is not confirmed")
-	default:
-		return r.line(step, "failed", "the certificate is not confirmed: Prism Central presents "+info.Fingerprint)
-	}
-	if pin != r.site.TLSPin || verify != r.site.TLSVerify {
-		if err := r.patch(func(s *Site) { s.TLSPin, s.TLSVerify = pin, verify }); err != nil {
+	if trusted.TLSPin != r.site.TLSPin || trusted.TLSVerify != r.site.TLSVerify {
+		if err := r.patch(func(s *Site) { s.TLSPin, s.TLSVerify = trusted.TLSPin, trusted.TLSVerify }); err != nil {
 			return r.line(step, "failed", err.Error())
 		}
 	}
-	u, _ := url.Parse(r.site.URL)
-	tlsCfg, err := proxy.PrismTLSFor(u.Hostname(), r.site.Trust())
-	if err != nil {
-		return r.line(step, "failed", "the CA certificate is not usable: "+err.Error())
-	}
-	r.pc, err = nutanix.NewWithPassword(r.site.URL, r.in.Username, r.in.Password, tlsCfg, r.b.log)
-	if err != nil {
-		return r.line(step, "failed", err.Error())
-	}
+	r.pc = pc
 	return r.line(step, "ok", msg)
+}
+
+// adminClient is the setup's first step, which removal shares: one
+// handshake before any credential travels (design sites 4.3). The
+// certificate is trusted, or it is the stored pin, or it is the one the
+// MSP confirmed (in.Pin), which pins it. It returns a Prism Central
+// client with the credentials, the site with its trust as it must be
+// stored, and the step's message.
+func adminClient(ctx context.Context, site Site, in SetupInput, log *slog.Logger) (*nutanix.Client, Site, string, error) {
+	info, err := InspectCertificate(ctx, site.URL, []byte(site.CAPEM))
+	if err != nil {
+		return nil, site, "", err
+	}
+	confirmed := strings.ToUpper(strings.TrimSpace(in.Pin))
+	var msg string
+	switch {
+	case site.TLSPin != "" && info.Fingerprint == site.TLSPin:
+		msg = "the pinned certificate is presented (" + info.Fingerprint + ")"
+	case confirmed != "" && confirmed == info.Fingerprint:
+		site.TLSPin, msg = info.Fingerprint, "certificate confirmed and pinned ("+info.Fingerprint+")"
+	case site.TLSPin == "" && info.Trusted:
+		site.TLSVerify, msg = true, "the certificate is trusted: issued by "+info.Issuer
+	case site.TLSPin != "":
+		return nil, site, "", errors.New("certificate changed: Prism Central presents " + info.Fingerprint + "; the certificate is not confirmed")
+	default:
+		return nil, site, "", errors.New("the certificate is not confirmed: Prism Central presents " + info.Fingerprint)
+	}
+	u, _ := url.Parse(site.URL)
+	tlsCfg, err := proxy.PrismTLSFor(u.Hostname(), site.Trust())
+	if err != nil {
+		return nil, site, "", errors.New("the CA certificate is not usable: " + err.Error())
+	}
+	pc, err := nutanix.NewWithPassword(site.URL, in.Username, in.Password, tlsCfg, log)
+	if err != nil {
+		return nil, site, "", err
+	}
+	return pc, site, msg, nil
 }
 
 // version: the clusters list with the credentials; pc.7.6 or later.

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -107,6 +108,13 @@ func (f *KC) handle(w http.ResponseWriter, r *http.Request) {
 		f.Clients[id] = body
 		w.Header().Set("Location", f.Srv.URL+r.URL.Path+"/"+id)
 		w.WriteHeader(201)
+	case len(parts) == 2 && parts[0] == "clients" && r.Method == "DELETE":
+		if _, ok := f.Clients[parts[1]]; !ok {
+			w.WriteHeader(404)
+			return
+		}
+		delete(f.Clients, parts[1])
+		w.WriteHeader(204)
 	case len(parts) == 2 && parts[0] == "clients" && r.Method == "PUT":
 		body["id"] = parts[1]
 		f.Clients[parts[1]] = body
@@ -169,6 +177,8 @@ type PC struct {
 	User         map[string]any
 	IdPs         []map[string]any
 	Posts        []string
+	// DeletedKeys are the API keys revoked, by extId.
+	DeletedKeys []string
 }
 
 // OpCatalog is the operations the double lists by name.
@@ -248,7 +258,19 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 		id := p[strings.LastIndex(p, "/")+1:]
 		for _, idp := range f.IdPs {
 			if idp["extId"] == id {
+				w.Header().Set("ETag", `"i"`)
 				reply(200, idp)
+				return
+			}
+		}
+		w.WriteHeader(404)
+		w.Write([]byte(`{"data":{"error":"no such identity provider"}}`))
+	case strings.Contains(p, "/authn/saml-identity-providers/") && r.Method == "DELETE":
+		id := p[strings.LastIndex(p, "/")+1:]
+		for i, idp := range f.IdPs {
+			if idp["extId"] == id && r.Header.Get("If-Match") == `"i"` {
+				f.IdPs = append(f.IdPs[:i:i], f.IdPs[i+1:]...)
+				w.WriteHeader(204)
 				return
 			}
 		}
@@ -284,6 +306,20 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(p, "/authn/users") && r.Method == "POST":
 		f.User = map[string]any{"extId": "sa-1", "username": body["username"], "userType": "SERVICE_ACCOUNT"}
 		reply(201, f.User)
+	case strings.Contains(p, "/authn/users/sa-1/keys/") && (r.Method == "GET" || r.Method == "DELETE"):
+		id := p[strings.LastIndex(p, "/")+1:]
+		if f.User == nil || id != "key-1" || slices.Contains(f.DeletedKeys, id) {
+			w.WriteHeader(404)
+			w.Write([]byte(`{"data":{"error":"no such key"}}`))
+			return
+		}
+		if r.Method == "GET" {
+			w.Header().Set("ETag", `"k"`)
+			reply(200, map[string]any{"extId": id})
+			return
+		}
+		f.DeletedKeys = append(f.DeletedKeys, id)
+		w.WriteHeader(204)
 	case strings.HasSuffix(p, "/authn/users/sa-1/keys") && r.Method == "POST":
 		reply(201, map[string]any{"extId": "key-1", "name": body["name"], "keyDetails": map[string]any{"apiKey": f.Key}, "expiryTime": "2126-10-18T00:00:00Z"})
 	case strings.HasSuffix(p, "/authz/authorization-policies"):

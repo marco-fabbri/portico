@@ -191,6 +191,15 @@ func (c *Client) CreateUserGroup(ctx context.Context, name, idpExtID string) (*U
 	return &out, nil
 }
 
+// DeleteSAMLIdP deletes an identity provider; one that is already gone is
+// not an error.
+func (c *Client) DeleteSAMLIdP(ctx context.Context, extID string) error {
+	if err := c.deleteSync(ctx, PathIAM1+"/authn/saml-identity-providers/"+extID); err != nil && !IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
 // DeleteUserGroup deletes a SAML group.
 func (c *Client) DeleteUserGroup(ctx context.Context, extID string) error {
 	return c.deleteSync(ctx, PathIAM0+"/authn/user-groups/"+extID)

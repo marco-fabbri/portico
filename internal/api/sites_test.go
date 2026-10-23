@@ -42,8 +42,8 @@ func TestSitesAPICRUD(t *testing.T) {
 	if rec, _ := e.do("PUT", "/api/v1/sites/nope", `{"code":"X1"}`); rec.Code != 404 {
 		t.Fatalf("update unknown: %d", rec.Code)
 	}
-	if rec, _ := e.do("DELETE", "/api/v1/sites/az-us-nyc1", ""); rec.Code != 204 {
-		t.Fatalf("delete: %d", rec.Code)
+	if rec, out := e.do("DELETE", "/api/v1/sites/az-us-nyc1", ""); rec.Code != 200 || out["removed"] != true {
+		t.Fatalf("delete: %d %v", rec.Code, out)
 	}
 	if rec, _ := e.do("GET", "/api/v1/sites/az-us-nyc1", ""); rec.Code != 404 {
 		t.Fatalf("get after delete: %d", rec.Code)
@@ -173,8 +173,144 @@ func withSetup(t *testing.T, e *settingsEnv) (*settingstest.PC, string) {
 	pc.Version = "pc.7.6.0.6"
 	kc.Realms["portico"] = map[string]any{"realm": "portico"}
 	kc.Descriptor = "https://id.example.test/realms/portico"
-	e.so.KeycloakURL, e.so.Bootstrapper = kc.Srv.URL, settings.NewBootstrapper(nil, e.svc)
+	e.so.KeycloakURL, e.so.Bootstrapper, e.kc = kc.Srv.URL, settings.NewBootstrapper(nil, e.svc), kc
 	return pc, proxy.Fingerprint(pc.Srv.Certificate().Raw)
+}
+
+// addSetUpSite adds AZ-US-NYC1 on pc in one run and returns its stored
+// form.
+func addSetUpSite(t *testing.T, e *settingsEnv, pc *settingstest.PC, fp string) settings.Site {
+	t.Helper()
+	body := `{"code":"AZ-US-NYC1","url":"` + pc.Srv.URL + `","tls_pin":"` + fp + `","admin":{"username":"admin","password":"pc-pw-1"}}`
+	if rec, out := e.do("POST", "/api/v1/sites", body); rec.Code != 201 || out["complete"] != true {
+		t.Fatalf("add: %d %s", rec.Code, rec.Body.String())
+	}
+	cur, _ := e.svc.Get(context.Background())
+	site, _ := cur.Site("az-us-nyc1")
+	if site.SAMLEntityID == "" || e.kcClient(site.SAMLEntityID) == nil || len(pc.IdPs) != 1 || site.APIKeyExtID == "" {
+		t.Fatalf("the setup left %+v", site)
+	}
+	return site
+}
+
+func (e *settingsEnv) kcClient(clientID string) map[string]any {
+	for _, c := range e.kc.Clients {
+		if c["clientId"] == clientID {
+			return c
+		}
+	}
+	return nil
+}
+
+func strs(v any) []string {
+	var out []string
+	for _, x := range v.([]any) {
+		out = append(out, x.(string))
+	}
+	return out
+}
+
+func TestRemoveSiteWithoutCredentials(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	pc, fp := withSetup(t, e)
+	site := addSetUpSite(t, e, pc, fp)
+	rec, out := e.do("DELETE", "/api/v1/sites/az-us-nyc1", "")
+	if rec.Code != 200 || out["removed"] != true {
+		t.Fatalf("remove: %d %s", rec.Code, rec.Body.String())
+	}
+	if e.kcClient(site.SAMLEntityID) != nil {
+		t.Fatal("the Keycloak client is still there")
+	}
+	if len(pc.IdPs) != 1 || len(pc.DeletedKeys) != 0 {
+		t.Fatalf("Prism Central was changed: %v %v", pc.IdPs, pc.DeletedKeys)
+	}
+	left := strs(out["left_in_prism_central"])
+	if len(left) != 3 || !strings.Contains(left[0], "identity provider") || !strings.Contains(left[1], "service account") || !strings.Contains(left[2], "API key "+site.APIKeyExtID) {
+		t.Fatalf("left = %q", left)
+	}
+	if !strings.Contains(strings.Join(strs(out["deleted"]), "|"), "Keycloak client "+site.SAMLEntityID) {
+		t.Fatalf("deleted = %v", out["deleted"])
+	}
+	if rec, _ := e.do("GET", "/api/v1/sites/az-us-nyc1", ""); rec.Code != 404 {
+		t.Fatalf("site after remove: %d", rec.Code)
+	}
+}
+
+func TestRemoveSiteWithCredentials(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	pc, fp := withSetup(t, e)
+	site := addSetUpSite(t, e, pc, fp)
+	mon := sites.NewMonitor(e.st, nil, nil)
+	e.so.Runtime = &Runtime{Monitor: mon}
+	if err := mon.SetMaintenance(context.Background(), "az-us-nyc1", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := mon.SetMaintenance(context.Background(), "site-a", true); err != nil {
+		t.Fatal(err)
+	}
+	// A wrong password removes nothing.
+	if rec, out := e.do("DELETE", "/api/v1/sites/az-us-nyc1", `{"username":"admin","password":"wrong"}`); rec.Code != 409 || !strings.Contains(out["error"].(string), "refused the credentials") {
+		t.Fatalf("a wrong password: %d %v", rec.Code, out)
+	}
+	if e.kcClient(site.SAMLEntityID) == nil || len(pc.IdPs) != 1 {
+		t.Fatal("a refused removal deleted something")
+	}
+	rec, out := e.do("DELETE", "/api/v1/sites/az-us-nyc1", `{"username":"admin","password":"pc-pw-1"}`)
+	if rec.Code != 200 || out["removed"] != true {
+		t.Fatalf("remove: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(pc.IdPs) != 0 || len(pc.DeletedKeys) != 1 || pc.DeletedKeys[0] != site.APIKeyExtID || pc.User == nil {
+		t.Fatalf("Prism Central after remove: idps %v keys %v user %v", pc.IdPs, pc.DeletedKeys, pc.User)
+	}
+	deleted, left := strs(out["deleted"]), strs(out["left_in_prism_central"])
+	if len(deleted) != 3 || len(left) != 1 || !strings.Contains(left[0], "service account") {
+		t.Fatalf("deleted %q left %q", deleted, left)
+	}
+	raw, _ := e.st.GetSetting(context.Background(), sites.StateKey)
+	if strings.Contains(string(raw), "az-us-nyc1") || !strings.Contains(string(raw), "site-a") {
+		t.Fatalf("site_state = %s", raw)
+	}
+	if strings.Contains(rec.Body.String(), "pc-pw-1") || strings.Contains(e.log.String(), "pc-pw-1") {
+		t.Fatal("the password reached the answer or the log")
+	}
+}
+
+func TestRemoveSiteRefusedWithTenant(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	placeTenant(t, e.st, "acme", "site-a")
+	p, _ := e.st.GetPlacement(context.Background(), "acme", "site-a")
+	p.Status = store.PlacementSuspended
+	if err := e.st.UpdatePlacement(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	if rec, out := e.do("DELETE", "/api/v1/sites/site-a", ""); rec.Code != 409 || !strings.Contains(out["error"].(string), "acme (suspended)") {
+		t.Fatalf("remove with a suspended connection: %d %v", rec.Code, out)
+	}
+	e.busy = 1
+	if rec, _ := e.do("POST", "/api/v1/sites", `{"code":"AZ-US-NYC1","url":"https://pc2.example.test:9440","tls_pin":"AB:CD"}`); rec.Code != 201 {
+		t.Fatal(rec.Code)
+	}
+	if rec, _ := e.do("DELETE", "/api/v1/sites/az-us-nyc1", ""); rec.Code != 409 {
+		t.Fatalf("remove while a tenant operation runs: %d", rec.Code)
+	}
+	if rec, _ := e.do("GET", "/api/v1/sites/site-a", ""); rec.Code != 200 {
+		t.Fatalf("site-a after the refusals: %d", rec.Code)
+	}
+}
+
+func TestForgetDeletesKeycloakClient(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	pc, fp := withSetup(t, e)
+	site := addSetUpSite(t, e, pc, fp)
+	if rec, out := e.do("POST", "/api/v1/sites/az-us-nyc1/forget", `{"confirm":"AZ-US-NYC1"}`); rec.Code != 200 || out["forgotten"] != "AZ-US-NYC1" {
+		t.Fatalf("forget: %d %v", rec.Code, out)
+	}
+	if e.kcClient(site.SAMLEntityID) != nil {
+		t.Fatal("the Keycloak client is still there")
+	}
+	if len(pc.IdPs) != 1 {
+		t.Fatal("forget reached Prism Central")
+	}
 }
 
 func TestCreateSiteRefusesVerifyOff(t *testing.T) {

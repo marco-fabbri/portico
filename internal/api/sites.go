@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -212,23 +213,101 @@ func removeSite(d *settings.Settings, id string) bool {
 	return false
 }
 
-// DeleteSite removes a site no tenant is placed on (design sites §4.1).
-func (o *SettingsOptions) DeleteSite(ctx context.Context, st store.Store, id string) error {
+// RemoveResult says what removing a site deleted and what it left in the
+// site's Prism Central.
+type RemoveResult struct {
+	Removed            bool     `json:"removed"`
+	Deleted            []string `json:"deleted"`
+	LeftInPrismCentral []string `json:"left_in_prism_central"`
+}
+
+// RemoveSite removes a site no tenant is connected to (sites usability
+// design 4.1, "Removing a site"). Portico's own side always goes: the
+// site's Keycloak SAML client (a trust left there would stay live), its
+// maintenance flag and the row. With admin, Portico's identity provider
+// and the stored key are deleted in Prism Central first, once the
+// certificate and the credentials pass; without, they are named as left.
+// Refused while a tenant operation runs or any connection is on the site,
+// a failed one included (its Disconnect cleans Prism Central). A step
+// that fails keeps the row, and removing again goes on from there.
+func (o *SettingsOptions) RemoveSite(ctx context.Context, st store.Store, id string, admin *settings.SetupInput) (RemoveResult, error) {
+	cur, _, err := o.Current(ctx)
+	if err != nil {
+		return RemoveResult{}, err
+	}
+	site, ok := cur.Site(id)
+	if !ok {
+		return RemoveResult{}, ErrUnknownSite
+	}
+	if o.Busy != nil {
+		if n := o.Busy(); n > 0 {
+			return RemoveResult{}, &BusyError{N: n}
+		}
+	}
 	ps, err := st.ListPlacementsBySite(ctx, id)
 	if err != nil {
-		return err
+		return RemoveResult{}, err
 	}
-	return o.patchSites(ctx, func(d *settings.Settings) error {
-		site, ok := d.Site(id)
-		if !ok {
+	if len(ps) > 0 {
+		conns := make([]string, 0, len(ps))
+		for _, p := range ps {
+			conns = append(conns, fmt.Sprintf("%s (%s)", p.TenantID, p.Status))
+		}
+		return RemoveResult{}, &SiteConflictError{Msg: fmt.Sprintf("site %s has tenants: %s", site.Code, strings.Join(conns, ", "))}
+	}
+	res := RemoveResult{Deleted: []string{}, LeftInPrismCentral: site.PrismObjects()}
+	if admin != nil {
+		if o.Bootstrapper == nil {
+			return RemoveResult{}, errors.New("settings are not available in this process")
+		}
+		if res.Deleted, res.LeftInPrismCentral, err = o.Bootstrapper.RemoveFromPrismCentral(ctx, cur, id, *admin); err != nil {
+			return RemoveResult{}, err
+		}
+	}
+	client, err := o.deleteKeycloakClient(ctx, cur, site)
+	if err != nil {
+		return RemoveResult{}, err
+	}
+	if client != "" {
+		res.Deleted = append(res.Deleted, client)
+	}
+	if o.Runtime != nil {
+		if err := o.Runtime.ClearMaintenance(ctx, id); err != nil {
+			return RemoveResult{}, fmt.Errorf("the maintenance flag was not cleared: %w", err)
+		}
+	}
+	if err := o.patchSites(ctx, func(d *settings.Settings) error {
+		if !removeSite(d, id) {
 			return ErrUnknownSite
 		}
-		if len(ps) > 0 {
-			return &SiteConflictError{Msg: fmt.Sprintf("site %s has tenants: %s", site.Code, strings.Join(tenantIDs(ps), ", "))}
-		}
-		removeSite(d, id)
 		return nil
-	})
+	}); err != nil {
+		return RemoveResult{}, err
+	}
+	res.Removed = true
+	return res, nil
+}
+
+// deleteKeycloakClient deletes the site's Keycloak SAML client, named by
+// the entity id the setup stored, unless another site names the same
+// one. It returns what it deleted.
+func (o *SettingsOptions) deleteKeycloakClient(ctx context.Context, cur settings.Settings, site settings.Site) (string, error) {
+	if site.SAMLEntityID == "" {
+		return "", nil
+	}
+	for _, s := range cur.Sites {
+		if s.ID != site.ID && s.SAMLEntityID == site.SAMLEntityID {
+			return "", nil
+		}
+	}
+	kc := settings.KeycloakAdmin(o.KeycloakURL, cur, nil)
+	if kc == nil {
+		return "", nil
+	}
+	if err := kc.DeleteClient(ctx, site.SAMLEntityID); err != nil {
+		return "", fmt.Errorf("the Keycloak client %s was not deleted: %w", site.SAMLEntityID, err)
+	}
+	return "Keycloak client " + site.SAMLEntityID, nil
 }
 
 func tenantIDs(ps []store.Placement) []string {
@@ -248,8 +327,8 @@ type ForgetResult struct {
 
 // ForgetSite removes a site whose Prism Central is gone for good (design
 // sites §4.1): Portico's records of the site and of the placements on it
-// go, no call reaches that Prism Central, and the result lists what
-// stays there. confirm must be the site's code; refused while a tenant
+// go, with the site's Keycloak client, no call reaches that Prism
+// Central, and the result lists what stays there. confirm must be the site's code; refused while a tenant
 // operation runs.
 func (o *SettingsOptions) ForgetSite(ctx context.Context, st store.Store, id, confirm string) (ForgetResult, error) {
 	cur, _, err := o.Current(ctx)
@@ -292,6 +371,9 @@ func (o *SettingsOptions) ForgetSite(ctx context.Context, st store.Store, id, co
 	}
 	if site.APIKey != "" {
 		res.LeftInPrismCentral = append(res.LeftInPrismCentral, "Portico's service account and its API keys")
+	}
+	if _, err := o.deleteKeycloakClient(ctx, cur, site); err != nil {
+		return ForgetResult{}, err
 	}
 	if _, err := st.DeletePlacementsBySite(ctx, id); err != nil {
 		return ForgetResult{}, err
@@ -637,13 +719,26 @@ func (h *handler) deleteSite(w http.ResponseWriter, r *http.Request) {
 	if h.settingsUnavailable(w) {
 		return
 	}
+	var in struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := decode(r, &in); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	var admin *settings.SetupInput
+	if in.Username != "" || in.Password != "" {
+		admin = &settings.SetupInput{Username: in.Username, Password: in.Password}
+	}
 	id := r.PathValue("id")
-	if err := h.so.DeleteSite(r.Context(), h.st, id); err != nil {
+	res, err := h.so.RemoveSite(r.Context(), h.st, id, admin)
+	if err != nil {
 		h.siteError(w, err)
 		return
 	}
-	h.log.Info("site deleted", "id", id)
-	w.WriteHeader(http.StatusNoContent)
+	h.log.Warn("site removed", "id", id, "with_credentials", admin != nil, "deleted", res.Deleted, "left_in_prism_central", res.LeftInPrismCentral)
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (h *handler) forgetSite(w http.ResponseWriter, r *http.Request) {
