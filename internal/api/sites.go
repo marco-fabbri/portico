@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -18,7 +19,19 @@ var (
 	ErrUnknownSite = errors.New("no such site")
 	// ErrConfirmMismatch: a forget whose confirmation is not the code.
 	ErrConfirmMismatch = errors.New("the confirmation must be the site's code")
+	// ErrNeedsTrust: a new https site with verification off and no pin.
+	ErrNeedsTrust = errors.New("a new site needs a trusted or pinned certificate")
+	// ErrVerifyOff: an edit turning certificate verification off.
+	ErrVerifyOff = errors.New("certificate verification cannot be turned off: pin the certificate on the site's page instead")
 )
+
+// PinChangedError: the certificate presented now is not the one the MSP
+// confirmed; Fingerprint is the one presented.
+type PinChangedError struct{ Fingerprint string }
+
+func (e *PinChangedError) Error() string {
+	return "the certificate changed again: Prism Central presents " + e.Fingerprint + "; confirm this one"
+}
 
 // SiteConflictError says why a site cannot be created or removed (a
 // duplicate id or code, tenants still placed on it).
@@ -87,8 +100,11 @@ func (o *SettingsOptions) UpdateSite(ctx context.Context, id string, fn func(*se
 			if d.Sites[i].ID != id {
 				continue
 			}
-			key := d.Sites[i].APIKey
+			key, verified := d.Sites[i].APIKey, d.Sites[i].TLSVerify
 			fn(&d.Sites[i])
+			if verified && !d.Sites[i].TLSVerify {
+				return ErrVerifyOff
+			}
 			d.Sites[i].ID = id
 			if d.Sites[i].APIKey == "" {
 				d.Sites[i].APIKey = key
@@ -104,6 +120,81 @@ func (o *SettingsOptions) UpdateSite(ctx context.Context, id string, fn func(*se
 		return ErrUnknownSite
 	})
 	return out, err
+}
+
+// AddSite creates a site and, with admin, sets it up in the same call
+// (design sites 4.1): without admin the row is left incomplete for the
+// manual path. A new https site needs a trusted or pinned certificate.
+func (o *SettingsOptions) AddSite(ctx context.Context, in settings.Site, admin *settings.SetupInput) (settings.Site, *settings.SetupResult, error) {
+	if strings.HasPrefix(in.URL, "https://") && !in.TLSVerify && in.TLSPin == "" {
+		return settings.Site{}, nil, ErrNeedsTrust
+	}
+	if admin != nil {
+		if admin.Username == "" || admin.Password == "" {
+			return settings.Site{}, nil, &settings.StateError{Msg: "the Prism Central administrator's username and password are required"}
+		}
+		if o.Bootstrapper == nil {
+			return settings.Site{}, nil, errSettingsUnavailable
+		}
+		cur, _, err := o.Current(ctx)
+		if err != nil {
+			return settings.Site{}, nil, err
+		}
+		if err := settings.SetupReady(cur); err != nil {
+			return settings.Site{}, nil, err
+		}
+	}
+	site, err := o.CreateSite(ctx, in)
+	if err != nil || admin == nil {
+		return site, nil, err
+	}
+	res, err := o.SetupSite(ctx, site.ID, *admin)
+	if err != nil {
+		return site, nil, err
+	}
+	return res.Site, &res, nil
+}
+
+// SetupSite runs the setup of a stored site again: "Finish setup" and
+// "Repair" (design sites 4.1).
+func (o *SettingsOptions) SetupSite(ctx context.Context, id string, in settings.SetupInput) (settings.SetupResult, error) {
+	if o.Bootstrapper == nil {
+		return settings.SetupResult{}, errSettingsUnavailable
+	}
+	cur, _, err := o.Current(ctx)
+	if err != nil {
+		return settings.SetupResult{}, err
+	}
+	if _, ok := cur.Site(id); !ok {
+		return settings.SetupResult{}, ErrUnknownSite
+	}
+	// The run stores as it goes: a process running from the file adopts
+	// it first.
+	if err := o.patchSites(ctx, func(*settings.Settings) error { return nil }); err != nil {
+		return settings.SetupResult{}, err
+	}
+	return o.Bootstrapper.SetupSite(ctx, o.KeycloakURL, id, in)
+}
+
+// PinSite pins the certificate the site presents now, when it is the one
+// the MSP confirmed (design sites 4.3); another is a *PinChangedError.
+func (o *SettingsOptions) PinSite(ctx context.Context, id, fingerprint string) (settings.Site, error) {
+	cur, _, err := o.Current(ctx)
+	if err != nil {
+		return settings.Site{}, err
+	}
+	site, ok := cur.Site(id)
+	if !ok {
+		return settings.Site{}, ErrUnknownSite
+	}
+	info, err := settings.InspectCertificate(ctx, site.URL, []byte(site.CAPEM))
+	if err != nil {
+		return settings.Site{}, err
+	}
+	if strings.ToUpper(strings.TrimSpace(fingerprint)) != info.Fingerprint {
+		return settings.Site{}, &PinChangedError{Fingerprint: info.Fingerprint}
+	}
+	return o.UpdateSite(ctx, id, func(s *settings.Site) { s.TLSPin = info.Fingerprint })
 }
 
 // removeSite drops the site from the document and from the pass-through.
@@ -246,6 +337,7 @@ type siteJSON struct {
 	Order                 int      `json:"order"`
 	URL                   string   `json:"url"`
 	TLSVerify             *bool    `json:"tls_verify"`
+	TLSPin                string   `json:"tls_pin"` // set at creation; then through the pin route only
 	CAPEM                 string   `json:"ca_pem"`
 	APIKey                string   `json:"api_key,omitempty"`
 	APIKeySet             bool     `json:"api_key_set"`
@@ -277,7 +369,7 @@ func toSiteJSON(s settings.Site, tenants []string) siteJSON {
 	if tenants == nil {
 		tenants = []string{}
 	}
-	return siteJSON{ID: s.ID, Code: s.Code, Name: s.Name, Order: s.Order, URL: s.URL, TLSVerify: &tls, CAPEM: s.CAPEM,
+	return siteJSON{ID: s.ID, Code: s.Code, Name: s.Name, Order: s.Order, URL: s.URL, TLSVerify: &tls, TLSPin: s.TLSPin, CAPEM: s.CAPEM,
 		APIKeySet: s.APIKey != "", SAMLIdPName: s.SAMLIdPName, SAMLEntityID: s.SAMLEntityID,
 		ClusterExtID: s.ClusterExtID, StorageContainerExtID: s.StorageContainerExtID, Tenants: tenants}
 }
@@ -306,6 +398,9 @@ func (h *handler) siteRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT "+Prefix+"sites/{id}", h.putSite)
 	mux.HandleFunc("DELETE "+Prefix+"sites/{id}", h.deleteSite)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/forget", h.forgetSite)
+	mux.HandleFunc("POST "+Prefix+"sites/inspect", h.inspectSite)
+	mux.HandleFunc("POST "+Prefix+"sites/{id}/setup", h.setupSite)
+	mux.HandleFunc("POST "+Prefix+"sites/{id}/pin", h.pinSite)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/check", h.checkSite)
 	mux.HandleFunc("GET "+Prefix+"sites/{id}/status", h.siteStatus)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/bootstrap/prism-central", h.bootstrapPrismCentral)
@@ -318,12 +413,16 @@ func (h *handler) siteError(w http.ResponseWriter, err error) {
 	var conflict *SiteConflictError
 	var busy *BusyError
 	var ve *settings.ValidationError
+	var se *settings.StateError
+	var pin *PinChangedError
 	switch {
 	case errors.Is(err, ErrUnknownSite):
 		writeError(w, http.StatusNotFound, err.Error())
-	case errors.As(err, &conflict), errors.As(err, &busy):
+	case errors.As(err, &pin):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error(), "fingerprint": pin.Fingerprint})
+	case errors.As(err, &conflict), errors.As(err, &busy), errors.As(err, &se):
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, ErrConfirmMismatch), errors.As(err, &ve):
+	case errors.Is(err, ErrConfirmMismatch), errors.As(err, &ve), errors.Is(err, ErrNeedsTrust), errors.Is(err, ErrVerifyOff):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
 		h.log.Error("site operation failed", "err", err.Error())
@@ -355,24 +454,120 @@ func (h *handler) listSites(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"sites": out})
 }
 
+// createSiteJSON is the create body: a site and, for the one-step path,
+// the administrator's one-time credentials.
+type createSiteJSON struct {
+	siteJSON
+	Admin *struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	} `json:"admin"`
+	ServiceAccount string `json:"service_account"`
+}
+
 func (h *handler) createSite(w http.ResponseWriter, r *http.Request) {
 	if h.settingsUnavailable(w) {
 		return
 	}
-	var in siteJSON
+	var in createSiteJSON
 	if err := decode(r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
-	site := settings.Site{ID: strings.TrimSpace(in.ID), TLSVerify: true}
+	site := settings.Site{ID: strings.TrimSpace(in.ID), TLSVerify: true, TLSPin: strings.ToUpper(strings.TrimSpace(in.TLSPin))}
 	in.apply(&site)
-	out, err := h.so.CreateSite(r.Context(), site)
+	var admin *settings.SetupInput
+	if in.Admin != nil {
+		admin = &settings.SetupInput{Username: in.Admin.Username, Password: in.Admin.Password, ServiceAccount: in.ServiceAccount}
+	}
+	out, res, err := h.so.AddSite(r.Context(), site, admin)
 	if err != nil {
 		h.siteError(w, err)
 		return
 	}
-	h.log.Info("site created", "id", out.ID, "code", out.Code, "key_given", out.APIKey != "")
-	writeJSON(w, http.StatusCreated, toSiteJSON(out, nil))
+	h.log.Info("site created", "id", out.ID, "code", out.Code, "key_given", in.APIKey != "", "setup", res != nil)
+	if res == nil {
+		writeJSON(w, http.StatusCreated, toSiteJSON(out, nil))
+		return
+	}
+	writeJSON(w, http.StatusCreated, h.setupJSON(r, *res))
+}
+
+// setupJSON is a setup run's answer: the site, the summary lines and
+// whether the site is complete.
+func (h *handler) setupJSON(r *http.Request, res settings.SetupResult) map[string]any {
+	return map[string]any{"site": toSiteJSON(res.Site, h.siteTenants(r, res.Site.ID)), "steps": res.Steps, "complete": res.Complete, "idp_changed": res.IdPChanged}
+}
+
+// inspectSite reads the certificate an address presents, before anything
+// is stored or any credential travels (design sites 4.1 step 1).
+func (h *handler) inspectSite(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		URL   string `json:"url"`
+		CAPEM string `json:"ca_pem"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	raw := strings.TrimSpace(in.URL)
+	if u, err := url.Parse(raw); err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("the Prism Central URL %q is not a valid https URL", raw))
+		return
+	}
+	info, err := settings.InspectCertificate(r.Context(), raw, []byte(strings.TrimSpace(in.CAPEM)))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+// setupSite runs the setup again with an administrator's one-time
+// credentials (Finish setup, Repair).
+func (h *handler) setupSite(w http.ResponseWriter, r *http.Request) {
+	if h.settingsUnavailable(w) {
+		return
+	}
+	var in struct {
+		Username       string `json:"username"`
+		Password       string `json:"password"`
+		ServiceAccount string `json:"service_account"`
+		Pin            string `json:"pin"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	res, err := h.so.SetupSite(r.Context(), r.PathValue("id"), settings.SetupInput{Username: in.Username, Password: in.Password, ServiceAccount: in.ServiceAccount, Pin: in.Pin})
+	if err != nil {
+		h.siteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, h.setupJSON(r, res))
+}
+
+// pinSite pins the certificate presented now, when it is the one the MSP
+// confirmed.
+func (h *handler) pinSite(w http.ResponseWriter, r *http.Request) {
+	if h.settingsUnavailable(w) {
+		return
+	}
+	var in struct {
+		Fingerprint string `json:"fingerprint"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	id := r.PathValue("id")
+	out, err := h.so.PinSite(r.Context(), id, in.Fingerprint)
+	if err != nil {
+		h.siteError(w, err)
+		return
+	}
+	h.log.Warn("site certificate pinned", "site", id, "fingerprint", out.TLSPin)
+	writeJSON(w, http.StatusOK, toSiteJSON(out, h.siteTenants(r, id)))
 }
 
 func (h *handler) getSite(w http.ResponseWriter, r *http.Request) {

@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/marco-fabbri/portico/internal/proxy"
 	"github.com/marco-fabbri/portico/internal/settings"
+	"github.com/marco-fabbri/portico/internal/settings/settingstest"
 	"github.com/marco-fabbri/portico/internal/sites"
 	"github.com/marco-fabbri/portico/internal/store"
 )
@@ -159,5 +161,96 @@ func TestSiteStatusInSetupMode(t *testing.T) {
 	}
 	if _, has := out["status"]; has {
 		t.Fatalf("a status without a monitor: %v", out)
+	}
+}
+
+// withSetup gives the settings env a Prism Central over https and a
+// Keycloak a setup run can use; it returns the Prism Central and the
+// fingerprint it presents.
+func withSetup(t *testing.T, e *settingsEnv) (*settingstest.PC, string) {
+	t.Helper()
+	pc, kc := settingstest.NewTLSPC(t), settingstest.NewKC(t)
+	pc.Version = "pc.7.6.0.6"
+	kc.Realms["portico"] = map[string]any{"realm": "portico"}
+	kc.Descriptor = "https://id.example.test/realms/portico"
+	e.so.KeycloakURL, e.so.Bootstrapper = kc.Srv.URL, settings.NewBootstrapper(nil, e.svc)
+	return pc, proxy.Fingerprint(pc.Srv.Certificate().Raw)
+}
+
+func TestCreateSiteRefusesVerifyOff(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	rec, out := e.do("POST", "/api/v1/sites", `{"code":"AZ-US-NYC1","url":"https://pc2.example.test:9440","tls_verify":false}`)
+	if rec.Code != 400 || !strings.Contains(out["error"].(string), "a new site needs a trusted or pinned certificate") {
+		t.Fatalf("verify off without a pin: %d %v", rec.Code, out)
+	}
+	if rec, _ := e.do("POST", "/api/v1/sites", `{"code":"AZ-US-NYC1","url":"https://pc2.example.test:9440","tls_verify":false,"tls_pin":"AB:CD"}`); rec.Code != 201 {
+		t.Fatalf("verify off with a pin: %d", rec.Code)
+	}
+}
+
+func TestInspectEndpointShowsCertificate(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	pc, fp := withSetup(t, e)
+	rec, out := e.do("POST", "/api/v1/sites/inspect", `{"url":"`+pc.Srv.URL+`"}`)
+	if rec.Code != 200 || out["fingerprint"] != fp || out["trusted"] != false || pc.Credentialed != 0 {
+		t.Fatalf("inspect: %d %v", rec.Code, out)
+	}
+	if rec, _ := e.do("POST", "/api/v1/sites/inspect", `{"url":"http://pc.example.test"}`); rec.Code != 400 {
+		t.Fatalf("an http URL: %d", rec.Code)
+	}
+}
+
+func TestCreateSiteWithAdminRunsSetup(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	pc, fp := withSetup(t, e)
+	body := `{"code":"AZ-US-NYC1","name":"New York","url":"` + pc.Srv.URL + `","tls_pin":"` + fp + `","admin":{"username":"admin","password":"pc-pw-1"}}`
+	rec, out := e.do("POST", "/api/v1/sites", body)
+	if rec.Code != 201 || out["complete"] != true || len(out["steps"].([]any)) != 8 || out["site"].(map[string]any)["id"] != "az-us-nyc1" || out["site"].(map[string]any)["tls_pin"] != fp {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "pc-pw-1") || strings.Contains(rec.Body.String(), pc.Key) || strings.Contains(e.log.String(), "pc-pw-1") {
+		t.Fatal("a secret in the answer or the log")
+	}
+	// Finish setup on a complete site changes nothing.
+	rec, out = e.do("POST", "/api/v1/sites/az-us-nyc1/setup", `{"username":"admin","password":"pc-pw-1"}`)
+	if rec.Code != 200 || out["complete"] != true {
+		t.Fatalf("setup again: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec, _ := e.do("POST", "/api/v1/sites/nope/setup", `{"username":"admin","password":"pc-pw-1"}`); rec.Code != 404 {
+		t.Fatalf("unknown site: %d", rec.Code)
+	}
+}
+
+func TestPinEndpointRefusesChangedFingerprint(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	pc, fp := withSetup(t, e)
+	if err := e.svc.Patch(context.Background(), func(d *settings.Settings) { d.Sites[0].URL, d.Sites[0].TLSPin = pc.Srv.URL, "AB:CD" }); err != nil {
+		t.Fatal(err)
+	}
+	rec, out := e.do("POST", "/api/v1/sites/site-a/pin", `{"fingerprint":"AB:CD"}`)
+	if rec.Code != 409 || out["fingerprint"] != fp {
+		t.Fatalf("an old fingerprint: %d %v", rec.Code, out)
+	}
+	if s, _ := e.svc.Get(context.Background()); s.Sites[0].TLSPin != "AB:CD" {
+		t.Fatalf("the pin changed: %q", s.Sites[0].TLSPin)
+	}
+	if rec, out := e.do("POST", "/api/v1/sites/site-a/pin", `{"fingerprint":"`+strings.ToLower(fp)+`"}`); rec.Code != 200 || out["tls_pin"] != fp {
+		t.Fatalf("the presented fingerprint: %d %v", rec.Code, out)
+	}
+}
+
+func TestUpdateRefusesTurningVerifyOff(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	if err := e.svc.Patch(context.Background(), func(d *settings.Settings) {
+		d.Sites[0].URL, d.Sites[0].TLSVerify = "https://pc.example.test:9440", true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rec, out := e.do("PUT", "/api/v1/sites/site-a", `{"code":"SITE-A","name":"pc","url":"https://pc.example.test:9440","tls_verify":false}`)
+	if rec.Code != 400 || !strings.Contains(out["error"].(string), "pin") {
+		t.Fatalf("verify off: %d %v", rec.Code, out)
+	}
+	if s, _ := e.svc.Get(context.Background()); !s.Sites[0].TLSVerify {
+		t.Fatal("verification was turned off")
 	}
 }

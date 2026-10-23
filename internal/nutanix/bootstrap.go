@@ -1,7 +1,9 @@
 package nutanix
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -185,4 +187,68 @@ func (c *Client) AddPolicyUser(ctx context.Context, policyExtID, userExtID strin
 		return false, err
 	}
 	return true, nil
+}
+
+// MissingOperations returns the named operations that no role of the
+// authorization policies naming the user directly grants (write-up 24
+// item 2; operation names measured on pc.7.6 in write-up 26). The
+// operations come from one list filtered by name, so a name this Prism
+// Central does not list is not counted as missing. A user that no policy
+// names directly holds its rights through a group, which this read
+// cannot follow: that is a not-found error.
+func (c *Client) MissingOperations(ctx context.Context, userExtID string, names []string) ([]string, error) {
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = "'" + strings.ReplaceAll(n, "'", "''") + "'"
+	}
+	q := url.Values{}
+	q.Set("$filter", "displayName in ("+strings.Join(quoted, ",")+")")
+	var ops []struct {
+		ExtID       string `json:"extId"`
+		DisplayName string `json:"displayName"`
+	}
+	if _, err := c.do(ctx, http.MethodGet, PathIAM0+"/authz/operations", q.Encode(), nil, "", &ops); err != nil {
+		return nil, err
+	}
+	var policies []struct {
+		Role       string          `json:"role"`
+		Identities json.RawMessage `json:"identities"`
+	}
+	if err := c.listAll(ctx, PathIAM0+"/authz/authorization-policies", nil, &policies); err != nil {
+		return nil, err
+	}
+	held, read, named := map[string]bool{}, map[string]bool{}, false
+	for _, p := range policies {
+		if p.Role == "" || !bytes.Contains(p.Identities, []byte(`"`+userExtID+`"`)) {
+			continue
+		}
+		named = true
+		if read[p.Role] {
+			continue
+		}
+		read[p.Role] = true
+		var role struct {
+			Operations []string `json:"operations"`
+		}
+		if _, err := c.do(ctx, http.MethodGet, PathIAM0+"/authz/roles/"+p.Role, "", nil, "", &role); err != nil {
+			return nil, err
+		}
+		for _, o := range role.Operations {
+			held[o] = true
+		}
+	}
+	if !named {
+		return nil, notFound("authorization policy naming the user")
+	}
+	byName := map[string]string{}
+	for _, o := range ops {
+		byName[o.DisplayName] = o.ExtID
+	}
+	var missing []string
+	for _, n := range names {
+		if id, ok := byName[n]; ok && !held[id] {
+			missing = append(missing, n)
+		}
+	}
+	return missing, nil
 }
