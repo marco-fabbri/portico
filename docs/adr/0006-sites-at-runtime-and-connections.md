@@ -63,9 +63,10 @@ a project that still holds a VM.
 - An MSP that wants a tenant off a site first empties the project in
   Prism Central; Portico shows what is left and links to that Prism
   Central. Nothing a customer made disappears from a click in Portico.
-- What the service account cannot list (Flow Network Security on the lab)
-  is not counted; the refusal by Prism Central covers it, at the cost of
-  a connection that ends `remove-failed` instead of a refusal up front.
+- What the service account cannot list (Flow Network Security and
+  floating IPs on the lab, write-up 25) is not counted; the refusal by
+  Prism Central covers it, at the cost of a connection that ends
+  `remove-failed` instead of a refusal up front.
 - The count is a set of list calls at the moment of the click; something
   created between the count and the deletion is caught by the same
   refusal.
