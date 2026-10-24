@@ -139,7 +139,16 @@ func isNavigation(r *http.Request) bool {
 }
 
 func (s *SiteRouting) noSite(w http.ResponseWriter, r *http.Request) {
-	s.page(w, r, http.StatusForbidden, "no-site", "No site available", "No site is available for your account. Contact your provider.", "")
+	const title, text = "No site available", "No site is available for your account. Contact your provider."
+	if s.Pages != nil && isNavigation(r) {
+		// With a sign-out: the tenant is resolved at login only, so a
+		// transient error there would otherwise strand the user.
+		setRule(r, "no-site")
+		w.Header().Set("X-Portico-Rule", "no-site")
+		s.Pages.ErrorSignOut(w, r, http.StatusForbidden, title, text)
+		return
+	}
+	s.page(w, r, http.StatusForbidden, "no-site", title, text, "")
 }
 
 func (s *SiteRouting) unavailable(w http.ResponseWriter, r *http.Request, b *SiteBackend, st sites.Status) {
