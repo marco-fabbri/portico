@@ -223,5 +223,6 @@ func (h *Handler) sitePin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.log.Warn("site certificate pinned", "via", "ui", "site", s.ID, "fingerprint", out.TLSPin)
-	http.Redirect(w, r, "/setup/sites/"+url.PathEscape(s.ID)+"?notice="+url.QueryEscape("Certificate pinned: "+out.TLSPin+"."), http.StatusSeeOther)
+	h.notice(w, "Certificate pinned: "+out.TLSPin+".")
+	http.Redirect(w, r, "/setup/sites/"+url.PathEscape(s.ID), http.StatusSeeOther)
 }
