@@ -4,23 +4,19 @@ Findings the final reviews of Milestones 2a, 2b and 2c graded Minor and
 that no milestone has closed yet, one line each with the code or script
 they concern. They are grouped by area, not by milestone (several were
 raised more than once). An item leaves this file when a milestone closes
-it; the Milestone 2f sweep closed the 2d and 2e items listed at the end.
+it; the Milestone 2f sweep closed the 2d and 2e items listed at the end,
+and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
 
 ## Public path, sessions, proxy
 
-- A second login does not retire the first session (`internal/auth`).
 - Access-log field `session` means "cookie present", not "valid session";
   an upstream 401 is labelled no-session by inference from the status:
   set the rule explicitly in `Require` and before proxying
   (`internal/proxy/accesslog.go`).
-- An empty `Authorization` value passes the public policy while the docs
-  say "every header" (deny on presence, `internal/proxy`).
 - Cookie stripping re-parses the `Cookie` header with `r.Cookies()`; split
   textually instead (`internal/proxy`).
 - A POST after idle expiry carries `next=<POST path>` and lands on a 405
   after login: set `next` for GET/HEAD only (`internal/auth`).
-- The retry link built from `RequestURI` can start with `//` (guard like
-  `safeNext`, `internal/proxy`).
 - `/.portico/logo` is `no-store` on an unauthenticated path (`private,
   max-age=60` would do).
 - `MaxIdleConnsPerHost` left at the default 2: set it to avoid repeated
@@ -212,18 +208,14 @@ drawn across the logo on the Keycloak login page.
   `creating` when the Keycloak group step fails during "add a site"
   (retry refused, the page polls); a legacy tenant without a project
   gets no placement and a retry marks it active with no site; the
-  tenant is resolved only at login, and the no-site page has no
-  sign-out link (a transient Keycloak error strands the user for the
-  session); an index read in flight during an invalidation can keep the
+  tenant is resolved only at login; an index read in flight during an invalidation can keep the
   old list up to 5 s; a settings save copies the sites read outside the
   lock and can revert a concurrent site change; removing a site checks
   its connections before the deletions in Prism Central and outside the
   patch, so a tenant connected to it during the removal (up to two
   minutes with credentials) is left on a removed site; "Disconnect"
   shows outside maintenance,
-  where one-site sessions are re-attached at once; an upstream
-  `Set-Cookie` carrying a stash or Portico cookie name is not filtered;
-  the sites design §5 still says the site is held in a cookie.
+  where one-site sessions are re-attached at once; the sites design §5 still says the site is held in a cookie.
 - The public names cannot change after setup: only the bootstraps write
   them into Keycloak (the OIDC client's redirect and post-logout URIs,
   each SAML client's ACS) and into each site's identity provider in
