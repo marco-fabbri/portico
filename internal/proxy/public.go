@@ -15,8 +15,8 @@ const sessionCookieName = auth.SessionCookie
 
 // PublicOptions wires the public listener.
 type PublicOptions struct {
-	PrismHost string
-	IDHost    string
+	PortalHost string
+	IDHost     string
 	// Sites routes every tenant request on the Prism Central host to the
 	// Prism Central of the session's site (design sites §4.3).
 	Sites    *SiteRouting
@@ -48,7 +48,7 @@ func NewPublic(o PublicOptions) http.Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	prismHost := strings.ToLower(o.PrismHost)
+	portalHost := strings.ToLower(o.PortalHost)
 	idHost := strings.ToLower(o.IDHost)
 
 	portico := http.NewServeMux()
@@ -163,7 +163,7 @@ func NewPublic(o PublicOptions) http.Handler {
 
 	router := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch hostOnly(r.Host) {
-		case prismHost:
+		case portalHost:
 			prism.ServeHTTP(w, r)
 		case idHost:
 			id.ServeHTTP(w, r)

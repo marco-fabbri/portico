@@ -51,8 +51,8 @@ func newPublicHarnessWith(t *testing.T, prismURL string, mutate func(*PublicOpti
 	// the harness session reaches that site's Prism Central.
 	site := &SiteBackend{ID: "site-a", Code: "SITE-A", Upstream: upstreamFor(t, prismURL, "prism.test")}
 	opts := PublicOptions{
-		PrismHost: "prism.test",
-		IDHost:    "id.test",
+		PortalHost: "prism.test",
+		IDHost:     "id.test",
 		Sites: &SiteRouting{
 			Backends: NewBackendSet(map[string]*SiteBackend{"site-a": site}),
 			Connections: func(context.Context, string) ([]sites.Connection, error) {

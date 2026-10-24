@@ -25,7 +25,7 @@ func TestSetupBootstrapKeycloakFragmentFillsIdentityCard(t *testing.T) {
 	e.web.setup.File, e.web.setup.Mode = nil, "setup"
 	withBootstrapFakes(t, e)
 	e.login(t)
-	e.do("POST", "/setup/save", e.form("section", "hosts", "prism_host", "prism.example.test", "id_host", "id.example.test"), true)
+	e.do("POST", "/setup/save", e.form("section", "hosts", "portal_host", "prism.example.test", "id_host", "id.example.test"), true)
 	rec := e.do("POST", "/setup/bootstrap/keycloak", e.form("admin_username", "kcadmin", "admin_password", "adm-pw-1", "realm", "msp"), true)
 	body := rec.Body.String()
 	for _, want := range []string{`id="issuer"`, `value="https://id.example.test/realms/msp"`, `hx-swap-oob`, `placeholder="unchanged"`, `name="admin_password" value=""`, "banner notice"} {

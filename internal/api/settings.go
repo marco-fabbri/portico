@@ -123,13 +123,14 @@ func sameHost(a, b string) bool {
 // on input and never written on output; the *_set booleans say whether
 // one is held.
 type settingsJSON struct {
-	Stored    bool     `json:"stored"`
-	Source    string   `json:"source"`
-	Mode      string   `json:"mode,omitempty"`
-	Complete  bool     `json:"complete"`
-	Missing   []string `json:"missing"`
-	PrismHost string   `json:"prism_host"`
-	IDHost    string   `json:"id_host"`
+	Stored     bool     `json:"stored"`
+	Source     string   `json:"source"`
+	Mode       string   `json:"mode,omitempty"`
+	Complete   bool     `json:"complete"`
+	Missing    []string `json:"missing"`
+	PortalHost string   `json:"portal_host"`
+	PrismHost  string   `json:"prism_host,omitempty"` // read only: the old name of portal_host
+	IDHost     string   `json:"id_host"`
 	// Sites are listed and edited under /api/v1/sites; the document
 	// names only the pass-through's site here.
 	PassthroughSite string `json:"passthrough_site"`
@@ -161,7 +162,7 @@ func toSettingsJSON(s settings.Settings, source, mode string) settingsJSON {
 		j.Missing = []string{}
 	}
 	j.Complete = len(j.Missing) == 0
-	j.PrismHost, j.IDHost, j.PassthroughSite = s.PrismHost, s.IDHost, s.PassthroughSite
+	j.PortalHost, j.IDHost, j.PassthroughSite = s.PortalHost, s.IDHost, s.PassthroughSite
 	j.Keycloak.Realm, j.Keycloak.AdminClientID, j.Keycloak.AdminClientSecretSet = s.Keycloak.Realm, s.Keycloak.AdminClientID, s.Keycloak.AdminClientSecret != ""
 	j.OIDC.Issuer, j.OIDC.ClientID, j.OIDC.ClientSecretSet = s.OIDC.Issuer, s.OIDC.ClientID, s.OIDC.ClientSecret != ""
 	j.Tenants.ProjectPrefix, j.Tenants.GroupPrefix, j.Tenants.Role = s.Tenants.ProjectPrefix, s.Tenants.GroupPrefix, s.Tenants.Role
@@ -176,7 +177,13 @@ func toSettingsJSON(s settings.Settings, source, mode string) settingsJSON {
 // sites come from base: they are edited under /api/v1/sites.
 func fromSettingsJSON(j settingsJSON, base settings.Settings) (settings.Settings, error) {
 	var s settings.Settings
-	s.PrismHost, s.IDHost, s.PassthroughSite = j.PrismHost, j.IDHost, j.PassthroughSite
+	if j.PrismHost != "" {
+		if j.PortalHost != "" && j.PortalHost != j.PrismHost {
+			return s, errors.New("prism_host is the old name of portal_host; keep one")
+		}
+		j.PortalHost = j.PrismHost
+	}
+	s.PortalHost, s.IDHost, s.PassthroughSite = j.PortalHost, j.IDHost, j.PassthroughSite
 	s.Sites = append([]settings.Site(nil), base.Sites...)
 	s.Keycloak.Realm, s.Keycloak.AdminClientID, s.Keycloak.AdminClientSecret = j.Keycloak.Realm, j.Keycloak.AdminClientID, settings.Secret(j.Keycloak.AdminClientSecret)
 	s.OIDC.Issuer, s.OIDC.ClientID, s.OIDC.ClientSecret = j.OIDC.Issuer, j.OIDC.ClientID, settings.Secret(j.OIDC.ClientSecret)

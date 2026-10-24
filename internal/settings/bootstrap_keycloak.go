@@ -56,7 +56,7 @@ var adminClientRoles = []string{"manage-users", "view-users", "query-users", "qu
 const RealmPasswordPolicy = "length(12) and notUsername and notEmail"
 
 func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Settings, in KeycloakInput) (KeycloakResult, Settings, error) {
-	if strings.TrimSpace(s.PrismHost) == "" || strings.TrimSpace(s.IDHost) == "" {
+	if strings.TrimSpace(s.PortalHost) == "" || strings.TrimSpace(s.IDHost) == "" {
 		return KeycloakResult{}, s, &StateError{Msg: "save the public names first: the clients need them"}
 	}
 	if !reRealm.MatchString(in.Realm) {
@@ -140,8 +140,8 @@ func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Setti
 	// OIDC client for Portico's own login on the public name.
 	oidcRep := map[string]any{"clientId": oidcClientID, "protocol": "openid-connect", "enabled": true, "name": "Portico", "publicClient": false,
 		"standardFlowEnabled": true, "directAccessGrantsEnabled": false, "implicitFlowEnabled": false, "serviceAccountsEnabled": false,
-		"frontchannelLogout": false, "redirectUris": []string{"https://" + s.PrismHost + "/.portico/callback"}, "webOrigins": []string{},
-		"attributes": map[string]string{"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "https://" + s.PrismHost + "/"}}
+		"frontchannelLogout": false, "redirectUris": []string{"https://" + s.PortalHost + "/.portico/callback"}, "webOrigins": []string{},
+		"attributes": map[string]string{"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "https://" + s.PortalHost + "/"}}
 	oidcUUID, created, err := kc.EnsureClient(ctx, oidcRep)
 	if err != nil {
 		return remote(err)

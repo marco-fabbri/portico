@@ -198,7 +198,7 @@ func TestKeycloakBootstrapCreatesRealmAndClients(t *testing.T) {
 	kc := newFakeKCAdmin(t)
 	b := NewBootstrapper(nil, nil)
 	s := Defaults()
-	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	s.PortalHost, s.IDHost = "prism.example.test", "id.example.test"
 	res, out, err := b.Keycloak(context.Background(), kc.srv.URL, s, KeycloakInput{AdminUsername: "kcadmin", AdminPassword: "adm-pw-1", Realm: "msp"})
 	if err != nil || !res.OK || out.Keycloak.Realm != "msp" || out.OIDC.Issuer != "https://id.example.test/realms/msp" || out.Keycloak.AdminClientSecret == "" || out.OIDC.ClientSecret == "" {
 		t.Fatalf("res=%+v out=%+v err=%v", res, out, err)
@@ -236,7 +236,7 @@ func TestKeycloakBootstrapPreconditionsAndRefusal(t *testing.T) {
 		t.Fatalf("no hosts: %v", err)
 	}
 	s := Defaults()
-	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	s.PortalHost, s.IDHost = "prism.example.test", "id.example.test"
 	if _, _, err := b.Keycloak(context.Background(), kc.srv.URL, s, KeycloakInput{AdminUsername: "a", AdminPassword: "b", Realm: "Bad Realm"}); !errors.As(err, &se) {
 		t.Fatalf("bad realm: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestKeycloakBootstrapKeepsASaveMadeMeanwhile(t *testing.T) {
 	kc := newFakeKCAdmin(t)
 	svc := newService(t)
 	s := Defaults()
-	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	s.PortalHost, s.IDHost = "prism.example.test", "id.example.test"
 	if err := svc.Set(ctx, s); err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestKeycloakBootstrapNamesTheTokenStatus(t *testing.T) {
 	kc := newFakeKCAdmin(t)
 	kc.masterTokenStatus = 503
 	s := Defaults()
-	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	s.PortalHost, s.IDHost = "prism.example.test", "id.example.test"
 	res, _, err := NewBootstrapper(nil, nil).Keycloak(context.Background(), kc.srv.URL, s, KeycloakInput{AdminUsername: "kcadmin", AdminPassword: "x", Realm: "msp"})
 	if err != nil || res.OK || res.Message != "Keycloak answered status 503 at the token endpoint" {
 		t.Fatalf("token 503: %+v %v", res, err)
@@ -300,7 +300,7 @@ func TestKeycloakBootstrapNamesTheTokenStatus(t *testing.T) {
 func TestKeycloakBootstrapSetsAPasswordPolicy(t *testing.T) {
 	kc := newFakeKCAdmin(t)
 	s := Defaults()
-	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	s.PortalHost, s.IDHost = "prism.example.test", "id.example.test"
 	res, _, err := NewBootstrapper(nil, nil).Keycloak(context.Background(), kc.srv.URL, s, KeycloakInput{AdminUsername: "kcadmin", AdminPassword: "adm-pw-1", Realm: "msp"})
 	if err != nil || !res.OK {
 		t.Fatalf("bootstrap: %+v %v", res, err)
@@ -334,7 +334,7 @@ func TestKeycloakBootstrapWaitsForARestartingKeycloak(t *testing.T) {
 	KeycloakReadyWait = 5 * time.Second
 	b := NewBootstrapper(nil, nil)
 	s := Defaults()
-	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	s.PortalHost, s.IDHost = "prism.example.test", "id.example.test"
 	res, _, err := b.Keycloak(context.Background(), front.URL, s, KeycloakInput{AdminUsername: "kcadmin", AdminPassword: "adm-pw-1", Realm: "msp"})
 	if err != nil || !res.OK {
 		t.Fatalf("bootstrap during a restart: %+v %v", res, err)

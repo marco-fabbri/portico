@@ -35,7 +35,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.Log.Level != "info" {
 		t.Errorf("Log.Level = %q", cfg.Log.Level)
 	}
-	if cfg.Public.PrismHost != "prism.example.test" || cfg.OIDC.ClientID != "portico" {
+	if cfg.Public.PortalHost != "prism.example.test" || cfg.OIDC.ClientID != "portico" {
 		t.Errorf("values from the file not loaded: %+v", cfg)
 	}
 }
@@ -46,7 +46,7 @@ func TestValidateListsEveryMissingField(t *testing.T) {
 	if err == nil {
 		t.Fatal("Validate on an empty Config returned nil")
 	}
-	for _, want := range []string{"public.prism_host", "public.id_host", "prism_central.url", "oidc.issuer", "oidc.client_id", "oidc.client_secret_file"} {
+	for _, want := range []string{"public.portal_host", "public.id_host", "prism_central.url", "oidc.issuer", "oidc.client_id", "oidc.client_secret_file"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error does not mention %s: %v", want, err)
 		}
@@ -96,7 +96,7 @@ func TestClientSecretTrimsNewline(t *testing.T) {
 // from Milestone 2.
 func m1Config() Config {
 	cfg := Default()
-	cfg.Public.PrismHost, cfg.Public.IDHost = "prism.example.test", "id.example.test"
+	cfg.Public.PortalHost, cfg.Public.IDHost = "prism.example.test", "id.example.test"
 	cfg.PrismCentral.URL = "https://pc.example.test:9440"
 	cfg.OIDC.Issuer, cfg.OIDC.ClientID, cfg.OIDC.ClientSecretFile = "https://id.example.test/realms/portico", "portico", "/nonexistent"
 	return cfg
@@ -206,7 +206,7 @@ func TestValidateProcessOnlyChecksProcessFields(t *testing.T) {
 	if err == nil {
 		t.Fatal("ValidateRuntime on Default() = nil, want the runtime fields named")
 	}
-	for _, want := range []string{"public.prism_host", "prism_central.url", "prism_central.api_key_file", "keycloak.realm", "oidc.issuer", "tenants.cluster_ext_id"} {
+	for _, want := range []string{"public.portal_host", "prism_central.url", "prism_central.api_key_file", "keycloak.realm", "oidc.issuer", "tenants.cluster_ext_id"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("ValidateRuntime does not mention %s: %v", want, err)
 		}
@@ -277,5 +277,31 @@ func TestValidateRefusesThePublicListenerOnKeycloaksPort(t *testing.T) {
 	cfg.Public.Listen = "127.0.0.1:8081"
 	if err := cfg.ValidateProcess(); err != nil {
 		t.Fatalf("a free loopback port refused: %v", err)
+	}
+}
+
+// public.portal_host was renamed public.portal_host before v0.1.0 (with
+// sites the name leads to the portal, not to a Prism Central); a file
+// written with the old key still loads.
+func TestConfigReadsTheOldPortalHostKey(t *testing.T) {
+	base, _ := os.ReadFile("testdata/minimal.yaml")
+	path := filepath.Join(t.TempDir(), "old.yaml")
+	os.WriteFile(path, []byte(strings.Replace(string(base), "portal_host:", "prism_host:", 1)), 0o600)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Public.PortalHost != "prism.example.test" {
+		t.Fatalf("PortalHost = %q", cfg.Public.PortalHost)
+	}
+}
+
+func TestConfigRefusesBothHostKeysDiffering(t *testing.T) {
+	base, _ := os.ReadFile("testdata/minimal.yaml")
+	path := filepath.Join(t.TempDir(), "both.yaml")
+	os.WriteFile(path, []byte(strings.Replace(string(base), "portal_host:", "prism_host: other.example.test\n  portal_host:", 1)), 0o600)
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "public.prism_host is the old name of public.portal_host; keep one") {
+		t.Fatalf("err = %v", err)
 	}
 }

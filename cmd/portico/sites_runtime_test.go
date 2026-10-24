@@ -41,7 +41,7 @@ func newRuntimeEnv(t *testing.T) *runtimeEnv {
 	e := &runtimeEnv{svc: settings.NewService(st, sealer), pcA: settingstest.NewPC(t), pcB: settingstest.NewPC(t)}
 	e.tenants = tenant.NewService(st, nil, nil, tenant.Config{}, nil)
 	e.monitor = sites.NewMonitor(st, nil, nil)
-	e.rt = newSiteRuntime(siteDeps{prismHost: "prism.test", settings: e.svc}, e.monitor, e.tenants)
+	e.rt = newSiteRuntime(siteDeps{portalHost: "prism.test", settings: e.svc}, e.monitor, e.tenants)
 	return e
 }
 

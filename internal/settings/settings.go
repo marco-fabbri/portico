@@ -7,6 +7,7 @@
 package settings
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -25,8 +26,10 @@ type Secret string
 
 // Settings is the runtime settings document.
 type Settings struct {
-	PrismHost string `json:"prism_host"`
-	IDHost    string `json:"id_host"`
+	// PortalHost is the public name tenants use (the portal, every site
+	// behind it); prism_host, its name before v0.1.0, is still read.
+	PortalHost string `json:"portal_host"`
+	IDHost     string `json:"id_host"`
 
 	// Sites replaced the single prism_central block in Milestone 4; a
 	// stored legacy document becomes site-1 when it is read.
@@ -65,11 +68,32 @@ type Runtime struct {
 // file fields, so the runtime validation knows they are provided.
 const FromStore = "<store>"
 
+// UnmarshalJSON reads the document, accepting prism_host for portal_host:
+// a document stored before the rename loads unchanged and is written back
+// with the new key.
+func (s *Settings) UnmarshalJSON(data []byte) error {
+	type plain Settings
+	aux := struct {
+		*plain
+		PrismHost string `json:"prism_host"`
+	}{plain: (*plain)(s)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.PrismHost != "" {
+		if s.PortalHost != "" && s.PortalHost != aux.PrismHost {
+			return errors.New("settings: prism_host is the old name of portal_host; keep one")
+		}
+		s.PortalHost = aux.PrismHost
+	}
+	return nil
+}
+
 // FromConfig builds the document from a loaded YAML config and the
 // contents of its secret files. The file's one Prism Central is site-1.
 func FromConfig(cfg *config.Config, apiKey, adminSecret, clientSecret, caPEM string) Settings {
 	var s Settings
-	s.PrismHost, s.IDHost = cfg.Public.PrismHost, cfg.Public.IDHost
+	s.PortalHost, s.IDHost = cfg.Public.PortalHost, cfg.Public.IDHost
 	if cfg.PrismCentral.URL != "" {
 		name := cfg.PrismCentral.URL
 		if u, err := url.Parse(cfg.PrismCentral.URL); err == nil && u.Hostname() != "" {
@@ -105,7 +129,7 @@ func (s Settings) Overlay(cfg *config.Config) (Runtime, error) {
 	if o := s.OrderedSites(); len(o) > 0 {
 		first = o[0]
 	}
-	cfg.Public.PrismHost, cfg.Public.IDHost = s.PrismHost, s.IDHost
+	cfg.Public.PortalHost, cfg.Public.IDHost = s.PortalHost, s.IDHost
 	cfg.PrismCentral.URL = first.URL
 	cfg.PrismCentral.TLSVerify = first.TLSVerify
 	cfg.PrismCentral.CAFile = ""
@@ -149,7 +173,7 @@ func (s Settings) Missing() []string {
 			out = append(out, key)
 		}
 	}
-	add("prism_host", s.PrismHost)
+	add("portal_host", s.PortalHost)
 	add("id_host", s.IDHost)
 	if len(s.ServedSites()) == 0 {
 		out = append(out, "sites")
@@ -187,7 +211,7 @@ func ValidHost(h string) bool { return reHost.MatchString(h) }
 // nothing about the empty ones, so a draft can be stored card by card.
 func (s Settings) ValidateFormat() error {
 	var errs []error
-	for _, r := range []struct{ key, value string }{{"prism_host", s.PrismHost}, {"id_host", s.IDHost}} {
+	for _, r := range []struct{ key, value string }{{"portal_host", s.PortalHost}, {"id_host", s.IDHost}} {
 		if r.value != "" && !ValidHost(r.value) {
 			errs = append(errs, fmt.Errorf("settings: %s %q must be a host name (letters, digits, dots, dashes, optional :port)", r.key, r.value))
 		}

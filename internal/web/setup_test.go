@@ -19,7 +19,7 @@ import (
 
 func setupSample(pcURL string) settings.Settings {
 	var s settings.Settings
-	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	s.PortalHost, s.IDHost = "prism.example.test", "id.example.test"
 	s.Sites = []settings.Site{{ID: "site-a", Code: "SITE-A", Name: "pc", URL: pcURL, APIKey: "key-secret-1", SAMLIdPName: "portico-idp", ClusterExtID: "cl-1", StorageContainerExtID: "sc-1"}}
 	s.Keycloak.Realm, s.Keycloak.AdminClientID, s.Keycloak.AdminClientSecret = "portico", "portico-admin", "admin-secret-1"
 	s.OIDC.Issuer, s.OIDC.ClientID, s.OIDC.ClientSecret = "https://id.example.test/realms/portico", "portico", "client-secret-1"
@@ -93,7 +93,7 @@ func TestSetupSaveSectionAndSecretsStayHidden(t *testing.T) {
 		t.Fatalf("save site: %d %q %s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
 	}
 	for _, f := range []url.Values{
-		e.form("section", "hosts", "prism_host", "prism.example.test", "id_host", "id.example.test"),
+		e.form("section", "hosts", "portal_host", "prism.example.test", "id_host", "id.example.test"),
 		e.form("section", "keycloak", "realm", "portico", "admin_client_id", "portico-admin", "admin_client_secret", "admin-secret-1", "issuer", "https://id.example.test/realms/portico", "client_id", "portico", "client_secret", "client-secret-1"),
 		e.form("section", "tenants", "project_prefix", "portico", "group_prefix", "tenant-", "role", "Project Admin", "operation_timeout", "10m"),
 	} {
@@ -175,13 +175,13 @@ func TestSetupRequiresCSRF(t *testing.T) {
 	e.login(t)
 	before, _ := svc.Get(context.Background())
 	for _, path := range []string{"/setup/save", "/setup/check", "/setup/apply", "/setup/sites/new", "/setup/sites/site-a/save", "/setup/sites/site-a/check", "/setup/sites/site-a/delete", "/setup/sites/site-a/forget"} {
-		rec := e.do("POST", path, url.Values{"section": {"hosts"}, "prism_host": {"evil.test"}, "target": {"keycloak"}, "code": {"EVIL"}, "confirm": {"SITE-A"}, "url": {pc.URL}}, true)
+		rec := e.do("POST", path, url.Values{"section": {"hosts"}, "portal_host": {"evil.test"}, "target": {"keycloak"}, "code": {"EVIL"}, "confirm": {"SITE-A"}, "url": {pc.URL}}, true)
 		if rec.Code != 403 {
 			t.Errorf("%s without CSRF: %d", path, rec.Code)
 		}
 	}
 	after, _ := svc.Get(context.Background())
-	if after.PrismHost != before.PrismHost || len(after.Sites) != 1 || after.Sites[0].Code != "SITE-A" || *restarted != 0 {
+	if after.PortalHost != before.PortalHost || len(after.Sites) != 1 || after.Sites[0].Code != "SITE-A" || *restarted != 0 {
 		t.Fatal("a form without CSRF changed state")
 	}
 }
@@ -193,17 +193,17 @@ func TestSetupPageInSetupModeListsMissingAndDisablesApply(t *testing.T) {
 	e.login(t)
 	rec := e.do("GET", "/setup", nil, true)
 	body := rec.Body.String()
-	for _, want := range []string{"Setup mode", "Missing: prism_host, id_host, sites", `value="portico"`, `disabled`, `href="/setup/sites/new"`} {
+	for _, want := range []string{"Setup mode", "Missing: portal_host, id_host, sites", `value="portico"`, `disabled`, `href="/setup/sites/new"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("setup page lacks %q: %s", want, body)
 		}
 	}
-	rec = e.do("POST", "/setup/save", e.form("section", "hosts", "prism_host", "prism.example.test", "id_host", "id.example.test"), true)
+	rec = e.do("POST", "/setup/save", e.form("section", "hosts", "portal_host", "prism.example.test", "id_host", "id.example.test"), true)
 	if rec.Code != 303 {
 		t.Fatalf("save hosts on a fresh store: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = e.do("GET", "/setup", nil, true)
-	if body := rec.Body.String(); strings.Contains(body, "Missing: prism_host") || !strings.Contains(body, "Missing: sites") {
+	if body := rec.Body.String(); strings.Contains(body, "Missing: portal_host") || !strings.Contains(body, "Missing: sites") {
 		t.Fatalf("missing list after save: %s", body)
 	}
 	rec = e.do("POST", "/setup/apply", e.form(), true)

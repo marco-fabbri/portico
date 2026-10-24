@@ -55,7 +55,7 @@ var setupOperations = []string{"Create_User", "Create_User_Key", "Update_Authori
 // SetupReady says whether the document is ready to set up sites: the
 // public names and the Keycloak realm with its admin client.
 func SetupReady(s Settings) error {
-	if strings.TrimSpace(s.PrismHost) == "" || strings.TrimSpace(s.IDHost) == "" || s.Keycloak.Realm == "" || s.Keycloak.AdminClientSecret == "" {
+	if strings.TrimSpace(s.PortalHost) == "" || strings.TrimSpace(s.IDHost) == "" || s.Keycloak.Realm == "" || s.Keycloak.AdminClientSecret == "" {
 		return &StateError{Msg: "the public names and the Keycloak realm with its admin client must be set first"}
 	}
 	return nil

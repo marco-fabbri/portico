@@ -194,7 +194,7 @@ func (b *Bootstrapper) serviceAccount(ctx context.Context, pc *nutanix.Client, s
 	user, err := pc.FindUser(ctx, name)
 	switch {
 	case nutanix.IsNotFound(err):
-		host := s.PrismHost
+		host := s.PortalHost
 		if strings.TrimSpace(host) == "" {
 			host = "portico.invalid"
 		}

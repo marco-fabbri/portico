@@ -67,7 +67,7 @@ func (b *Bootstrapper) SAML(ctx context.Context, keycloakURL string, s Settings,
 		name = defaultIdPName
 	}
 	creds := in.Username != "" && in.Password != ""
-	if strings.TrimSpace(s.PrismHost) == "" || strings.TrimSpace(s.IDHost) == "" || s.Keycloak.Realm == "" || s.Keycloak.AdminClientSecret == "" || site.URL == "" || (site.APIKey == "" && !creds) {
+	if strings.TrimSpace(s.PortalHost) == "" || strings.TrimSpace(s.IDHost) == "" || s.Keycloak.Realm == "" || s.Keycloak.AdminClientSecret == "" || site.URL == "" || (site.APIKey == "" && !creds) {
 		return SAMLResult{}, s, &StateError{Msg: "the public names, the Keycloak realm with its admin client and the site's Prism Central connection must be set first"}
 	}
 	if !reServiceAccount.MatchString(name) {
@@ -172,7 +172,7 @@ func siteEntityIssuer(s Settings, siteID string) string {
 	if !perSiteEntityID {
 		return ""
 	}
-	return "https://" + s.PrismHost + "/api/iam/authn/" + siteID
+	return "https://" + s.PortalHost + "/api/iam/authn/" + siteID
 }
 
 // ownIdP picks Portico's identity provider among Prism Central's: the one
@@ -218,7 +218,7 @@ func (b *Bootstrapper) samlTrust(ctx context.Context, pc *nutanix.Client, kc *ke
 	out := samlOutcome{Created: []string{}}
 	idp := own
 	if idp == nil {
-		spec := nutanix.SAMLIdPSpec{Name: name, MetadataXML: descriptor, RedirectURL: "https://" + s.PrismHost, EntityIssuer: siteEntityIssuer(s, siteID)}
+		spec := nutanix.SAMLIdPSpec{Name: name, MetadataXML: descriptor, RedirectURL: "https://" + s.PortalHost, EntityIssuer: siteEntityIssuer(s, siteID)}
 		created, err := pc.CreateSAMLIdP(ctx, spec)
 		if err != nil {
 			return out, samlRefusal(site.URL, err, creds)

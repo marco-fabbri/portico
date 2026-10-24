@@ -75,7 +75,7 @@ func toSetupData(s settings.Settings, source, mode string) setupData {
 		d.Sites = append(d.Sites, row)
 	}
 	d.Done = map[string]bool{
-		"hosts":    s.PrismHost != "" && s.IDHost != "",
+		"hosts":    s.PortalHost != "" && s.IDHost != "",
 		"sites":    sitesDone,
 		"keycloak": s.Keycloak.Realm != "" && s.Keycloak.AdminClientID != "" && d.AdminSecretSet && s.OIDC.Issuer != "" && s.OIDC.ClientID != "" && d.ClientSecretSet,
 		"tenants":  s.Tenants.ProjectPrefix != "" && s.Tenants.GroupPrefix != "" && s.Tenants.Role != "",
@@ -115,7 +115,7 @@ func formSettings(r *http.Request, section string, cur settings.Settings) (setti
 	out := cur
 	switch section {
 	case "hosts":
-		out.PrismHost, out.IDHost = v("prism_host"), v("id_host")
+		out.PortalHost, out.IDHost = v("portal_host"), v("id_host")
 	case "keycloak":
 		out.Keycloak.Realm, out.Keycloak.AdminClientID = v("realm"), v("admin_client_id")
 		if k := r.FormValue("admin_client_secret"); k != "" {

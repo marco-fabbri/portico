@@ -192,7 +192,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		DiscoveryURL:  strings.TrimSuffix(cfg.Keycloak.URL, "/") + issuer.Path,
 		ClientID:      cfg.OIDC.ClientID,
 		ClientSecret:  secret,
-		RedirectURL:   "https://" + cfg.Public.PrismHost + "/.portico/callback",
+		RedirectURL:   "https://" + cfg.Public.PortalHost + "/.portico/callback",
 		CookieMaxAge:  cfg.Session.MaxAge,
 		ErrorPage:     pages.Error,
 		ResolveTenant: tenant.Resolver(kcClient, st, cfg.Tenants.GroupPrefix, log),
@@ -221,7 +221,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	if err := monitor.Load(ctx); err != nil {
 		return fmt.Errorf("site state: %w", err)
 	}
-	runtime := newSiteRuntime(siteDeps{prismHost: cfg.Public.PrismHost, strip: stripped, errorPage: pages.Error, settings: settingsSvc, kc: kcClient, log: log}, monitor, tenants)
+	runtime := newSiteRuntime(siteDeps{portalHost: cfg.Public.PortalHost, strip: stripped, errorPage: pages.Error, settings: settingsSvc, kc: kcClient, log: log}, monitor, tenants)
 	runtime.Apply(ctx, runDoc)
 	settingsSvc.OnChange(func(ctx context.Context, s settings.Settings) error {
 		// A site change is served at once; what the runtime cannot build
@@ -267,14 +267,14 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// provider page and starts the SAML login with the browser's own
 	// login-request cookie (write-ups 12 and 13).
 	landing := &proxy.LandingOptions{
-		Pages:     pages,
-		Logo:      brand.LogoFile,
-		Icons:     brand.Icons,
-		PrismHost: cfg.Public.PrismHost,
-		Log:       log,
+		Pages:      pages,
+		Logo:       brand.LogoFile,
+		Icons:      brand.Icons,
+		PortalHost: cfg.Public.PortalHost,
+		Log:        log,
 	}
 	public := proxy.NewPublic(proxy.PublicOptions{
-		PrismHost: cfg.Public.PrismHost, IDHost: cfg.Public.IDHost,
+		PortalHost: cfg.Public.PortalHost, IDHost: cfg.Public.IDHost,
 		Sites: &proxy.SiteRouting{
 			Backends:     runtime.backends,
 			Connections:  placements.Connections,

@@ -175,7 +175,7 @@ func TestPrismBootstrapCreatesAccountKeyAndPolicyMember(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	b := NewBootstrapper(nil, nil)
 	s := withSite(Defaults())
-	s.PrismHost = "prism.example.test"
+	s.PortalHost = "prism.example.test"
 	res, out, err := b.PrismCentral(context.Background(), s, "site-a", prismInput(pc.srv.URL))
 	if err != nil || !res.OK || len(res.Created) != 3 || res.Created[0] != "service account portico" || res.Created[2] != "policy member" {
 		t.Fatalf("res=%+v err=%v", res, err)
@@ -265,7 +265,7 @@ func TestPrismBootstrapRevokesAKeyLostInTransit(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	pc.keyLost = true
 	s := withSite(Defaults())
-	s.PrismHost = "prism.example.test"
+	s.PortalHost = "prism.example.test"
 	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), s, "site-a", prismInput(pc.srv.URL))
 	if err != nil || res.OK || !strings.Contains(res.Message, "Prism Central") {
 		t.Fatalf("res=%+v err=%v", res, err)
@@ -283,7 +283,7 @@ func TestPrismBootstrapRevokesTheKeyWithACancelledContext(t *testing.T) {
 	defer cancel()
 	pc.onPolicies = cancel
 	s := withSite(Defaults())
-	s.PrismHost = "prism.example.test"
+	s.PortalHost = "prism.example.test"
 	res, _, err := NewBootstrapper(nil, nil).PrismCentral(ctx, s, "site-a", prismInput(pc.srv.URL))
 	if err != nil || res.OK {
 		t.Fatalf("res=%+v err=%v", res, err)
@@ -306,7 +306,7 @@ func TestPrismBootstrapRevokesTheKeyWhenTheStoreFails(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	svc := NewService(failingStore{newStore(t)}, sealerFor(t, 1))
 	s := withSite(Defaults())
-	s.PrismHost = "prism.example.test"
+	s.PortalHost = "prism.example.test"
 	res, _, err := NewBootstrapper(nil, svc).PrismCentral(context.Background(), s, "site-a", prismInput(pc.srv.URL))
 	if err != nil || res.OK || res.Stored || !strings.Contains(res.Message, "not stored") {
 		t.Fatalf("res=%+v err=%v", res, err)
@@ -319,7 +319,7 @@ func TestPrismBootstrapRevokesTheKeyWhenTheStoreFails(t *testing.T) {
 func TestPrismBootstrapStoresAccountAndKeyIDs(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	s := withSite(Defaults())
-	s.PrismHost = "prism.example.test"
+	s.PortalHost = "prism.example.test"
 	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), s, "site-a", prismInput(pc.srv.URL))
 	if err != nil || !res.OK {
 		t.Fatalf("res=%+v err=%v", res, err)
