@@ -33,7 +33,7 @@ what is.
 | 8443 | every address with one interface; the internal interface's address once the console configures a second one without a gateway | MSP administrators: the admin UI and API, the factory password until the first login |
 | 9440 | `127.0.0.1` | nobody, until you bind the pass-through to an internal address in `portico.yaml`; it serves one site (`passthrough_site` in the settings, the first by default) |
 | 8080 | `127.0.0.1` | Portico only: Keycloak |
-| 22 | every address, keys only | whoever has a key in `admin`'s `authorized_keys` (cloud-init) |
+| 22 | every address with one interface; the internal interface's address once the console configures a second one without a gateway; keys only | whoever has a key in `admin`'s `authorized_keys` (cloud-init) |
 
 **Never let 8443 be reachable from the Internet.** With two interfaces
 the console binds it to the internal one. With a single interface (a
