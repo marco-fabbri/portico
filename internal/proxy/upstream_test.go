@@ -288,3 +288,25 @@ func TestUpstreamErrorPageRetryOnDoubleSlashPath(t *testing.T) {
 		t.Fatalf("got %d %q", resp.StatusCode, b)
 	}
 }
+
+// A backend cannot plant Portico's own cookies in the browser: a
+// Set-Cookie carrying a stripped name or a stash name is dropped, the
+// backend's other cookies pass.
+func TestUpstreamSetCookieWithAPorticoNameIsDropped(t *testing.T) {
+	up, _ := recordingUpstream(t, false, func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: auth.SessionCookie, Value: "x", Path: "/"})
+		http.SetCookie(w, &http.Cookie{Name: stashPrefix + "site-1", Value: "y", Path: "/"})
+		http.SetCookie(w, &http.Cookie{Name: "NTNX_IGW_SESSION", Value: "z", Path: "/"})
+		w.WriteHeader(200)
+	})
+	p := proxyFor(t, up.URL, UpstreamOptions{StripCookies: auth.PorticoCookies()})
+	resp, err := http.Get(p.URL + "/console/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	cs := resp.Cookies()
+	if len(cs) != 1 || cs[0].Name != "NTNX_IGW_SESSION" {
+		t.Fatalf("cookies = %v (Set-Cookie %q)", cs, resp.Header.Values("Set-Cookie"))
+	}
+}
