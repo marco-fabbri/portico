@@ -135,6 +135,11 @@ func parsePages() map[string]*template.Template {
 	return pages
 }
 
+// noticeCookie carries a notice ("Saved.", "Certificate pinned: …") from
+// the handler that did the work to the page the browser is sent to; set
+// by the server only and shown once. A notice is never read from the URL.
+const noticeCookie = "portico_admin_notice"
+
 // page is what every template receives.
 type page struct {
 	Title   string
