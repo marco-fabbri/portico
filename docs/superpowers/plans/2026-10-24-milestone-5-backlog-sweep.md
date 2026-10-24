@@ -31,7 +31,7 @@ image: "SSH key-only, internal interface only"), §5; `docs/backlog.md`
 
 - All text on disk in English; Italian only in chat with Marco.
 - Commits: `git -c user.email=9093189+marco-fabbri@users.noreply.github.com commit`,
-  message ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+  message ending with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
   Pull request bodies end with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 - Pushes, pull requests and merges only with Marco's OK; merge with
   `gh pr merge N --rebase --delete-branch`, never a local merge.
