@@ -611,3 +611,14 @@ func TestOnlyIncompleteSiteNotAvailablePage(t *testing.T) {
 		t.Fatalf("only site incomplete: %d\n%s", rec.Code, body)
 	}
 }
+
+// The no-site page offers a sign-out: a tenant resolved to nothing (a
+// transient Keycloak error at login) must not be stranded for the session.
+func TestNoSitePageOffersSignOut(t *testing.T) {
+	h := newSitesHarness(t)
+	h.session("s1", "", "")
+	rec := h.do("GET", "/console/", "s1", nav, nil)
+	if rec.Code != 403 || !strings.Contains(rec.Body.String(), `href="/.portico/logout"`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+}

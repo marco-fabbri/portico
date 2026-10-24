@@ -518,3 +518,38 @@ func TestCallbackResolverErrorStillLogsIn(t *testing.T) {
 		t.Fatalf("sessions = %+v", sessions)
 	}
 }
+
+// A browser that logs in again while it still holds a session gets a new
+// one, and the old one is retired: two live sessions for one browser
+// would outlive each other's logout.
+func TestSecondLoginRetiresTheFirstSession(t *testing.T) {
+	idp := newFakeIDP(t)
+	a, st := newTestAuth(t, idp)
+	client, _ := porticoServer(t, a)
+	u, _ := url.Parse("https://prism.test/")
+	sessionCookie := func() string {
+		for _, c := range client.Jar.Cookies(u) {
+			if c.Name == SessionCookie {
+				return c.Value
+			}
+		}
+		return ""
+	}
+	if resp, err := client.Get("https://prism.test/.portico/login?rd=/console/"); err != nil || resp.StatusCode != 200 {
+		t.Fatalf("first login: %v %v", resp, err)
+	}
+	first := sessionCookie()
+	if resp, err := client.Get("https://prism.test/.portico/login?rd=/console/"); err != nil || resp.StatusCode != 200 {
+		t.Fatalf("second login: %v %v", resp, err)
+	}
+	second := sessionCookie()
+	if first == "" || second == "" || first == second {
+		t.Fatalf("cookies: first set %v, second set %v, same %v", first != "", second != "", first == second)
+	}
+	if _, ok := st.Get(first, time.Now()); ok {
+		t.Fatal("the first session is still live after the second login")
+	}
+	if _, ok := st.Get(second, time.Now()); !ok {
+		t.Fatal("the second session is not live")
+	}
+}

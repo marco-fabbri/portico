@@ -24,6 +24,7 @@
   <h1>{{.Title}}</h1>
   <p>{{.Text}}</p>
   {{if .Retry}}<a class="button" href="{{.Retry}}">Try again</a>{{end}}
+  {{if .SignOut}}<a class="button" href="/.portico/logout">Sign out</a>{{end}}
   <p class="code">{{.Status}}</p>
 </section>
 {{if .SwitchURL}}<p class="status"><a href="{{.SwitchURL}}">Choose another site</a></p>{{end}}
