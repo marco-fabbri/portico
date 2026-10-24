@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -41,7 +42,9 @@ func (s *Service) record(ctx context.Context, tenantID, siteID, name string, fn 
 	if err != nil {
 		rec.Detail = err.Error()
 	}
-	if aerr := s.st.AddStep(ctx, rec); aerr != nil {
+	// The step is recorded even when the run's context has just ended:
+	// the record is what the operator reads.
+	if aerr := s.st.AddStep(context.WithoutCancel(ctx), rec); aerr != nil {
 		s.log.Warn("step record failed", "tenant", tenantID, "site", siteID, "step", name, "err", aerr.Error())
 	}
 	s.log.Info("tenant step", "tenant", tenantID, "site", siteID, "step", name, "ok", err == nil, "detail", rec.Detail)
@@ -108,7 +111,7 @@ func (s *Service) provisionSites(ctx context.Context, id string, keepStatus bool
 			return err
 		}
 		t.Status, t.LastError = store.StatusFailed, err.Error()
-		if uerr := s.st.UpdateTenant(ctx, t); uerr != nil {
+		if uerr := s.st.UpdateTenant(context.WithoutCancel(ctx), t); uerr != nil {
 			s.log.Warn("tenant update failed", "tenant", id, "err", uerr.Error())
 		}
 		return err
@@ -200,7 +203,7 @@ func (s *Service) prepare(ctx context.Context, p *store.Placement) (prepared, er
 // failPlacement records a placement's failure.
 func (s *Service) failPlacement(ctx context.Context, p *store.Placement, err error) {
 	p.Status, p.LastError = store.PlacementFailed, err.Error()
-	if uerr := s.st.UpdatePlacement(ctx, p); uerr != nil {
+	if uerr := s.st.UpdatePlacement(context.WithoutCancel(ctx), p); uerr != nil {
 		s.log.Warn("placement update failed", "tenant", p.TenantID, "site", p.SiteID, "err", uerr.Error())
 	}
 }
@@ -346,7 +349,7 @@ func (s *Service) remove(ctx context.Context, id string) error {
 	}
 	fail := func(err error) error {
 		t.Status, t.LastError = store.StatusFailed, err.Error()
-		if uerr := s.st.UpdateTenant(ctx, t); uerr != nil {
+		if uerr := s.st.UpdateTenant(context.WithoutCancel(ctx), t); uerr != nil {
 			s.log.Warn("tenant update failed", "tenant", id, "err", uerr.Error())
 		}
 		return err
@@ -393,7 +396,9 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string) 
 	}
 	fail := func(err error) error {
 		p.Status, p.LastError = store.PlacementRemoveFailed, err.Error()
-		if uerr := s.st.UpdatePlacement(ctx, p); uerr != nil {
+		// Recorded even when the run's context has just ended (a timeout
+		// is the usual reason to be here).
+		if uerr := s.st.UpdatePlacement(context.WithoutCancel(ctx), p); uerr != nil {
 			s.log.Warn("placement update failed", "tenant", tenantID, "site", siteID, "err", uerr.Error())
 		}
 		return err
@@ -518,7 +523,7 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string) 
 				return "", err
 			}
 			for _, rg := range rgs {
-				if _, err := tolerate("resource group "+rg.ExtID, pc.DeleteResourceGroup(ctx, rg.ExtID)); err != nil {
+				if err := s.deleteResourceGroupWhenEmpty(ctx, pc, rg.ExtID); err != nil {
 					return "", err
 				}
 			}
@@ -556,6 +561,45 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string) 
 		}
 	}
 	return s.st.DeletePlacement(ctx, tenantID, siteID)
+}
+
+// notEmptyYet reports whether err is Prism Central refusing to delete a
+// resource group that it still counts as non-empty: the task's 10018, or
+// the gateway's 504 while that task runs past its own timeout (write-up
+// 21: between 3 and 10 minutes after the role membership was deleted).
+func notEmptyYet(err error) bool {
+	var apiErr *nutanix.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.Status == http.StatusGatewayTimeout || (apiErr.Task && strings.Contains(apiErr.Message, "10018"))
+}
+
+// deleteResourceGroupWhenEmpty deletes one resource group, waiting and
+// trying again while Prism Central refuses it as not empty, with a backoff
+// from NotEmptyBackoff doubling to at most 2 minutes, until the context
+// ends. A 404 means it is already gone.
+func (s *Service) deleteResourceGroupWhenEmpty(ctx context.Context, pc PrismCentral, extID string) error {
+	start := time.Now()
+	wait := s.cfg.NotEmptyBackoff
+	for {
+		err := pc.DeleteResourceGroup(ctx, extID)
+		if err == nil || nutanix.IsNotFound(err) {
+			return nil
+		}
+		if !notEmptyYet(err) {
+			return err
+		}
+		s.log.Info("resource group not empty yet, waiting", "resource_group", extID, "wait", wait.String(), "elapsed", time.Since(start).Round(time.Second).String())
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("resource group still refused as not empty after %v: %w", time.Since(start).Round(time.Second), err)
+		case <-time.After(wait):
+		}
+		if wait *= 2; wait > 2*time.Minute {
+			wait = 2 * time.Minute
+		}
+	}
 }
 
 func contains(list []string, s string) bool {

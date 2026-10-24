@@ -67,6 +67,7 @@ type PC struct {
 	Contents    map[string]nutanix.Contents // project extId → what it holds; empty when absent
 	seq         int
 	failNth     map[string]failAt
+	failRun     map[string]failAt // FailNext: left calls still failing, < 0 forever
 }
 
 type failAt struct {
@@ -83,6 +84,17 @@ func (p *PC) FailCall(method string, n int, err error) {
 		p.failNth = map[string]failAt{}
 	}
 	p.failNth[method] = failAt{left: n, err: err}
+}
+
+// FailNext makes the next n calls of method return err; n < 0 means every
+// call from now on.
+func (p *PC) FailNext(method string, n int, err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.failRun == nil {
+		p.failRun = map[string]failAt{}
+	}
+	p.failRun[method] = failAt{left: n, err: err}
 }
 
 // NewPC returns a Prism Central with one IdP named idpName, the role
@@ -119,6 +131,13 @@ func (p *PC) call(method string) error {
 	if err, ok := p.FailOnce[method]; ok {
 		delete(p.FailOnce, method)
 		return err
+	}
+	if f, ok := p.failRun[method]; ok && f.left != 0 {
+		if f.left > 0 {
+			f.left--
+			p.failRun[method] = f
+		}
+		return f.err
 	}
 	if f, ok := p.failNth[method]; ok {
 		if f.left--; f.left == 0 {

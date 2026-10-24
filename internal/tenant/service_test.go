@@ -613,3 +613,46 @@ func TestStepDoesNotRetryARefusal(t *testing.T) {
 		t.Fatal("a refusal was retried")
 	}
 }
+
+// Prism Central refuses to delete a resource group as "not empty" for
+// minutes after the role membership went (write-up 21: a 504 from the
+// gateway, the task saying 10018). The step waits and tries again.
+func TestDisconnectWaitsForTheResourceGroup(t *testing.T) {
+	e := newEnv(t)
+	e.svc.cfg.NotEmptyBackoff = time.Millisecond
+	e.create(t, "acme")
+	e.svc.Wait()
+	e.pc.FailNext("DeleteResourceGroup", 2, &nutanix.APIError{Status: 504, Message: "upstream request timeout"})
+	ctx := context.Background()
+	if err := e.svc.Disconnect(ctx, "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if _, err := e.st.GetPlacement(ctx, "acme", "site-a"); !errors.Is(err, store.ErrNotFound) {
+		p, _ := e.st.GetPlacement(ctx, "acme", "site-a")
+		t.Fatalf("placement after disconnect: %v %+v", err, p)
+	}
+	if len(e.pc.RGs) != 0 {
+		t.Fatalf("resource groups left: %+v", e.pc.RGs)
+	}
+}
+
+// When the refusal outlives the operation timeout the placement fails with
+// that reason, not with a bare context error.
+func TestDisconnectGivesUpOnTheResourceGroupAtTheTimeout(t *testing.T) {
+	e := newEnv(t)
+	e.create(t, "acme")
+	e.svc.Wait()
+	e.svc.cfg.OperationTimeout = 50 * time.Millisecond
+	e.svc.cfg.NotEmptyBackoff = 5 * time.Millisecond
+	e.pc.FailNext("DeleteResourceGroup", -1, &nutanix.APIError{Status: 500, Message: "task t-9 FAILED: failed to delete Nutanix Resource Group as it is not empty.: 10018", Task: true})
+	ctx := context.Background()
+	if err := e.svc.Disconnect(ctx, "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	p := e.place(t, "acme")
+	if p.Status != store.PlacementRemoveFailed || !strings.Contains(p.LastError, "still refused as not empty after") || !strings.Contains(p.LastError, "10018") {
+		t.Fatalf("placement = %q %q", p.Status, p.LastError)
+	}
+}

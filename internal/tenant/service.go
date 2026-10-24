@@ -119,6 +119,11 @@ type Config struct {
 	// transient Prism Central answer (nutanix.IsTransient); its length is
 	// the number of repeats. Default 5 s then 15 s.
 	RetryPauses []time.Duration
+	// NotEmptyBackoff is the first wait before a resource group that Prism
+	// Central refused as "not empty" (10018, or the gateway's 504 while
+	// its task runs) is deleted again; it doubles up to 2 minutes, within
+	// OperationTimeout. Default 30 s.
+	NotEmptyBackoff time.Duration
 }
 
 func (c Config) withDefaults() Config {
@@ -133,6 +138,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.OperationTimeout <= 0 {
 		c.OperationTimeout = 10 * time.Minute
+	}
+	if c.NotEmptyBackoff <= 0 {
+		c.NotEmptyBackoff = 30 * time.Second
 	}
 	if c.RetryPauses == nil {
 		c.RetryPauses = []time.Duration{5 * time.Second, 15 * time.Second}
