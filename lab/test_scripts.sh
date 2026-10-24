@@ -134,6 +134,11 @@ if ! printf '%s' "$out" | grep -q 'would restart'; then ok "install.sh: an uncha
 echo "# edited" >> "$d/etc/containers/systemd/keycloak.container"
 out=$(bash deploy/install.sh --render-only "$d" --render-secrets --binary "$bin" 2>&1)
 if printf '%s' "$out" | grep -q 'would restart: postgres keycloak'; then ok "install.sh restarts PostgreSQL and Keycloak when a quadlet changed"; else ko "install.sh: changed quadlet not restarted: $out"; fi
+# Review M5: the installed copy (/usr/local/sbin/portico-install, alone in its directory) must still run --first-boot.
+fb=$(mktemp -d); cp deploy/install.sh "$alone/portico-install"
+out=$(bash "$alone/portico-install" --first-boot --render-only "$fb" --render-secrets 2>&1); rc=$?
+if [ $rc -eq 0 ] && printf '%s' "$out" | grep -q 'first boot done' && [ -s "$fb/etc/portico/keycloak.env" ]; then ok "portico-install --first-boot runs from a bare directory"; else ko "portico-install --first-boot refused: rc=$rc $out"; fi
+if [ -e "$d/etc/systemd/system/sshd.service.d/portico.conf" ] && grep -q 'After=network-online.target' "$d/etc/systemd/system/sshd.service.d/portico.conf"; then ok "install.sh orders sshd after network-online (a ListenAddress needs its address)"; else ko "no sshd unit drop-in rendered"; fi
 if grep -q 'ConditionPathExists=!/etc/portico/keycloak.env' "$d/etc/systemd/system/portico-firstboot.service" && grep -q 'portico-install --first-boot' "$d/etc/systemd/system/portico-firstboot.service"; then ok "first-boot unit runs once, before the services"; else ko "first-boot unit"; fi
 if grep -q 'rm -f /etc/portico/keycloak.env /etc/portico/tls/\*' image/scripts/cleanup.sh; then ok "the image cleanup removes every secret"; else ko "cleanup leaves secrets in the image"; fi
 # Milestone 5 Task 10: the build fails on an OpenSCAP rule that fails and is not an expected failure.
@@ -157,6 +162,9 @@ if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'harden: new failing rule: xccd
 printf 'xccdf_org.ssgproject.content_rule_listed_one\nxccdf_org.ssgproject.content_rule_new_one\n' > "$fx/expected.txt"
 if bash -c 'source image/scripts/harden.sh && oscap_regressions "$1" "$2"' _ "$fx/results.xml" "$fx/expected.txt" >/dev/null 2>&1; then ok "harden.sh passes when every failure is expected"; else ko "harden.sh fails on expected failures only"; fi
 if [ -f image/oscap/expected-failures.txt ]; then ok "image/oscap/expected-failures.txt exists"; else ko "no expected-failures.txt"; fi
+# Review M5: a scan that did not run is not a clean scan.
+: > "$fx/empty.xml"
+if ! bash -c 'source image/scripts/harden.sh && oscap_results_ok "$1" 0' _ "$fx/empty.xml" >/dev/null 2>&1 && ! bash -c 'source image/scripts/harden.sh && oscap_results_ok "$1" 0' _ "$fx/missing.xml" >/dev/null 2>&1 && ! bash -c 'source image/scripts/harden.sh && oscap_results_ok "$1" 1' _ "$fx/results.xml" >/dev/null 2>&1 && bash -c 'source image/scripts/harden.sh && oscap_results_ok "$1" 2' _ "$fx/results.xml" >/dev/null 2>&1; then ok "harden.sh refuses an empty, missing or failed evaluation and accepts exit 2"; else ko "harden.sh accepts a scan that did not run"; fi
 # An existing host keeps SSH open to its current session: the policy needs a wheel user with a key (review of Milestone 3).
 if grep -q 'ssh_policy_safe' deploy/install.sh && grep -q 'if \[ \$START -eq 0 \] || ssh_policy_safe; then' deploy/install.sh; then ok "install.sh installs the SSH policy on an existing host only when a wheel user has a key"; else ko "install.sh may lock SSH out"; fi
 # The first boot must work offline: its block comes before any dnf in install.sh (measured on NTNX-01).
