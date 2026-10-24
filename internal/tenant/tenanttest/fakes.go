@@ -66,6 +66,7 @@ type PC struct {
 	RGCluster   map[string]string           // resource group extId → the cluster it was created on
 	Contents    map[string]nutanix.Contents // project extId → what it holds; empty when absent
 	seq         int
+	calls       map[string]int // method → calls, successful or not
 	failNth     map[string]failAt
 	failRun     map[string]failAt // FailNext: left calls still failing, < 0 forever
 }
@@ -124,10 +125,21 @@ func (p *PC) ProjectContents(ctx context.Context, projectExtID string) (nutanix.
 	return nutanix.Contents{Counts: map[string]int{}}, nil
 }
 
+// CallCount reports how many times method was called, failures included.
+func (p *PC) CallCount(method string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls[method]
+}
+
 func (p *PC) call(method string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.Calls++
+	if p.calls == nil {
+		p.calls = map[string]int{}
+	}
+	p.calls[method]++
 	if err, ok := p.FailOnce[method]; ok {
 		delete(p.FailOnce, method)
 		return err
