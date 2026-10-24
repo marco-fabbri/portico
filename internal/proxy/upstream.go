@@ -79,6 +79,10 @@ func NewUpstream(o UpstreamOptions) *httputil.ReverseProxy {
 			pr.Out.Header.Set("X-Forwarded-Proto", "https")
 			stripCookies(pr.Out, strip)
 		},
+		ModifyResponse: func(resp *http.Response) error {
+			dropSetCookies(resp, strip, log)
+			return nil
+		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if r.Context().Err() == context.Canceled {
 				return
@@ -114,6 +118,37 @@ func stripCookies(r *http.Request, strip map[string]bool) {
 		return
 	}
 	r.Header.Set("Cookie", strings.Join(kept, "; "))
+}
+
+// dropSetCookies removes from the backend's answer every Set-Cookie that
+// would plant one of Portico's own cookies (a stripped name or a stash
+// name) in the browser: the backend never owns those. A line that does
+// not parse is dropped too, since its name cannot be told.
+func dropSetCookies(resp *http.Response, strip map[string]bool, log *slog.Logger) {
+	lines := resp.Header.Values("Set-Cookie")
+	if len(lines) == 0 {
+		return
+	}
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		c, err := http.ParseSetCookie(line)
+		if err != nil || strip[c.Name] || strings.HasPrefix(c.Name, stashPrefix) {
+			name := "unparsable"
+			if err == nil {
+				name = c.Name
+			}
+			log.Warn("upstream Set-Cookie dropped", "cookie", name)
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if len(kept) == len(lines) {
+		return
+	}
+	resp.Header.Del("Set-Cookie")
+	for _, line := range kept {
+		resp.Header.Add("Set-Cookie", line)
+	}
 }
 
 // errorClass names the error without echoing URLs or addresses.
