@@ -51,7 +51,7 @@ func TestPrismPolicyDeny(t *testing.T) {
 		{"bearer", req("GET", "/api/x", map[string]string{"Authorization": "Bearer abc"}), "deny-authorization", true},
 		{"digest", req("GET", "/api/x", map[string]string{"Authorization": "Digest abc"}), "deny-authorization", true},
 		{"unknown scheme", req("GET", "/api/x", map[string]string{"Authorization": "X-Token abc"}), "deny-authorization", true},
-		{"empty authorization", req("GET", "/api/x", map[string]string{"Authorization": ""}), "", false},
+		{"empty authorization", req("GET", "/api/x", map[string]string{"Authorization": ""}), "deny-authorization", true},
 		{"basic tab", req("GET", "/api/x", map[string]string{"Authorization": "Basic\tabc"}), "deny-basic-auth", true},
 		{"basic second value", withSecondAuth(req("GET", "/api/x", map[string]string{"Authorization": "Bearer abc"}), "Basic abc"), "deny-basic-auth", true},
 		{"api key empty", req("GET", "/api/x", map[string]string{"X-ntnx-api-key": ""}), "deny-api-key", true},
@@ -125,6 +125,18 @@ func TestIDPolicyCheck(t *testing.T) {
 		rule, allowed := IDPolicy{}.Check(req("GET", c.path, nil))
 		if allowed != c.allowed || rule != c.rule {
 			t.Errorf("Check(%q) = (%q, %v), want (%q, %v)", c.path, rule, allowed, c.rule, c.allowed)
+		}
+	}
+}
+
+// A header that is present but holds no scheme is still a credential
+// attempt: "every header" (docs) means presence, not content.
+func TestEmptyAuthorizationIsDenied(t *testing.T) {
+	for _, v := range []string{"", "   "} {
+		r := httptest.NewRequest("GET", "/console/", nil)
+		r.Header["Authorization"] = []string{v}
+		if rule, denied := (PrismPolicy{}).Deny(r); !denied || rule != "deny-authorization" {
+			t.Fatalf("%q: rule %q denied %v", v, rule, denied)
 		}
 	}
 }
