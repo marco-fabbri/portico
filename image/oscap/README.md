@@ -28,6 +28,15 @@ below, each with its reason; the report shows them as "notselected".
 | `grub2_password` | Whoever reaches the console already gets the root wizard there; a bootloader password adds nothing and would have to be shared with every MSP |
 | `accounts_password_last_change_is_in_past` | Evaluated on the build day, when every password change date is that day; meaningful on a running appliance, not in the build |
 
+## Regressions fail the build
+
+`harden.sh` compares the rules that fail in the build with
+`expected-failures.txt` (one rule id per line, reason after `#`). A
+failing rule that is not listed fails the build; a listed rule that
+passes is reported so its line can go. The list is empty since the build
+of 2026-10-19: the exceptions above are excluded by the tailoring, not
+expected failures.
+
 ## Layout exceptions documented in the kickstart
 
 `/var/lib/containers` is mounted `nodev,nosuid` without `noexec`:

@@ -127,6 +127,27 @@ out=$(bash deploy/install.sh --render-only "$d" --render-secrets --binary "$bin"
 if printf '%s' "$out" | grep -q 'would restart: postgres keycloak'; then ok "install.sh restarts PostgreSQL and Keycloak when a quadlet changed"; else ko "install.sh: changed quadlet not restarted: $out"; fi
 if grep -q 'ConditionPathExists=!/etc/portico/keycloak.env' "$d/etc/systemd/system/portico-firstboot.service" && grep -q 'portico-install --first-boot' "$d/etc/systemd/system/portico-firstboot.service"; then ok "first-boot unit runs once, before the services"; else ko "first-boot unit"; fi
 if grep -q 'rm -f /etc/portico/keycloak.env /etc/portico/tls/\*' image/scripts/cleanup.sh; then ok "the image cleanup removes every secret"; else ko "cleanup leaves secrets in the image"; fi
+# Milestone 5 Task 10: the build fails on an OpenSCAP rule that fails and is not an expected failure.
+fx=$(mktemp -d)
+cat > "$fx/results.xml" <<'XML'
+<TestResult>
+  <rule-result idref="xccdf_org.ssgproject.content_rule_listed_one" time="t" severity="medium" weight="1.0">
+    <result>fail</result>
+  </rule-result>
+  <rule-result idref="xccdf_org.ssgproject.content_rule_fine" time="t" severity="medium" weight="1.0">
+    <result>pass</result>
+  </rule-result>
+  <rule-result idref="xccdf_org.ssgproject.content_rule_new_one" time="t" severity="medium" weight="1.0">
+    <result>fail</result>
+  </rule-result>
+</TestResult>
+XML
+printf '# a comment\n\nxccdf_org.ssgproject.content_rule_listed_one  # why\nxccdf_org.ssgproject.content_rule_fine\n' > "$fx/expected.txt"
+out=$(bash -c 'source image/scripts/harden.sh && oscap_regressions "$1" "$2"' _ "$fx/results.xml" "$fx/expected.txt" 2>&1); rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'harden: new failing rule: xccdf_org.ssgproject.content_rule_new_one' && ! printf '%s' "$out" | grep -q 'new failing rule: xccdf_org.ssgproject.content_rule_listed_one' && printf '%s' "$out" | grep -q 'harden: expected failure now passes: xccdf_org.ssgproject.content_rule_fine'; then ok "harden.sh names the new failing rule and the expected failure that passes, and fails"; else ko "harden.sh regression check: rc=$rc $out"; fi
+printf 'xccdf_org.ssgproject.content_rule_listed_one\nxccdf_org.ssgproject.content_rule_new_one\n' > "$fx/expected.txt"
+if bash -c 'source image/scripts/harden.sh && oscap_regressions "$1" "$2"' _ "$fx/results.xml" "$fx/expected.txt" >/dev/null 2>&1; then ok "harden.sh passes when every failure is expected"; else ko "harden.sh fails on expected failures only"; fi
+if [ -f image/oscap/expected-failures.txt ]; then ok "image/oscap/expected-failures.txt exists"; else ko "no expected-failures.txt"; fi
 # An existing host keeps SSH open to its current session: the policy needs a wheel user with a key (review of Milestone 3).
 if grep -q 'ssh_policy_safe' deploy/install.sh && grep -q 'if \[ \$START -eq 0 \] || ssh_policy_safe; then' deploy/install.sh; then ok "install.sh installs the SSH policy on an existing host only when a wheel user has a key"; else ko "install.sh may lock SSH out"; fi
 # The first boot must work offline: its block comes before any dnf in install.sh (measured on NTNX-01).

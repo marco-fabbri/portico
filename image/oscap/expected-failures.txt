@@ -1,0 +1,8 @@
+# OpenSCAP rules of the portico profile that are known to fail in the
+# image build, one rule id per line with the reason after "#". harden.sh
+# fails the build on a failing rule that is not listed here, and reports a
+# listed rule that passes so the line can go.
+#
+# None as of the build of 2026-10-19 (271 pass, 20 not applicable, 0 fail;
+# the four exceptions of README.md are excluded by tailoring.xml, not
+# listed here).
