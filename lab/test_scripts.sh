@@ -84,7 +84,7 @@ if ! grep -nE -- '-u "portico-lab-bob|Bearer \$' lab/auth/probe-bearer-and-v3-us
 
 # Milestone 2d Task 6: settings in the store.
 # M2d-1: the store YAML names no secret file and no runtime section.
-if [ -s lab/portico/portico.store.yaml ] && ! grep -qE 'api_key|client_secret|admin_client_secret|prism_host|saml_idp_name|issuer|project_prefix' lab/portico/portico.store.yaml; then ok "portico.store.yaml holds process settings only"; else ko "portico.store.yaml names a secret file or a runtime section"; fi
+if [ -s lab/portico/portico.store.yaml ] && ! grep -qE 'api_key|client_secret|admin_client_secret|portal_host|saml_idp_name|issuer|project_prefix' lab/portico/portico.store.yaml; then ok "portico.store.yaml holds process settings only"; else ko "portico.store.yaml names a secret file or a runtime section"; fi
 # M2d-2: deploy.sh imports once, installs the store YAML as the live one and removes the three secret files.
 if grep -q 'portico settings import -config /etc/portico/portico.import.yaml' lab/portico/deploy.sh && grep -q '"$st/portico.store.yaml" /etc/portico/portico.yaml' lab/portico/deploy.sh && grep -q 'rm -f /etc/portico/oidc-client-secret /etc/portico/keycloak-admin-secret /etc/portico/prism-api-key' lab/portico/deploy.sh; then ok "deploy.sh imports then removes the secret files"; else ko "deploy.sh does not import into the store or leaves secret files"; fi
 # M2d-3: the unit restarts after the exit 0 of "Apply and restart".

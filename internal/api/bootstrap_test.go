@@ -242,7 +242,7 @@ func (f *fakePCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 // putHosts stores the public names as a draft.
 func (e *settingsEnv) putHosts(t *testing.T) {
 	t.Helper()
-	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test"}`)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"portal_host":"prism.example.test","id_host":"id.example.test"}`)
 	if rec.Code != 200 || out["stored"] != true {
 		t.Fatalf("PUT hosts: %d %v", rec.Code, out)
 	}
@@ -265,7 +265,7 @@ func TestBootstrapKeycloakStoresAndHidesSecrets(t *testing.T) {
 	}
 	rec, out = e.do("GET", "/api/v1/settings", "")
 	kc, _ := out["keycloak"].(map[string]any)
-	if kc["realm"] != "msp" || kc["admin_client_secret_set"] != true || out["oidc"].(map[string]any)["client_secret_set"] != true || out["prism_host"] != "prism.example.test" {
+	if kc["realm"] != "msp" || kc["admin_client_secret_set"] != true || out["oidc"].(map[string]any)["client_secret_set"] != true || out["portal_host"] != "prism.example.test" {
 		t.Fatalf("stored: %v", out)
 	}
 	rec, out = e.do("POST", "/api/v1/settings/bootstrap/keycloak", `{"admin_username":"kcadmin","admin_password":"x","realm":"msp"}`)
@@ -308,7 +308,7 @@ func TestBootstrapPrismCentralStoresKeyAndNeverLogsPassword(t *testing.T) {
 	if out["api_key_set"] != true || out["url"] != e.pcAdmin.URL {
 		t.Fatalf("stored: %v", out)
 	}
-	if _, set := e.do("GET", "/api/v1/settings", ""); set["prism_host"] != "prism.example.test" {
+	if _, set := e.do("GET", "/api/v1/settings", ""); set["portal_host"] != "prism.example.test" {
 		t.Fatalf("the bootstrap lost the hosts: %v", set)
 	}
 	rec, out = e.do("POST", "/api/v1/sites/site-a/bootstrap/prism-central", `{"username":"admin","password":"wrong"}`)

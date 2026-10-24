@@ -3,6 +3,7 @@ package settings
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -36,7 +37,7 @@ func newStore(t *testing.T) *store.SQLite {
 
 func sample() Settings {
 	var s Settings
-	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	s.PortalHost, s.IDHost = "prism.example.test", "id.example.test"
 	s.Sites = []Site{{
 		ID: "site-a", Code: "SITE-A", Name: "pc.example.test", URL: "https://pc.example.test:9440", TLSVerify: true,
 		CAPEM:  "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n",
@@ -59,7 +60,7 @@ func TestFromConfigOverlayRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := FromConfig(cfg, "k1", "a1", "c1", "CA-PEM")
-	if s.PrismHost != "prism.example.test" || s.Sites[0].APIKey != "k1" || s.Keycloak.AdminClientSecret != "a1" || s.OIDC.ClientSecret != "c1" || s.Sites[0].CAPEM != "CA-PEM" || s.Sites[0].ClusterExtID != "cl-1" || s.Sites[0].ID != LegacySiteID {
+	if s.PortalHost != "prism.example.test" || s.Sites[0].APIKey != "k1" || s.Keycloak.AdminClientSecret != "a1" || s.OIDC.ClientSecret != "c1" || s.Sites[0].CAPEM != "CA-PEM" || s.Sites[0].ClusterExtID != "cl-1" || s.Sites[0].ID != LegacySiteID {
 		t.Fatalf("FromConfig = %+v", s)
 	}
 	out := config.Default()
@@ -67,7 +68,7 @@ func TestFromConfigOverlayRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Overlay: %v", err)
 	}
-	if out.Public.PrismHost != cfg.Public.PrismHost || out.PrismCentral.URL != cfg.PrismCentral.URL || out.Keycloak.Realm != cfg.Keycloak.Realm || out.OIDC.Issuer != cfg.OIDC.Issuer || out.Tenants.ClusterExtID != cfg.Tenants.ClusterExtID || out.Tenants.OperationTimeout != cfg.Tenants.OperationTimeout {
+	if out.Public.PortalHost != cfg.Public.PortalHost || out.PrismCentral.URL != cfg.PrismCentral.URL || out.Keycloak.Realm != cfg.Keycloak.Realm || out.OIDC.Issuer != cfg.OIDC.Issuer || out.Tenants.ClusterExtID != cfg.Tenants.ClusterExtID || out.Tenants.OperationTimeout != cfg.Tenants.OperationTimeout {
 		t.Fatalf("Overlay result = %+v", out)
 	}
 	if rt.APIKey != "k1" || rt.AdminSecret != "a1" || rt.ClientSecret != "c1" || rt.CAPEM != "CA-PEM" {
@@ -175,7 +176,7 @@ func newService(t *testing.T) *Service {
 
 func TestMissingListsEmptyRequiredFields(t *testing.T) {
 	var s Settings
-	s.PrismHost = "prism.example.test"
+	s.PortalHost = "prism.example.test"
 	got := s.Missing()
 	if len(got) != 12 || got[0] != "id_host" || got[len(got)-1] != "tenants.operation_timeout" {
 		t.Fatalf("missing = %v", got)
@@ -195,7 +196,7 @@ func TestValidateNamesMissingFieldsAndFormat(t *testing.T) {
 	}
 	s = Defaults()
 	var inc *IncompleteError
-	if err := s.Validate(); !errors.As(err, &inc) || len(inc.Missing) == 0 || !strings.Contains(err.Error(), "missing prism_host, id_host") {
+	if err := s.Validate(); !errors.As(err, &inc) || len(inc.Missing) == 0 || !strings.Contains(err.Error(), "missing portal_host, id_host") {
 		t.Fatalf("incomplete error: %v", err)
 	}
 	if s.ValidateFormat() != nil {
@@ -206,12 +207,12 @@ func TestValidateNamesMissingFieldsAndFormat(t *testing.T) {
 func TestServiceStoresADraft(t *testing.T) {
 	svc := newService(t)
 	d := Defaults()
-	d.PrismHost, d.IDHost = "prism.example.test", "id.example.test"
+	d.PortalHost, d.IDHost = "prism.example.test", "id.example.test"
 	if err := svc.Set(context.Background(), d); err != nil {
 		t.Fatal(err)
 	}
 	got, err := svc.Get(context.Background())
-	if err != nil || got.PrismHost != "prism.example.test" || len(got.Missing()) != 5 {
+	if err != nil || got.PortalHost != "prism.example.test" || len(got.Missing()) != 5 {
 		t.Fatalf("draft = %+v %v", got, err)
 	}
 }
@@ -222,7 +223,7 @@ func TestServicePatchMergesIntoTheStoredDocument(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
 	s := Defaults()
-	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	s.PortalHost, s.IDHost = "prism.example.test", "id.example.test"
 	if err := svc.Set(ctx, s); err != nil {
 		t.Fatal(err)
 	}
@@ -233,16 +234,16 @@ func TestServicePatchMergesIntoTheStoredDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := svc.Get(ctx)
-	if err != nil || got.Keycloak.Realm != "msp" || got.Tenants.Role != "role-9" || got.PrismHost != "prism.example.test" {
+	if err != nil || got.Keycloak.Realm != "msp" || got.Tenants.Role != "role-9" || got.PortalHost != "prism.example.test" {
 		t.Fatalf("got=%+v err=%v", got, err)
 	}
 	// Nothing stored yet: the patch applies to the defaults.
 	empty := newService(t)
-	if err := empty.Patch(ctx, func(d *Settings) { d.PrismHost = "p.example.test" }); err != nil {
+	if err := empty.Patch(ctx, func(d *Settings) { d.PortalHost = "p.example.test" }); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = empty.Get(ctx)
-	if got.PrismHost != "p.example.test" || got.Tenants.GroupPrefix != Defaults().Tenants.GroupPrefix {
+	if got.PortalHost != "p.example.test" || got.Tenants.GroupPrefix != Defaults().Tenants.GroupPrefix {
 		t.Fatalf("got=%+v", got)
 	}
 }
@@ -351,7 +352,7 @@ func TestWriteKeycloakHostnameFile(t *testing.T) {
 // optional port; anything else is refused before it is stored or written.
 func TestValidateFormatRefusesBadHostNames(t *testing.T) {
 	for _, h := range []string{"id.example.test\nKC_DB_PASSWORD=x", "id example.test", "https://id.example.test", "id.example.test/realms", "-bad.example", ""} {
-		s := Settings{IDHost: h, PrismHost: "prism.example.test"}
+		s := Settings{IDHost: h, PortalHost: "prism.example.test"}
 		err := s.ValidateFormat()
 		if h == "" {
 			if err != nil {
@@ -364,15 +365,34 @@ func TestValidateFormatRefusesBadHostNames(t *testing.T) {
 		}
 	}
 	for _, h := range []string{"id.example.test", "id.example.test:8443", "localhost"} {
-		if err := (Settings{IDHost: h, PrismHost: h}).ValidateFormat(); err != nil {
+		if err := (Settings{IDHost: h, PortalHost: h}).ValidateFormat(); err != nil {
 			t.Errorf("%q refused: %v", h, err)
 		}
 	}
-	if err := (Settings{PrismHost: "prism example"}).ValidateFormat(); err == nil || !strings.Contains(err.Error(), "prism_host") {
-		t.Errorf("bad prism_host accepted: %v", err)
+	if err := (Settings{PortalHost: "prism example"}).ValidateFormat(); err == nil || !strings.Contains(err.Error(), "portal_host") {
+		t.Errorf("bad portal_host accepted: %v", err)
 	}
 	// The writer refuses on its own too.
 	if err := WriteKeycloakHostname(filepath.Join(t.TempDir(), "x.env"), "id.example.test\nX=1"); err == nil {
 		t.Error("WriteKeycloakHostname wrote a value with a newline")
+	}
+}
+
+// A document stored before the rename carries portal_host: it loads into
+// PortalHost and is written back with the new key only.
+func TestSettingsDocumentFromBeforeTheRename(t *testing.T) {
+	var s Settings
+	if err := json.Unmarshal([]byte(`{"prism_host":"a.example","id_host":"id.example"}`), &s); err != nil {
+		t.Fatal(err)
+	}
+	if s.PortalHost != "a.example" {
+		t.Fatalf("PortalHost = %q", s.PortalHost)
+	}
+	out, _ := json.Marshal(s)
+	if !strings.Contains(string(out), `"portal_host":"a.example"`) || strings.Contains(string(out), "prism_host") {
+		t.Fatalf("written back as %s", out)
+	}
+	if err := json.Unmarshal([]byte(`{"prism_host":"a.example","portal_host":"b.example"}`), &s); err == nil || !strings.Contains(err.Error(), "prism_host is the old name of portal_host; keep one") {
+		t.Fatalf("both keys differing: %v", err)
 	}
 }

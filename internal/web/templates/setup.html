@@ -13,11 +13,11 @@
 
 <section class="card" id="card-hosts">
   <h2>Public names</h2>
-  {{if index .Data.Done "hosts"}}<p class="state done">Configured: tenants reach Prism Central at <code>{{.Data.S.PrismHost}}</code> and sign in at <code>{{.Data.S.IDHost}}</code>.</p>{{else}}<p class="state todo">Not configured yet: both public names are needed.</p>{{end}}
+  {{if index .Data.Done "hosts"}}<p class="state done">Configured: tenants reach the portal at <code>{{.Data.S.PortalHost}}</code> and sign in at <code>{{.Data.S.IDHost}}</code>.</p>{{else}}<p class="state todo">Not configured yet: both public names are needed.</p>{{end}}
   <form method="post" action="/setup/save">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
     <input type="hidden" name="section" value="hosts">
-    <label>Prism Central public host <input type="text" name="prism_host" value="{{.Data.S.PrismHost}}" placeholder="prism.msp.example" required></label>
+    <label>Portal public host <input type="text" name="portal_host" value="{{.Data.S.PortalHost}}" placeholder="portal.msp.example" required></label>
     <label>Identity public host <input type="text" name="id_host" value="{{.Data.S.IDHost}}" placeholder="id.msp.example" required></label>
     <div class="actions"><button type="submit" class="primary">Save</button></div>
   </form>

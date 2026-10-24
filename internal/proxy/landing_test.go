@@ -69,11 +69,11 @@ func newLandingHarness(t *testing.T) *landingHarness {
 			Icons: func(ctx context.Context) branding.Icons {
 				return branding.Icons{ICO: []byte("ico-bytes"), Touch: []byte("touch-bytes")}
 			},
-			PrismHTTP: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
-			PrismBase: base,
-			PrismHost: "prism.test",
-			IdPExtID:  func(ctx context.Context) (string, error) { return "idp-1", lh.idpErr },
-			Log:       o.Log,
+			PrismHTTP:  &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+			PrismBase:  base,
+			PortalHost: "prism.test",
+			IdPExtID:   func(ctx context.Context) (string, error) { return "idp-1", lh.idpErr },
+			Log:        o.Log,
 		}
 	})
 	lh.publicHarness = h
@@ -316,7 +316,7 @@ func TestSAMLStartTransportErrorDoesNotLogCookie(t *testing.T) {
 			Pages:     branding.NewPages(func(ctx context.Context) branding.Branding { return branding.Default() }),
 			Logo:      func(ctx context.Context) ([]byte, string, bool) { return nil, "", false },
 			PrismHTTP: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
-			PrismBase: base, PrismHost: "prism.test",
+			PrismBase: base, PortalHost: "prism.test",
 			IdPExtID: func(ctx context.Context) (string, error) { return "idp-1", nil },
 			Log:      o.Log,
 		}

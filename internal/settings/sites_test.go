@@ -21,7 +21,7 @@ func TestLegacyDocumentBecomesSite1(t *testing.T) {
 		t.Fatal(err)
 	}
 	legacy := map[string]any{
-		"prism_host": "prism.example.test", "id_host": "id.example.test",
+		"portal_host": "prism.example.test", "id_host": "id.example.test",
 		"prism_central": map[string]any{"url": "https://10.0.0.5:9440", "tls_verify": false, "ca_pem": "", "api_key": sealedKey, "saml_idp_name": "portico-keycloak"},
 		"tenants":       map[string]any{"project_prefix": "portico", "cluster_ext_id": "cl-1", "storage_container_ext_id": "sc-1"},
 	}
