@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/marco-fabbri/portico/internal/idp/keycloak"
 	"github.com/marco-fabbri/portico/internal/nutanix"
@@ -15,6 +16,27 @@ import (
 // (siteID ""), and records the outcome.
 func (s *Service) record(ctx context.Context, tenantID, siteID, name string, fn func(ctx context.Context) (string, error)) error {
 	detail, err := fn(ctx)
+	// Prism Central's gateway answers 500 intermittently for minutes after
+	// identity changes (write-ups 19, 25). Every step reads before it
+	// creates, so running it again is safe; only the last outcome is
+	// recorded. A refusal or a transport error is final at once.
+	for _, pause := range s.cfg.RetryPauses {
+		if !nutanix.IsTransient(err) {
+			break
+		}
+		var apiErr *nutanix.APIError
+		errors.As(err, &apiErr)
+		s.log.Info("tenant step retried", "tenant", tenantID, "site", siteID, "step", name, "status", apiErr.Status, "pause", pause.String())
+		select {
+		case <-ctx.Done():
+			err = fmt.Errorf("%w (after %v)", err, ctx.Err())
+			detail = ""
+		case <-time.After(pause):
+			detail, err = fn(ctx)
+			continue
+		}
+		break
+	}
 	rec := store.Step{TenantID: tenantID, SiteID: siteID, Name: name, OK: err == nil, Detail: detail}
 	if err != nil {
 		rec.Detail = err.Error()

@@ -129,7 +129,7 @@ func TestProvisionHappyPath(t *testing.T) {
 
 func TestProvisionIsIdempotentAfterFailure(t *testing.T) {
 	e := newEnv(t)
-	e.pc.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 500, Message: "membership exploded"}
+	e.pc.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 400, Message: "membership exploded"}
 	e.create(t, "acme")
 	e.svc.Wait()
 	tn := e.get(t, "acme")
@@ -564,5 +564,52 @@ func TestCreateUserIsBusyWhileLocked(t *testing.T) {
 	e.svc.release("acme")
 	if _, err := e.svc.CreateUser(ctx, "acme", "x@acme.test", "X", "Y"); err != nil {
 		t.Fatalf("CreateUser after release: %v", err)
+	}
+}
+
+// Prism Central's intermittent 500 (write-up 19) must not fail the tenant:
+// the step is run again after a pause and recorded once, with its last
+// outcome.
+func TestStepRetriesPrismCentralTransient500(t *testing.T) {
+	e := newEnv(t)
+	e.svc.cfg.RetryPauses = []time.Duration{time.Millisecond, time.Millisecond}
+	e.pc.FailCall("CreateUserGroup", 1, &nutanix.APIError{Status: 500, Message: "Failed to store new cookie in IDF"})
+	e.create(t, "acme")
+	e.svc.Wait()
+	tn := e.get(t, "acme")
+	if tn.Status != store.StatusActive {
+		t.Fatalf("status = %q, last error %q", tn.Status, tn.LastError)
+	}
+	steps, _ := e.st.ListSteps(context.Background(), "acme")
+	n := 0
+	for _, s := range steps {
+		if s.Name == "saml-group" {
+			n++
+			if !s.OK {
+				t.Fatalf("saml-group step = %+v", s)
+			}
+		}
+	}
+	if n != 1 || e.pc.Creates["CreateUserGroup"] != 1 {
+		t.Fatalf("saml-group recorded %d times, CreateUserGroup succeeded %d times", n, e.pc.Creates["CreateUserGroup"])
+	}
+	if !strings.Contains(e.log.String(), `"msg":"tenant step retried"`) || strings.Contains(e.log.String(), "IDF") {
+		t.Fatalf("log: %s", e.log.String())
+	}
+}
+
+// A refusal (400) is final: no pause, no second call.
+func TestStepDoesNotRetryARefusal(t *testing.T) {
+	e := newEnv(t)
+	e.svc.cfg.RetryPauses = []time.Duration{time.Hour}
+	e.pc.FailCall("CreateUserGroup", 1, &nutanix.APIError{Status: 400, Message: "bad group"})
+	e.create(t, "acme")
+	e.svc.Wait()
+	tn := e.get(t, "acme")
+	if tn.Status != store.StatusFailed || !strings.Contains(tn.LastError, "bad group") {
+		t.Fatalf("status = %q, last error %q", tn.Status, tn.LastError)
+	}
+	if strings.Contains(e.log.String(), "tenant step retried") {
+		t.Fatal("a refusal was retried")
 	}
 }

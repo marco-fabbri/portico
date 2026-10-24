@@ -55,6 +55,23 @@ func IsTaskFailed(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.Task
 }
 
+// IsTransient reports whether err is an answer Prism Central's gateway
+// gives intermittently and the next call may not get: a 500, 502 or 503
+// that is not a task's own failure (write-ups 19 and 25: "Failed to store
+// new cookie in IDF", "failed to get client", for minutes after identity
+// changes). A 504 is the gateway giving up on a long task, not transient.
+func IsTransient(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Task {
+		return false
+	}
+	switch apiErr.Status {
+	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable:
+		return true
+	}
+	return false
+}
+
 // IsNotFound reports whether err is a 404 from Prism Central or a lookup
 // that found nothing.
 func IsNotFound(err error) bool {

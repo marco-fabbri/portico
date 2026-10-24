@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -212,5 +213,31 @@ func TestUserRefusalKeepsTheCodeNotTheNameInTheLog(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "dave@acme.example") || !strings.Contains(buf.String(), "IAM-30403") {
 		t.Fatalf("log = %s", buf.String())
+	}
+}
+
+// A transient answer is one the next call may not get: the gateway's own
+// 500/502/503 (write-ups 19 and 25: "Failed to store new cookie in IDF",
+// "failed to get client"). A refusal, a 404, the gateway's 504 after a
+// long task and a task Prism Central ran and failed are not.
+func TestIsTransient(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want bool
+	}{
+		{&APIError{Status: 500}, true},
+		{&APIError{Status: 502}, true},
+		{&APIError{Status: 503}, true},
+		{fmt.Errorf("wrapped: %w", &APIError{Status: 500}), true},
+		{&APIError{Status: 400}, false},
+		{&APIError{Status: 404}, false},
+		{&APIError{Status: 504}, false},
+		{&APIError{Status: 500, Task: true}, false},
+		{errors.New("dial tcp: timeout"), false},
+		{nil, false},
+	} {
+		if got := IsTransient(tc.err); got != tc.want {
+			t.Errorf("IsTransient(%v) = %v, want %v", tc.err, got, tc.want)
+		}
 	}
 }
