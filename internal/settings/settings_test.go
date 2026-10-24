@@ -378,7 +378,7 @@ func TestValidateFormatRefusesBadHostNames(t *testing.T) {
 	}
 }
 
-// A document stored before the rename carries portal_host: it loads into
+// A document stored before the rename carries prism_host: it loads into
 // PortalHost and is written back with the new key only.
 func TestSettingsDocumentFromBeforeTheRename(t *testing.T) {
 	var s Settings

@@ -280,7 +280,7 @@ func TestValidateRefusesThePublicListenerOnKeycloaksPort(t *testing.T) {
 	}
 }
 
-// public.portal_host was renamed public.portal_host before v0.1.0 (with
+// public.prism_host was renamed public.portal_host before v0.1.0 (with
 // sites the name leads to the portal, not to a Prism Central); a file
 // written with the old key still loads.
 func TestConfigReadsTheOldPortalHostKey(t *testing.T) {
