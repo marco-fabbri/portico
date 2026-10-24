@@ -33,7 +33,7 @@ of a cloud provider", chosen per tenant, in mind.
    IdP's redirect URL, the same for every site, unless the IdP carries an
    `entityIssuer`. Write-up 20 measured that pc.7.6.0.6 accepts one per
    site and logs in with a Keycloak client of that name: each site gets
-   `https://<prism_host>/api/iam/authn/<site-id>` and its own client
+   `https://<portal_host>/api/iam/authn/<site-id>` and its own client
    (variant A). An upgraded appliance's first site keeps the shared
    default name until its trust is recreated.
 5. The MSP sees who is still on a site and can put it in maintenance

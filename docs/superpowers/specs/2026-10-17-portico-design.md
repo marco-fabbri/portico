@@ -333,7 +333,7 @@ Step 1 scope decisions (design calls):
   a fixed `KC_HOSTNAME` it already carries the public URLs) and refuses
   when its entityID is not `https://<id_host>/realms/<realm>`; creates the
   identity provider with the descriptor inline (`idpMetadataXml`,
-  base64), `redirectURL=https://<prism_host>`, username and email
+  base64), `redirectURL=https://<portal_host>`, username and email
   attribute `email`, groups attribute `groups`; reads the per-IdP SP
   metadata (plain XML on `.../sp-metadata`) for the entityID and the ACS
   URL; and registers the SAML client in Keycloak with that entityID as
@@ -416,8 +416,8 @@ admin client `portico-admin` with a service account holding the
 realm-management roles `manage-users view-users query-users query-groups
 view-realm manage-realm manage-clients view-clients`, and the OIDC client
 `portico` (standard flow, PKCE S256, redirect
-`https://<prism_host>/.portico/callback`, post-logout redirect
-`https://<prism_host>/`); it reads both client secrets and stores realm,
+`https://<portal_host>/.portico/callback`, post-logout redirect
+`https://<portal_host>/`); it reads both client secrets and stores realm,
 client ids, issuer `https://<id_host>/realms/<realm>` and secrets. Every
 client Portico creates has `frontchannelLogout: false`. The Keycloak
 administrator's credentials are never stored.
