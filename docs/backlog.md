@@ -188,14 +188,13 @@ drawn across the logo on the Keycloak login page.
   them into Keycloak (the OIDC client's redirect and post-logout URIs,
   each SAML client's ACS) and into each site's identity provider in
   Prism Central, so a new name and Apply break the login. Apply should
-  carry a changed name there. With sites the tenant name leads to the
-  portal, not to a Prism Central: rename `public.prism_host` to a portal
-  name (old key accepted) before v0.1.0, and rename the lab's names as
-  the acceptance: `msp.portico.test` for the portal (Marco, 2026-10-20;
-  `portico.dev` is registered by someone else) and `id.portico.test` for
-  the identity provider, in place of `prism.lab.portico.test` and
-  `id.lab.portico.test` (`internal/settings`, `internal/config`,
-  `internal/web`, `lab/env.sh`, the lab certificate).
+  carry a changed name there. (The rename to `portal_host` and the lab's
+  new names were done in Milestone 5, write-up 27.)
+- `lab/portico/bootstrap-acceptance.sh` adds its site with the Milestone
+  2e two-step path (`tls_verify: false`, then `bootstrap/prism-central`
+  and `bootstrap/saml`), which a current build refuses: a new site needs
+  a trusted or pinned certificate (write-up 27). Move it to the one-step
+  `POST /api/v1/sites` with `tls_pin` and `admin`.
 - Minor findings of the appliance acceptance (write-up 21): the legacy
   adoption line ("the single Prism Central of the stored document is now
   site site-1") is written in plain text before the JSON logger exists;
