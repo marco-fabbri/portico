@@ -39,26 +39,16 @@ and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
 
 ## Tenants
 
-- `CreateUser` takes no per-tenant lock and reads the status before taking
-  the lock (`internal/tenant`).
 - `FindGroup` matches top-level groups only: a same-named subgroup
   elsewhere answers 409 (`internal/idp/keycloak`).
 - `GroupMembers` caps at 1000 members without paging
   (`internal/idp/keycloak`).
-- A Keycloak token invalidated server-side is reused until local expiry:
-  clear on 401 and retry once (`internal/idp/keycloak`).
 - Deletion steps vanish with the row (tombstone or events table).
 - `Disable` does not end an existing Prism Central session (document in
   the API doc).
 - `UNIQUE` violation detected by error-text substring (`internal/store`).
 - `PoliciesMentioning` substring-matches the group extId in the policy
   JSON (measured ok on pc.7.6, re-measure after an upgrade).
-- Disconnecting a tenant right after its role membership: Prism Central
-  refused to delete the resource group ("not empty", 10018) for between
-  3 and 10 minutes on 2026-10-20 (write-up 21; on 2026-10-18 the whole
-  deletion took 28 s). The resource-group step should retry that refusal
-  with a backoff within `operation_timeout` instead of failing the
-  tenant (`internal/tenant`).
 - A v4 `DELETE` whose task fails late is answered by Prism Central's
   gateway with "504 upstream request timeout" after about 60 s: Portico
   then records the 504, not the task's reason. Look the entity's latest
@@ -144,11 +134,6 @@ and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
   accepts the current password as the new one and keeps the session;
   tunnel mode is not measured with a real Cloudflare tunnel yet.
 
-- Prism Central pc.7.6 answers 500 "Failed to store new cookie in IDF"
-  intermittently for minutes after identity deletions (write-up 19); a
-  provisioning step that meets it fails the tenant and the operator
-  retries by hand. Retry a 500 from Prism Central once or twice with a
-  pause before failing the step (`internal/tenant`).
 - `deploy/tofu/nutanix` is validated by `tofu validate` and the CI boot
   test renders its template; a `tofu test` with a mock provider would
   also cover the VM resource's arguments (write-up 19).
