@@ -63,6 +63,7 @@ type siteRuntime struct {
 	ptFP   string
 	ptIdle func()
 	filled map[string]bool // ids whose identity provider id is being backfilled
+	warned map[string]bool // ids whose failed lookup was logged as a warning
 }
 
 func newSiteRuntime(deps siteDeps, monitor *sites.Monitor, tenants *tenant.Service) *siteRuntime {
@@ -73,7 +74,7 @@ func newSiteRuntime(deps siteDeps, monitor *sites.Monitor, tenants *tenant.Servi
 		proxy.Refuse(w, http.StatusServiceUnavailable, "no-site", "no Prism Central configured")
 	})
 	r := &siteRuntime{deps: deps, backends: proxy.NewBackendSet(nil), passthrough: proxy.NewSwapHandler(unset),
-		monitor: monitor, tenants: tenants, parts: map[string]*siteParts{}, filled: map[string]bool{}}
+		monitor: monitor, tenants: tenants, parts: map[string]*siteParts{}, filled: map[string]bool{}, warned: map[string]bool{}}
 	tenants.SetSiteGate(r.gate)
 	return r
 }
@@ -128,6 +129,10 @@ func (r *siteRuntime) Apply(ctx context.Context, doc settings.Settings) error {
 		fp := siteFingerprint(site)
 		if old, ok := r.parts[site.ID]; ok && old.fp == fp {
 			next[site.ID] = old
+			// A lookup that failed is tried again at every reload.
+			if r.needsBackfill(site) {
+				backfill = append(backfill, site)
+			}
 			continue
 		}
 		p, err := r.build(site)
@@ -142,7 +147,7 @@ func (r *siteRuntime) Apply(ctx context.Context, doc settings.Settings) error {
 			r.deps.log.Info("site served", "site", site.ID)
 		}
 		next[site.ID] = p
-		if site.SAMLIdPExtID == "" && site.SAMLIdPName != "" && !r.filled[site.ID] {
+		if r.needsBackfill(site) {
 			backfill = append(backfill, site)
 		}
 	}
@@ -270,12 +275,21 @@ func (r *siteRuntime) backfillIdP(site settings.Site) {
 	defer cancel()
 	id, err := idpLookup(p.pc, site)(ctx)
 	if err != nil {
-		r.deps.log.Warn("identity provider id not stored: lookup failed, retried at the next reload", "site", site.ID, "err", err.Error())
 		r.mu.Lock()
 		delete(r.filled, site.ID)
+		first := !r.warned[site.ID]
+		r.warned[site.ID] = true
 		r.mu.Unlock()
+		if first {
+			r.deps.log.Warn("identity provider id not stored: lookup failed, retried at every reload", "site", site.ID, "err", err.Error())
+		} else {
+			r.deps.log.Debug("identity provider id not stored: lookup failed again", "site", site.ID, "err", err.Error())
+		}
 		return
 	}
+	r.mu.Lock()
+	delete(r.warned, site.ID)
+	r.mu.Unlock()
 	err = r.deps.settings.Patch(ctx, func(d *settings.Settings) {
 		for i := range d.Sites {
 			if d.Sites[i].ID == site.ID && d.Sites[i].SAMLIdPExtID == "" && d.Sites[i].SAMLIdPName == site.SAMLIdPName {
@@ -288,6 +302,12 @@ func (r *siteRuntime) backfillIdP(site settings.Site) {
 		return
 	}
 	r.deps.log.Info("identity provider id stored", "site", site.ID)
+}
+
+// needsBackfill reports whether a site set up before its identity
+// provider id was stored needs the lookup, and none runs; under r.mu.
+func (r *siteRuntime) needsBackfill(site settings.Site) bool {
+	return site.SAMLIdPExtID == "" && site.SAMLIdPName != "" && !r.filled[site.ID]
 }
 
 // reload reads the stored document every interval and applies it, for a

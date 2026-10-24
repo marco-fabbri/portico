@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -208,4 +210,68 @@ func TestRuntimeRebuildClosesIdleConnections(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("the rebuilt site's old connections stay open")
+}
+
+// lockedBuffer is a log sink the runtime's goroutines can write to.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// backfillIdle waits until no identity provider lookup runs for id.
+func (e *runtimeEnv) backfillIdle(t *testing.T, id string) {
+	t.Helper()
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		e.rt.mu.Lock()
+		busy := e.rt.filled[id]
+		e.rt.mu.Unlock()
+		if !busy {
+			return
+		}
+	}
+	t.Fatal("the identity provider lookup did not end")
+}
+
+// A lookup that failed is tried again at the next reload, and warned
+// about once.
+func TestRuntimeBackfillRetriedAtReload(t *testing.T) {
+	e := newRuntimeEnv(t)
+	var logs lockedBuffer
+	e.rt.deps.log = slog.New(slog.NewTextHandler(&logs, nil))
+	site := e.site("site-a", "SITE-A", e.pcA)
+	site.SAMLIdPExtID = ""
+	if err := e.svc.Set(context.Background(), settings.Settings{Sites: []settings.Site{site}}); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 { // no provider yet: two failed lookups
+		doc, _ := e.svc.Get(context.Background())
+		e.rt.Apply(context.Background(), doc)
+		time.Sleep(50 * time.Millisecond)
+		e.backfillIdle(t, "site-a")
+	}
+	if n := strings.Count(logs.String(), "identity provider id not stored"); n != 1 {
+		t.Fatalf("%d warnings for one missing id:\n%s", n, logs.String())
+	}
+	e.pcA.AddIdP("portico-keycloak")
+	doc, _ := e.svc.Get(context.Background())
+	e.rt.Apply(context.Background(), doc)
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		got, _ := e.svc.Get(context.Background())
+		if s, _ := got.Site("site-a"); s.SAMLIdPExtID == "idp-portico-keycloak" {
+			return
+		}
+	}
+	t.Fatal("a reload did not try the lookup again")
 }
