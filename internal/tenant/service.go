@@ -115,6 +115,10 @@ type Config struct {
 	GroupPrefix      string        // Keycloak and SAML group = GroupPrefix + slug
 	RoleName         string        // role bound inside the project, "Project Admin" by default
 	OperationTimeout time.Duration // context of a background run
+	// RetryPauses are the waits before a step is run again after a
+	// transient Prism Central answer (nutanix.IsTransient); its length is
+	// the number of repeats. Default 5 s then 15 s.
+	RetryPauses []time.Duration
 }
 
 func (c Config) withDefaults() Config {
@@ -129,6 +133,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.OperationTimeout <= 0 {
 		c.OperationTimeout = 10 * time.Minute
+	}
+	if c.RetryPauses == nil {
+		c.RetryPauses = []time.Duration{5 * time.Second, 15 * time.Second}
 	}
 	return c
 }
