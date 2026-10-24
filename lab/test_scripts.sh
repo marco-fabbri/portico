@@ -114,6 +114,17 @@ if [ "$(mode "$d/etc/portico/tls/internal.key")" = 640 ] && openssl x509 -in "$d
 first=$(grep KC_BOOTSTRAP_ADMIN_PASSWORD "$d/etc/portico/keycloak.env"); firstkey=$(cat "$d/etc/portico/tls/internal.key")
 bash deploy/install.sh --render-only "$d" --render-secrets --binary "$bin" >/dev/null 2>&1
 if [ "$(grep KC_BOOTSTRAP_ADMIN_PASSWORD "$d/etc/portico/keycloak.env")" = "$first" ] && [ "$(cat "$d/etc/portico/tls/internal.key")" = "$firstkey" ]; then ok "install.sh keeps the secrets on a second run"; else ko "install.sh regenerated a secret"; fi
+# Milestone 5 Task 9: the installer runs from the unpacked release (its quadlets and units are beside it),
+# installs itself from BASH_SOURCE, and restarts PostgreSQL and Keycloak only when their quadlets changed.
+alone=$(mktemp -d); cp deploy/install.sh "$alone/install.sh"
+out=$(bash "$alone/install.sh" --render-only "$d" --binary "$bin" 2>&1); rc=$?
+if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q 'run it from the unpacked release'; then ok "install.sh copied alone refuses and names the missing release tree"; else ko "install.sh copied alone: rc=$rc $out"; fi
+if cmp -s deploy/install.sh "$d/usr/local/sbin/portico-install"; then ok "install.sh installs itself as portico-install"; else ko "portico-install differs from install.sh"; fi
+out=$(bash deploy/install.sh --render-only "$d" --render-secrets --binary "$bin" 2>&1)
+if ! printf '%s' "$out" | grep -q 'would restart'; then ok "install.sh: an unchanged second run restarts no container"; else ko "install.sh would restart unchanged containers: $out"; fi
+echo "# edited" >> "$d/etc/containers/systemd/keycloak.container"
+out=$(bash deploy/install.sh --render-only "$d" --render-secrets --binary "$bin" 2>&1)
+if printf '%s' "$out" | grep -q 'would restart: postgres keycloak'; then ok "install.sh restarts PostgreSQL and Keycloak when a quadlet changed"; else ko "install.sh: changed quadlet not restarted: $out"; fi
 if grep -q 'ConditionPathExists=!/etc/portico/keycloak.env' "$d/etc/systemd/system/portico-firstboot.service" && grep -q 'portico-install --first-boot' "$d/etc/systemd/system/portico-firstboot.service"; then ok "first-boot unit runs once, before the services"; else ko "first-boot unit"; fi
 if grep -q 'rm -f /etc/portico/keycloak.env /etc/portico/tls/\*' image/scripts/cleanup.sh; then ok "the image cleanup removes every secret"; else ko "cleanup leaves secrets in the image"; fi
 # An existing host keeps SSH open to its current session: the policy needs a wheel user with a key (review of Milestone 3).
