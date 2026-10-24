@@ -85,6 +85,7 @@
   <p class="state todo">Tenants placed here: {{range $i, $t := .Data.Tenants}}{{if $i}}, {{end}}<a href="/tenants/{{$t}}">{{$t}}</a>{{end}}. Disconnect them from this site first.</p>
   {{else}}
   <p>Portico deletes its Keycloak client for this site and stops serving it. With the credentials of a Prism Central administrator it also deletes its identity provider and the service account's API key in Prism Central; without them, it lists what it leaves there. The credentials are used for this removal only.</p>
+  {{if and (not .Data.S.TLSVerify) (not .Data.S.TLSPin)}}<p class="state todo">Pin the certificate on the status card first: Portico sends the credentials only to a confirmed certificate.</p>{{end}}
   <form method="post" action="/setup/sites/{{.Data.S.ID}}/delete">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
     <label>Username (optional) <input type="text" name="username" value="" autocomplete="off"></label>
