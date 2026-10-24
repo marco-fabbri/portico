@@ -193,7 +193,7 @@ type PC struct {
 	UserDeleteForbidden bool
 	// RefuseUserDelete refuses the deletion of this one user (an extId).
 	RefuseUserDelete string
-	closed              atomic.Int32
+	closed           atomic.Int32
 }
 
 // OpCatalog is the operations the double lists by name.
