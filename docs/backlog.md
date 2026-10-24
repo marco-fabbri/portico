@@ -15,8 +15,6 @@ and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
   (`internal/proxy/accesslog.go`).
 - Cookie stripping re-parses the `Cookie` header with `r.Cookies()`; split
   textually instead (`internal/proxy`).
-- A POST after idle expiry carries `next=<POST path>` and lands on a 405
-  after login: set `next` for GET/HEAD only (`internal/auth`).
 - `/.portico/logo` is `no-store` on an unauthenticated path (`private,
   max-age=60` would do).
 - `MaxIdleConnsPerHost` left at the default 2: set it to avoid repeated
@@ -81,12 +79,6 @@ and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
   check), a users column, a Prism Central health dot in the header,
   "step N of M" while creating, last login per user; add them as the
   data appears (`internal/web`).
-- CSP `default-src 'self'` blocks the four inline style attributes and
-  HTMX's indicator style: move to classes, `htmx-config
-  includeIndicatorStyles false` (`internal/web`).
-- Template errors after headers are sent: render into a buffer, 500 on
-  error (`internal/web`).
-- Unused reflected `?notice=` banner (remove until a handler needs it).
 - `loginAccountTitle` may be double-escaped by Keycloak's FreeMarker
   (measure with `&` in the tagline, `internal/branding`).
 - Only `messages_en.properties` is written (other default locales fall
@@ -125,8 +117,7 @@ and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
   the console writes `portico.yaml` in place (no temp file and rename);
   Packer uploads the whole `deploy/` tree
   (a developer's gitignored tfvars would ride along until the cleanup);
-  `ParseKeyfile` does not check the `[ipv4]` section; the password page
-  accepts the current password as the new one and keeps the session;
+  `ParseKeyfile` does not check the `[ipv4]` section;
   tunnel mode is not measured with a real Cloudflare tunnel yet.
 
 - `deploy/tofu/nutanix` is validated by `tofu validate` and the CI boot
