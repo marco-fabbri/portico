@@ -14,8 +14,8 @@ jobs:
     name: Go (format, vet, test)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -34,7 +34,7 @@ jobs:
     name: Lab scripts (shellcheck, offline checks)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Tool versions
         run: bash --version | head -1; shellcheck --version | head -2; jq --version
       - name: lab/test_scripts.sh
@@ -44,8 +44,8 @@ jobs:
     name: Image definition (packer validate, kickstart, tailoring)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-packer@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789 # v3
         with:
           version: "1.11.2"
       - name: packer validate
@@ -59,8 +59,8 @@ jobs:
     name: OpenTofu deployer (fmt, validate)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: opentofu/setup-opentofu@v1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1
         with:
           tofu_version: "1.8.5"
       - run: cd deploy/tofu/nutanix && tofu fmt -check -recursive && tofu init -backend=false && tofu validate

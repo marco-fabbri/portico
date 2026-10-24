@@ -41,6 +41,19 @@ ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 RestrictRealtime=yes
 LockPersonality=yes
+# Milestone 5: a tighter sandbox. The store and the master key are created
+# 0600 from the first write (UMask); the process needs sockets (TCP, the
+# loopback to Keycloak, netlink for the interface list) and nothing else.
+UMask=0077
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+RestrictNamespaces=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectProc=invisible
+ProtectKernelLogs=yes
+MemoryDenyWriteExecute=yes
 StateDirectory=portico
 ConfigurationDirectory=portico
 ConfigurationDirectoryMode=0750
