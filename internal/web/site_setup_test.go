@@ -246,10 +246,11 @@ func TestNoApplyNoticeForSites(t *testing.T) {
 	e.login(t)
 	rec := e.do("POST", "/setup/sites/site-a/save", e.form("code", "SITE-A", "name", "Milan", "order", "1"), true)
 	loc := rec.Header().Get("Location")
-	if rec.Code != 303 || !strings.Contains(loc, "notice=") {
-		t.Fatalf("save: %d %q", rec.Code, loc)
+	nc := cookieNamed(rec, noticeCookie)
+	if rec.Code != 303 || nc == nil {
+		t.Fatalf("save: %d %q (no notice cookie)", rec.Code, loc)
 	}
-	notice, _ := url.QueryUnescape(loc[strings.Index(loc, "notice=")+len("notice="):])
+	notice, _ := url.QueryUnescape(nc.Value)
 	if strings.Contains(notice, "Apply") {
 		t.Fatalf("the notice speaks of Apply: %q", notice)
 	}

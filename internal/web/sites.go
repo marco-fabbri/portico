@@ -256,7 +256,8 @@ func (h *Handler) siteSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.log.Info("site updated", "via", "ui", "id", out.ID, "code", out.Code)
-	http.Redirect(w, r, "/setup/sites/"+url.PathEscape(out.ID)+"?notice="+url.QueryEscape("Saved."), http.StatusSeeOther)
+	h.notice(w, "Saved.")
+	http.Redirect(w, r, "/setup/sites/"+url.PathEscape(out.ID), http.StatusSeeOther)
 }
 
 func (h *Handler) writeSiteFragment(w http.ResponseWriter, r *http.Request, status int, name string, f siteFragment) {
@@ -395,5 +396,6 @@ func (h *Handler) siteDisconnect(w http.ResponseWriter, r *http.Request) {
 	}
 	n := h.setup.Runtime.Disconnect(s.ID)
 	h.log.Warn("site sessions disconnected", "via", "ui", "site", s.ID, "disconnected", n)
-	http.Redirect(w, r, "/setup/sites/"+url.PathEscape(s.ID)+"?notice="+url.QueryEscape(fmt.Sprintf("%d user(s) disconnected from %s.", n, s.Code)), http.StatusSeeOther)
+	h.notice(w, fmt.Sprintf("%d user(s) disconnected from %s.", n, s.Code))
+	http.Redirect(w, r, "/setup/sites/"+url.PathEscape(s.ID), http.StatusSeeOther)
 }
