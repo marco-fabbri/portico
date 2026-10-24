@@ -49,6 +49,10 @@ jobs:
         with:
           version: "1.11.2"
       - name: packer validate
+        env:
+          # The plugin getter asks the GitHub API; unauthenticated it is rate
+          # limited (five pull requests' runs at once hit it on 2026-10-25).
+          PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cd image && mkdir -p boot && touch boot/initrd.img && packer init portico.pkr.hcl && packer validate -var version=0.0.0 -var binary=/bin/true portico.pkr.hcl
       - name: kickstart
         run: pipx install pykickstart && ksvalidator -v RHEL9 image/portico.ks
