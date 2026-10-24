@@ -52,6 +52,7 @@ nav.crumbs a { color: var(--muted); text-decoration: none; }
 
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1.3rem 1.5rem; margin-bottom: 1.3rem; }
 .card.narrow { max-width: 420px; margin: 0 auto 2rem; box-shadow: 0 10px 30px rgba(29, 29, 27, .06); }
+.card.narrow.spaced { margin-top: 1rem; }
 
 /* The admin login: the mark and the wordmark above the card. */
 .lockup { display: flex; flex-direction: column; align-items: center; gap: .8rem; margin: 2.5rem 0 1.8rem; }
