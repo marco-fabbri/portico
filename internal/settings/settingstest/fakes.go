@@ -187,6 +187,8 @@ type PC struct {
 	// refuses their deletion with 403.
 	SAMLUsers           []map[string]any
 	UserDeleteForbidden bool
+	// RefuseUserDelete refuses the deletion of this one user (an extId).
+	RefuseUserDelete string
 	closed              atomic.Int32
 }
 
@@ -348,9 +350,10 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 			case r.Method == "GET":
 				w.Header().Set("ETag", `"u"`)
 				reply(200, u)
-			case f.UserDeleteForbidden:
+			case f.UserDeleteForbidden || f.RefuseUserDelete == id:
+				// pc.7.6's error names the user it refused.
 				w.WriteHeader(403)
-				w.Write([]byte(`{"data":{"error":{"message":"user is not authorized"}}}`))
+				fmt.Fprintf(w, `{"data":{"error":[{"code":"IAM-30403","message":"user %s cannot be deleted"}]}}`, u["username"])
 			default:
 				f.SAMLUsers = append(f.SAMLUsers[:i:i], f.SAMLUsers[i+1:]...)
 				w.WriteHeader(204)

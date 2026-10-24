@@ -135,20 +135,44 @@ func (b *Bootstrapper) deleteSAMLUsers(ctx context.Context, pc *nutanix.Client, 
 	if len(users) == 0 {
 		return
 	}
+	n := 0
 	for _, u := range users {
 		if err = pc.DeleteUser(ctx, u.ExtID); err != nil {
 			break
 		}
+		n++
 	}
-	gone(fmt.Sprintf("the identity provider's %d SAML users (made by Prism Central at sign-in)", len(users)), err)
+	label := fmt.Sprintf("the identity provider's %d SAML users (made by Prism Central at sign-in)", len(users))
+	if err == nil {
+		gone(label, nil)
+		return
+	}
+	if n > 0 {
+		gone(fmt.Sprintf("%d of the identity provider's %d SAML users", n, len(users)), nil)
+		label = fmt.Sprintf("%d of the identity provider's %d SAML users (made by Prism Central at sign-in)", len(users)-n, len(users))
+	}
+	gone(label, userError{err})
 }
+
+// userError is a user's deletion refused: refusal gives Prism Central's
+// status and code, not its text, which names the user.
+type userError struct{ err error }
+
+func (e userError) Error() string { return e.err.Error() }
+func (e userError) Unwrap() error { return e.err }
 
 // refusal is why a deletion did not happen: Prism Central's own answer
 // when it gave one, else the class of the connection error.
 func refusal(err error) string {
 	var api *nutanix.APIError
-	if errors.As(err, &api) {
-		return fmt.Sprintf("Prism Central answered %d: %s", api.Status, api.Message)
+	var user userError
+	switch {
+	case !errors.As(err, &api):
+		return errClass(err)
+	case errors.As(err, &user) && api.Code != "":
+		return fmt.Sprintf("Prism Central answered %d (%s)", api.Status, api.Code)
+	case errors.As(err, &user):
+		return fmt.Sprintf("Prism Central answered %d", api.Status)
 	}
-	return errClass(err)
+	return fmt.Sprintf("Prism Central answered %d: %s", api.Status, api.Message)
 }

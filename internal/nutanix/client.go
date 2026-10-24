@@ -39,6 +39,8 @@ const (
 type APIError struct {
 	Status  int
 	Message string
+	// Code is the first error code of the answer (IAM-21016), if any.
+	Code string
 	// Task is set when a task that Prism Central accepted ended FAILED or
 	// CANCELED: Prism Central refused the operation itself.
 	Task bool
@@ -164,9 +166,14 @@ func (c *Client) call(ctx context.Context, method, path, query string, body any,
 	}
 	c.log.Debug("prism central call", "method", method, "path", path, "status", resp.StatusCode, "duration_ms", time.Since(start).Milliseconds())
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		msg := errorMessage(raw)
-		c.log.Warn("prism central error", "method", method, "path", path, "status", resp.StatusCode, "message", msg)
-		return "", &APIError{Status: resp.StatusCode, Message: msg}
+		msg, code := errorMessage(raw), errorCode(raw)
+		if userRecord(path) {
+			// The text may name the user: the log keeps the code.
+			c.log.Warn("prism central error", "method", method, "path", path, "status", resp.StatusCode, "code", code)
+		} else {
+			c.log.Warn("prism central error", "method", method, "path", path, "status", resp.StatusCode, "message", msg)
+		}
+		return "", &APIError{Status: resp.StatusCode, Message: msg, Code: code}
 	}
 	if (out != nil || total != nil) && len(raw) > 0 {
 		var env struct {
@@ -251,6 +258,48 @@ func errorMessage(raw []byte) string {
 		s = s[:200]
 	}
 	return s
+}
+
+// errorCode returns the first "code" of a v4 error body, "" without one.
+func errorCode(raw []byte) string {
+	var env struct {
+		Data struct {
+			Error json.RawMessage `json:"error"`
+		} `json:"data"`
+	}
+	var v any
+	if json.Unmarshal(raw, &env) != nil || json.Unmarshal(env.Data.Error, &v) != nil {
+		return ""
+	}
+	return firstCode(v)
+}
+
+func firstCode(v any) string {
+	switch x := v.(type) {
+	case map[string]any:
+		if c, ok := x["code"].(string); ok && c != "" {
+			return c
+		}
+		for _, child := range x {
+			if c := firstCode(child); c != "" {
+				return c
+			}
+		}
+	case []any:
+		for _, child := range x {
+			if c := firstCode(child); c != "" {
+				return c
+			}
+		}
+	}
+	return ""
+}
+
+// userRecord reports whether path names one user record, whose errors
+// may carry the user's name.
+func userRecord(path string) bool {
+	_, rest, ok := strings.Cut(path, "/authn/users/")
+	return ok && rest != ""
 }
 
 func collectMessages(v any, acc []string) []string {
