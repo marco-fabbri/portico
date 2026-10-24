@@ -6,12 +6,14 @@
 package web
 
 import (
+	"bytes"
 	"embed"
 	"html/template"
 	"io/fs"
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/url"
 	"path"
 	"strings"
 	"time"
@@ -161,19 +163,35 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request, status int, nam
 		p.Admin = "admin"
 		p.CSRF = s.CSRF
 	}
-	if n := r.URL.Query().Get("notice"); n != "" && status == http.StatusOK {
-		p.Notice = n
+	if c, err := r.Cookie(noticeCookie); err == nil && c.Value != "" && status == http.StatusOK {
+		if n, err := url.QueryUnescape(c.Value); err == nil {
+			p.Notice = n
+		}
+		http.SetCookie(w, &http.Cookie{Name: noticeCookie, Value: "", Path: "/", MaxAge: -1, Secure: h.secure, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	}
 	t, ok := h.pages[name]
 	if !ok {
 		http.Error(w, "page not found: "+name, http.StatusInternalServerError)
 		return
 	}
+	// Rendered into a buffer: a template that fails half-way would
+	// otherwise leave a 200 and a torn page in the browser.
+	var buf bytes.Buffer
+	if err := t.ExecuteTemplate(&buf, "layout.html", p); err != nil {
+		h.log.Error("template", "page", name, "err", err.Error())
+		http.Error(w, "the page could not be rendered", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	if err := t.ExecuteTemplate(w, "layout.html", p); err != nil {
-		h.log.Error("template", "page", name, "err", err.Error())
-	}
+	w.Write(buf.Bytes())
+}
+
+// notice sets the one-shot notice the next page shows, then the caller
+// redirects. 60 s is enough for the redirect and short enough to vanish
+// if the browser never follows it.
+func (h *Handler) notice(w http.ResponseWriter, text string) {
+	http.SetCookie(w, &http.Cookie{Name: noticeCookie, Value: url.QueryEscape(text), Path: "/", MaxAge: 60, Secure: h.secure, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 }
 
 // section names the header tab a path belongs to.
