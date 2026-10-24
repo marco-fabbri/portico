@@ -30,6 +30,8 @@ type KC struct {
 	Mapped, MapperNames                    map[string][]string
 	// FailClientCreate, when set, is the status of every client creation.
 	FailClientCreate int
+	// FailClientDelete, when set, is the status of every client deletion.
+	FailClientDelete int
 	tokens           int
 }
 
@@ -110,6 +112,8 @@ func (f *KC) handle(w http.ResponseWriter, r *http.Request) {
 		f.Clients[id] = body
 		w.Header().Set("Location", f.Srv.URL+r.URL.Path+"/"+id)
 		w.WriteHeader(201)
+	case len(parts) == 2 && parts[0] == "clients" && r.Method == "DELETE" && f.FailClientDelete != 0:
+		w.WriteHeader(f.FailClientDelete)
 	case len(parts) == 2 && parts[0] == "clients" && r.Method == "DELETE":
 		if _, ok := f.Clients[parts[1]]; !ok {
 			w.WriteHeader(404)

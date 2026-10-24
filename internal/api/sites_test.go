@@ -346,6 +346,28 @@ func TestRemoveSiteCountsTheSAMLUsersDeleted(t *testing.T) {
 	}
 }
 
+// A removal that fails at Keycloak after the Prism Central deletions
+// says what is already gone; removing again finishes without credentials.
+func TestRemoveSiteStoppedAtKeycloakSaysWhatWasDeleted(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	pc, fp := withSetup(t, e)
+	addSetUpSite(t, e, pc, fp)
+	e.kc.FailClientDelete = 500
+	rec, out := e.do("DELETE", "/api/v1/sites/az-us-nyc1", `{"username":"admin","password":"pc-pw-1"}`)
+	if rec.Code == 200 || len(pc.IdPs) != 0 {
+		t.Fatalf("remove: %d %s, idps %v", rec.Code, rec.Body.String(), pc.IdPs)
+	}
+	msg, _ := out["error"].(string)
+	deleted := strings.Join(strs(out["deleted"]), "; ")
+	if !strings.Contains(deleted, "identity provider portico-keycloak") || !strings.Contains(msg, "already deleted: ") || !strings.Contains(msg, "remove the site again to finish") {
+		t.Fatalf("answer %s", rec.Body.String())
+	}
+	e.kc.FailClientDelete = 0
+	if rec, out := e.do("DELETE", "/api/v1/sites/az-us-nyc1", ""); rec.Code != 200 || out["removed"] != true {
+		t.Fatalf("remove again: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRemoveSiteRefusedWithTenant(t *testing.T) {
 	e := newSettingsEnv(t, true)
 	placeTenant(t, e.st, "acme", "site-a")

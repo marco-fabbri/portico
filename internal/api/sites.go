@@ -42,6 +42,20 @@ type SiteConflictError struct{ Msg string }
 
 func (e *SiteConflictError) Error() string { return e.Msg }
 
+// RemoveIncompleteError is a removal that failed after some of Portico's
+// objects were deleted: it names them, since removing again finds them
+// gone and cannot say so.
+type RemoveIncompleteError struct {
+	Deleted []string
+	Err     error
+}
+
+func (e *RemoveIncompleteError) Error() string {
+	return fmt.Sprintf("%v; already deleted: %s; remove the site again to finish", e.Err, strings.Join(e.Deleted, ", "))
+}
+
+func (e *RemoveIncompleteError) Unwrap() error { return e.Err }
+
 // patchSites changes the stored document's sites through fn; fn returns
 // an error to leave the document unchanged.
 func (o *SettingsOptions) patchSites(ctx context.Context, fn func(d *settings.Settings) error) error {
@@ -272,16 +286,22 @@ func (o *SettingsOptions) RemoveSite(ctx context.Context, st store.Store, id str
 			return RemoveResult{}, err
 		}
 	}
+	stopped := func(err error) (RemoveResult, error) {
+		if len(res.Deleted) == 0 {
+			return RemoveResult{}, err
+		}
+		return RemoveResult{}, &RemoveIncompleteError{Deleted: res.Deleted, Err: err}
+	}
 	client, err := o.deleteKeycloakClient(ctx, cur, site)
 	if err != nil {
-		return RemoveResult{}, err
+		return stopped(err)
 	}
 	if client != "" {
 		res.Deleted = append(res.Deleted, client)
 	}
 	if o.Runtime != nil {
 		if err := o.Runtime.ClearMaintenance(ctx, id); err != nil {
-			return RemoveResult{}, fmt.Errorf("the maintenance flag was not cleared: %w", err)
+			return stopped(fmt.Errorf("the maintenance flag was not cleared: %w", err))
 		}
 	}
 	if err := o.patchSites(ctx, func(d *settings.Settings) error {
@@ -290,7 +310,7 @@ func (o *SettingsOptions) RemoveSite(ctx context.Context, st store.Store, id str
 		}
 		return nil
 	}); err != nil {
-		return RemoveResult{}, err
+		return stopped(err)
 	}
 	res.Removed = true
 	return res, nil
@@ -506,7 +526,11 @@ func (h *handler) siteError(w http.ResponseWriter, err error) {
 	var ve *settings.ValidationError
 	var se *settings.StateError
 	var pin *PinChangedError
+	var partial *RemoveIncompleteError
 	switch {
+	case errors.As(err, &partial):
+		h.log.Error("site removal stopped", "err", partial.Err.Error(), "deleted", len(partial.Deleted))
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error(), "deleted": partial.Deleted})
 	case errors.Is(err, ErrUnknownSite):
 		writeError(w, http.StatusNotFound, err.Error())
 	case errors.As(err, &pin):
