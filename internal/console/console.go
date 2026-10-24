@@ -294,6 +294,32 @@ func (s *session) network() {
 			}
 		}
 	}
+	if len(ifaces) == 1 {
+		s.clearSSH()
+	}
+}
+
+// clearSSH withdraws a ListenAddress written for an internal interface the
+// appliance no longer has: sshd would otherwise fail to bind at its next
+// start and stay down.
+func (s *session) clearSSH() {
+	cur, err := s.sys.ReadFile(sshListenPath)
+	if err != nil || !strings.Contains(string(cur), "ListenAddress") {
+		return
+	}
+	if err := s.sys.WriteFile(sshListenPath, []byte("# Cleared by the Portico console: one interface, SSH answers on every address.\n"), 0o600); err != nil {
+		fmt.Fprintf(s.out, "  SSH listen address not cleared: %v\n", err)
+		return
+	}
+	if _, err := s.sys.Exec(nil, "sshd", "-t"); err != nil {
+		fmt.Fprintf(s.out, "  SSH listen address cleared but sshd refused its configuration: %v\n", err)
+		return
+	}
+	if _, err := s.sys.Exec(nil, "systemctl", "reload", "sshd"); err != nil {
+		fmt.Fprintf(s.out, "  sshd did not reload: %v\n", err)
+		return
+	}
+	fmt.Fprintln(s.out, "SSH listens on every address again")
 }
 
 func checkHostname(v string) error {

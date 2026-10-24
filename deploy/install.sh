@@ -41,7 +41,8 @@ done
 SELF=${BASH_SOURCE[0]}
 HERE=$(cd "$(dirname "$SELF")" && pwd)
 REPO="https://github.com/marco-fabbri/portico"
-if [ ! -d "$HERE/quadlets" ]; then echo "install.sh: run it from the unpacked release: $HERE/quadlets is missing" >&2; exit 1; fi
+# --first-boot runs from the installed copy alone (/usr/local/sbin) and installs nothing from the tree.
+if [ $FIRSTBOOT -eq 0 ] && [ ! -d "$HERE/quadlets" ]; then echo "install.sh: run it from the unpacked release: $HERE/quadlets is missing" >&2; exit 1; fi
 if [ $RENDER -eq 0 ] && [ "$(id -u)" -ne 0 ]; then echo "install.sh: run as root" >&2; exit 1; fi
 if [ $RENDER -eq 0 ] && [ ! -r /etc/os-release ]; then echo "install.sh: not a Linux host" >&2; exit 1; fi
 if [ $RENDER -eq 0 ] && ! grep -qE '^ID="?rocky"?' /etc/os-release; then echo "install.sh: Rocky Linux 9 is the supported host" >&2; exit 1; fi
@@ -190,6 +191,7 @@ if [ $START -eq 0 ] || ssh_policy_safe; then
 else
   log "warning: no user in wheel has an SSH key: the SSH policy (keys only, wheel only) is NOT installed, so this session is not locked out; add a key to a wheel user and run install.sh again"
 fi
+put 0644 root root "$HERE/sshd/portico-network-online.conf" /etc/systemd/system/sshd.service.d/portico.conf
 put 0644 root root "$HERE/sysctl/60-portico.conf" /etc/sysctl.d/60-portico.conf
 # This script itself, for the first boot of an appliance.
 put 0755 root root "$SELF" /usr/local/sbin/portico-install

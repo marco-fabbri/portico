@@ -29,6 +29,19 @@ oscap_regressions() {
   return $rc
 }
 
+# oscap_results_ok RESULTS EVAL_EXIT: a scan that did not run is not a
+# clean scan. The evaluation's exit 0 (all pass) and 2 (some rules fail)
+# are outcomes; 1 is an error. The results file must exist and hold at
+# least one passing rule.
+oscap_results_ok() {
+  local results=$1 eval_exit=$2 pass
+  if [ "$eval_exit" != 0 ] && [ "$eval_exit" != 2 ]; then echo "harden: evaluation failed (exit $eval_exit), see oscap-eval.log" >&2; return 1; fi
+  if [ ! -s "$results" ]; then echo "harden: no results file: the evaluation did not run" >&2; return 1; fi
+  pass=$(grep -c '<result>pass</result>' "$results" || true)
+  if [ "$pass" -eq 0 ]; then echo "harden: no rule passed: the evaluation did not run on the profile" >&2; return 1; fi
+  return 0
+}
+
 main() {
   install -d -m 0755 /usr/share/portico
   install -m 0644 "$TAILORING" /usr/share/portico/tailoring.xml
@@ -41,8 +54,10 @@ main() {
   echo "harden: remediation exit $? (2 = some rules still fail, see the report)"
   echo "harden: evaluation"
   oscap xccdf eval --profile "$PROFILE" --tailoring-file "$TAILORING" --results "$B/oscap-results.xml" --report "$B/oscap-report.html" "$DS" > "$B/oscap-eval.log" 2>&1
-  echo "harden: evaluation exit $?"
+  eval_exit=$?
+  echo "harden: evaluation exit $eval_exit"
   mv /root/sudoers.build /etc/sudoers.d/build
+  if ! oscap_results_ok "$B/oscap-results.xml" "$eval_exit"; then exit 1; fi
   chmod 0644 "$B/oscap-report.html"
   pass=$(grep -c '<result>pass</result>' "$B/oscap-results.xml" || true)
   fail=$(grep -c '<result>fail</result>' "$B/oscap-results.xml" || true)
