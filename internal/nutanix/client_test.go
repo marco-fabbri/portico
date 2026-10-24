@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -187,5 +189,28 @@ func TestKeyNeverLogged(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), f.key) {
 		t.Fatal("the API key reached the log")
+	}
+}
+
+// A refused user record keeps its code; its text, which names the user,
+// stays out of the log.
+func TestUserRefusalKeepsTheCodeNotTheNameInTheLog(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(403)
+		w.Write([]byte(`{"data":{"error":[{"code":"IAM-30403","message":"user dave@acme.example cannot be deleted"}]}}`))
+	}))
+	t.Cleanup(srv.Close)
+	var buf bytes.Buffer
+	c, err := New(srv.URL, "k", nil, slog.New(slog.NewJSONHandler(&buf, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.DeleteUser(context.Background(), "su-2")
+	var api *APIError
+	if !errors.As(err, &api) || api.Status != 403 || api.Code != "IAM-30403" {
+		t.Fatalf("err = %#v", err)
+	}
+	if strings.Contains(buf.String(), "dave@acme.example") || !strings.Contains(buf.String(), "IAM-30403") {
+		t.Fatalf("log = %s", buf.String())
 	}
 }

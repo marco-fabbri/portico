@@ -321,6 +321,31 @@ func TestRemoveSiteLeavesTheProviderWithPrismCentralsReason(t *testing.T) {
 	}
 }
 
+// A deletion stopped part way says how many users went, and Prism
+// Central's refusal of a user is reduced to its status and code: its text
+// names the user.
+func TestRemoveSiteCountsTheSAMLUsersDeleted(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	pc, fp := withSetup(t, e)
+	site := addSetUpSite(t, e, pc, fp)
+	pc.AddSAMLUser("su-1", "carol@acme.example", site.SAMLIdPExtID)
+	pc.AddSAMLUser("su-2", "dave@acme.example", site.SAMLIdPExtID)
+	pc.RefuseUserDelete = "su-2"
+	rec, out := e.do("DELETE", "/api/v1/sites/az-us-nyc1", `{"username":"admin","password":"pc-pw-1"}`)
+	if rec.Code != 200 {
+		t.Fatalf("remove: %d %s", rec.Code, rec.Body.String())
+	}
+	deleted := strings.Join(strs(out["deleted"]), "; ")
+	left := strings.Join(strs(out["left_in_prism_central"]), "; ")
+	if !strings.Contains(deleted, "1 of the identity provider's 2 SAML users") ||
+		!strings.Contains(left, "1 of the identity provider's 2 SAML users (made by Prism Central at sign-in): not deleted, Prism Central answered 403 (IAM-30403)") {
+		t.Fatalf("deleted %q, left %q", deleted, left)
+	}
+	if strings.Contains(rec.Body.String(), "dave@acme.example") || strings.Contains(e.log.String(), "dave@acme.example") {
+		t.Fatal("a user's address in the answer or the log")
+	}
+}
+
 func TestRemoveSiteRefusedWithTenant(t *testing.T) {
 	e := newSettingsEnv(t, true)
 	placeTenant(t, e.st, "acme", "site-a")
