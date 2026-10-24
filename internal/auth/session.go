@@ -116,6 +116,20 @@ func (m *MemoryStore) Delete(id string) {
 	delete(m.sessions, id)
 }
 
+// DeleteSubject ends every session of subject and reports how many.
+func (m *MemoryStore) DeleteSubject(subject string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for id, s := range m.sessions {
+		if s.Subject == subject {
+			delete(m.sessions, id)
+			n++
+		}
+	}
+	return n
+}
+
 // SetSite records the session's chosen site; choosing the same site again
 // keeps the time it was first chosen. False when the session is gone.
 func (m *MemoryStore) SetSite(id, site string, now time.Time) bool {

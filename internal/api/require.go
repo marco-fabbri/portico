@@ -106,7 +106,13 @@ func RequireAdmin(st store.Store, sessions SessionChecker, lim *Limiter, realm s
 				w.Write([]byte("Portico's break-glass password is not set. On the appliance run:\n  printf '%s\\n' \"$PW\" | sudo -u portico portico admin set-password -config /etc/portico/portico.yaml\n"))
 				return
 			}
-			http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
+			// A return path only for a page load: a POST that met an
+			// expired session would land on a 405 after the login.
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+				http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
+				return
+			}
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
 		})
 	}
 }

@@ -133,9 +133,12 @@ func TestFactoryPasswordIsChangedAtTheFirstLogin(t *testing.T) {
 		}
 	}
 	f := url.Values{"_csrf": {csrf}, "current": {api.FactoryPassword}, "new_password": {"Correct-Horse-9"}, "confirm": {"Correct-Horse-9"}}
-	if rec := e.do("POST", "/password", f, true); rec.Code != 303 || rec.Header().Get("Location") != "/" {
+	rec = e.do("POST", "/password", f, true)
+	if rec.Code != 303 || rec.Header().Get("Location") != "/" {
 		t.Fatalf("change: %d -> %q", rec.Code, rec.Header().Get("Location"))
 	}
+	// The change ends every admin session and gives this browser a fresh one.
+	e.cookie = cookieNamed(rec, SessionCookie)
 	if rec := e.do("GET", "/", nil, true); rec.Code != 200 {
 		t.Fatalf("home after the change: %d", rec.Code)
 	}
