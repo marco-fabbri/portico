@@ -41,6 +41,7 @@ type pageData struct {
 	Text        string
 	Retry       string
 	SwitchURL   string     // landing: a "switch site" link when set
+	SignOut     bool       // error page: a "Sign out" button instead of a retry
 	Tiles       []SiteTile // site page
 	Email       string     // site page: who is signed in
 }
@@ -97,6 +98,13 @@ func (p *Pages) Error(w http.ResponseWriter, r *http.Request, status int, title,
 func (p *Pages) ErrorSwitch(w http.ResponseWriter, r *http.Request, status int, title, text, retry, switchURL string) {
 	b := p.get(r.Context())
 	p.write(w, status, "error.html", pageData{B: b, Status: status, Title: title, Text: text, Retry: safeRetry(retry), SwitchURL: switchURL})
+}
+
+// ErrorSignOut is Error with a "Sign out" button to Portico's logout and
+// no retry, for a session that cannot go anywhere (no site available).
+func (p *Pages) ErrorSignOut(w http.ResponseWriter, r *http.Request, status int, title, text string) {
+	b := p.get(r.Context())
+	p.write(w, status, "error.html", pageData{B: b, Status: status, Title: title, Text: text, SignOut: true})
 }
 
 // safeRetry keeps the retry link on this host. Callers build it from the

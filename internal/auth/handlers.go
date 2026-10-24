@@ -208,6 +208,12 @@ func (a *Authenticator) Callback() http.Handler {
 		}
 		_ = idt.Claims(&claims)
 		now := time.Now()
+		// A browser that still holds a session is logging in again (the
+		// idle timer ran out, or a second tab): the old session is retired
+		// so one browser never has two live sessions.
+		if c, err := r.Cookie(SessionCookie); err == nil && c.Value != "" {
+			a.store.Delete(c.Value)
+		}
 		s := Session{ID: NewSessionID(), Subject: idt.Subject, Email: claims.Email, IDToken: raw, CreatedAt: now, LastSeen: now}
 		if a.cfg.ResolveTenant != nil {
 			tenant, err := a.cfg.ResolveTenant(ctx, idt.Subject)
