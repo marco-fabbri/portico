@@ -3,7 +3,7 @@
 
 <section class="card" id="card-status">
   <h2>Status</h2>
-  <div id="site-status" hx-get="/setup/sites/{{.Data.S.ID}}/status" hx-trigger="load" hx-swap="outerHTML"><p class="muted">Checking Prism Central and Keycloak…</p></div>
+  <div id="site-status" hx-post="/setup/sites/{{.Data.S.ID}}/status" hx-vals='{"_csrf":"{{.CSRF}}"}' hx-trigger="load" hx-swap="outerHTML"><p class="muted">Checking Prism Central and Keycloak…</p></div>
 </section>
 
 {{if .Data.Running}}

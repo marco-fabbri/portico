@@ -137,7 +137,7 @@ func TestSiteStatusEndpointReportsToMonitor(t *testing.T) {
 	if err := e.svc.Patch(context.Background(), func(d *settings.Settings) { d.Sites[0].SAMLIdPExtID = "idp-gone" }); err != nil {
 		t.Fatal(err)
 	}
-	rec, out := e.do("GET", "/api/v1/sites/site-a/status", "")
+	rec, out := e.do("POST", "/api/v1/sites/site-a/status", "")
 	if rec.Code != 200 || out["status"] != "incomplete" || !strings.Contains(out["reason"].(string), "missing") {
 		t.Fatalf("status: %d %s", rec.Code, rec.Body.String())
 	}
@@ -148,14 +148,17 @@ func TestSiteStatusEndpointReportsToMonitor(t *testing.T) {
 	if d := mon.Detail("site-a"); d.Status != sites.Incomplete || d.Reason != out["reason"] {
 		t.Fatalf("monitor detail = %+v", d)
 	}
-	if rec, _ := e.do("GET", "/api/v1/sites/nope/status", ""); rec.Code != 404 {
+	if rec, _ := e.do("POST", "/api/v1/sites/nope/status", ""); rec.Code != 404 {
 		t.Fatalf("unknown site: %d", rec.Code)
+	}
+	if rec, _ := e.do("GET", "/api/v1/sites/site-a/status", ""); rec.Code == 200 {
+		t.Fatalf("GET status, which reports to the monitor: %d", rec.Code)
 	}
 }
 
 func TestSiteStatusInSetupMode(t *testing.T) {
 	e := newSettingsEnv(t, true)
-	rec, out := e.do("GET", "/api/v1/sites/site-a/status", "")
+	rec, out := e.do("POST", "/api/v1/sites/site-a/status", "")
 	if rec.Code != 200 || out["connection"].(map[string]any)["ok"] != true {
 		t.Fatalf("status without a runtime: %d %s", rec.Code, rec.Body.String())
 	}
