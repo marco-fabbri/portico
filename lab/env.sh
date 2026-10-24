@@ -23,5 +23,7 @@ export PC_PASS
 unset _portico_xtrace
 
 export LAB_VM_IP="${LAB_VM_IP:-10.23.210.190}"
-export LAB_PRISM_HOST="${LAB_PRISM_HOST:-prism.lab.portico.test}"
-export LAB_ID_HOST="${LAB_ID_HOST:-id.lab.portico.test}"
+# The portal names of the appliance (write-up 27); the retired lab VM .190
+# still answers to prism.lab.portico.test and id.lab.portico.test.
+export LAB_PRISM_HOST="${LAB_PRISM_HOST:-msp.portico.test}"
+export LAB_ID_HOST="${LAB_ID_HOST:-id.portico.test}"
