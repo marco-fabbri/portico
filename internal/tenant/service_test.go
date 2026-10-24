@@ -601,13 +601,16 @@ func TestStepRetriesPrismCentralTransient500(t *testing.T) {
 // A refusal (400) is final: no pause, no second call.
 func TestStepDoesNotRetryARefusal(t *testing.T) {
 	e := newEnv(t)
-	e.svc.cfg.RetryPauses = []time.Duration{time.Hour}
+	e.svc.cfg.RetryPauses = []time.Duration{time.Millisecond, time.Millisecond}
 	e.pc.FailCall("CreateUserGroup", 1, &nutanix.APIError{Status: 400, Message: "bad group"})
 	e.create(t, "acme")
 	e.svc.Wait()
 	tn := e.get(t, "acme")
 	if tn.Status != store.StatusFailed || !strings.Contains(tn.LastError, "bad group") {
 		t.Fatalf("status = %q, last error %q", tn.Status, tn.LastError)
+	}
+	if n := e.pc.CallCount("CreateUserGroup"); n != 1 {
+		t.Fatalf("CreateUserGroup called %d times, want 1", n)
 	}
 	if strings.Contains(e.log.String(), "tenant step retried") {
 		t.Fatal("a refusal was retried")
