@@ -42,7 +42,8 @@ concept, held by Portico, not by Prism Central's console.
    role membership) on those sites only. A site can be added to or removed
    from an existing tenant later.
 3. **One public host name for tenants.** All sites are served on the one
-   existing Prism Central public name (`prism_host`). After the Keycloak
+   existing public name (`portal_host`; `prism_host` until Milestone 5
+   renamed it on 2026-10-25, the old key is still read). After the Keycloak
    login a tenant with more than one site sees a site page; with one site
    it goes straight to the console as today.
 4. **Site page, variant B** (chosen by Marco on the mockup): the MSP's
@@ -87,7 +88,7 @@ concept, held by Portico, not by Prism Central's console.
   one older than pc.7.6, naming the version it found.
 - Prism Central accepts one SAML identity provider (design 4.4): every
   site gets Portico's IdP pointing at the same Keycloak realm, with
-  `redirectURL=https://<prism_host>`. A site that already has another IdP
+  `redirectURL=https://<portal_host>`. A site that already has another IdP
   is refused, as today.
 - Every site's Prism Central is reachable from Portico on 9440 over the
   internal network and never from the Internet (design 4.2). The firewall
@@ -265,7 +266,7 @@ stays one per tenant, so one login serves all its sites.
    4.3. A request whose recorded site is missing, unknown, or not among
    the tenant's placements is not proxied: the browser goes to the site
    page, any other request gets 403.
-5. The SAML response comes back as a POST to the ACS URL on `prism_host`;
+5. The SAML response comes back as a POST to the ACS URL on `portal_host`;
    it follows the recorded site like any other request, so it reaches the
    Prism Central that started the login.
 6. Prism Central's own Sign Out: replaced by the sites usability design
@@ -288,7 +289,7 @@ consequences, accepted:
   This is a usability limit, not an isolation one: the user is the same
   person, authorised by each Prism Central for their own project only.
 - **Prism Central's cookies of different sites share one origin.** Both
-  Prism Centrals set cookies with the same names on `prism_host`, so they
+  Prism Centrals set cookies with the same names on `portal_host`, so they
   would overwrite each other. Portico keeps them apart.
 
 Decided mechanism (builder fixes the details after measuring, section 6):
@@ -317,15 +318,15 @@ Decided mechanism (builder fixes the details after measuring, section 6):
 One realm and one OIDC client for Portico, unchanged. The SAML side has a
 known collision: Prism Central derives the SP entityID and the ACS URL
 from the IdP's `redirectURL` only (measured, write-ups 04 and 15:
-`https://<prism_host>/api/iam/authn` and `.../callback`), so every site
-on the same `prism_host` produces the same entityID, and Keycloak refuses
+`https://<portal_host>/api/iam/authn` and `.../callback`), so every site
+on the same `portal_host` produces the same entityID, and Keycloak refuses
 two clients with the same `clientId` in one realm.
 
 Builder's call, to confirm by measurement (section 6, item 3):
 
 - **Preferred: one SAML client per site.** Each site's IdP is created
   with its own `entityIssuer` (the field exists in the v4 IdP model),
-  for example `https://<prism_host>/api/iam/authn/<site-code>`, and that
+  for example `https://<portal_host>/api/iam/authn/<site-code>`, and that
   value is the Keycloak client id. An assertion issued for one site then
   carries an audience the other sites refuse.
 - **Fallback: one SAML client shared by all sites**, if `entityIssuer` is
@@ -372,7 +373,7 @@ is the test of this path.
 
 ## 5. What changes in the main design
 
-- 4.10 "Host names": replaced. All sites share `prism_host`; the site is
+- 4.10 "Host names": replaced. All sites share `portal_host`; the site is
   chosen on the site page and held in a Portico cookie. The selector
   sentence in 4.10's branding bullet becomes the site page of this
   document.
