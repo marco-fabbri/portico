@@ -267,7 +267,7 @@ func TestSetupPageStatesWhatIsConfigured(t *testing.T) {
 	// The site page says nothing from Portico's own row: its status card
 	// asks Prism Central and Keycloak (sites usability design 4.2).
 	site := e.do("GET", "/setup/sites/site-a", nil, true).Body.String()
-	if strings.Contains(site, "Configured:") || strings.Contains(site, `<details open>`) || !strings.Contains(site, `hx-get="/setup/sites/site-a/status"`) {
+	if strings.Contains(site, "Configured:") || strings.Contains(site, `<details open>`) || !strings.Contains(site, `hx-post="/setup/sites/site-a/status"`) {
 		t.Fatalf("site page on a complete site:\n%s", site)
 	}
 

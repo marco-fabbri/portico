@@ -123,10 +123,20 @@ func TestSitePageStatusCardFromPrismCentral(t *testing.T) {
 		SAMLIdPName: "portico-keycloak", SAMLIdPExtID: "idp-gone", SAMLEntityID: "https://prism.example.test/api/iam/authn/nyc1", ClusterExtID: "cl-1", StorageContainerExtID: "sc-1"})
 	e.login(t)
 	page := e.do("GET", "/setup/sites/nyc1", nil, true).Body.String()
-	if !strings.Contains(page, `hx-get="/setup/sites/nyc1/status"`) || !strings.Contains(page, `hx-trigger="load"`) {
+	if !strings.Contains(page, `hx-post="/setup/sites/nyc1/status"`) || !strings.Contains(page, `hx-trigger="load"`) {
 		t.Fatalf("the site page does not load its status:\n%s", page)
 	}
-	body := e.do("GET", "/setup/sites/nyc1/status", nil, true).Body.String()
+	if !strings.Contains(page, `hx-vals='{"_csrf":"`+e.csrf+`"}'`) {
+		t.Fatalf("the status call carries no CSRF token:\n%s", page)
+	}
+	// The check reports to the monitor: a POST with the token only.
+	if rec := e.do("GET", "/setup/sites/nyc1/status", nil, true); rec.Code == 200 {
+		t.Fatalf("GET status: %d", rec.Code)
+	}
+	if rec := e.do("POST", "/setup/sites/nyc1/status", url.Values{}, true); rec.Code != 403 {
+		t.Fatalf("POST status without the token: %d", rec.Code)
+	}
+	body := e.do("POST", "/setup/sites/nyc1/status", e.form(), true).Body.String()
 	for _, want := range []string{"Connection", "Service account", "SAML trust", "Defaults", "the identity provider portico-keycloak is missing in Prism Central",
 		`hx-post="/setup/sites/nyc1/setup"`, ">Repair</button>"} {
 		if !strings.Contains(body, want) {
@@ -155,7 +165,7 @@ func TestLegacyVerifyOffShowsPinAction(t *testing.T) {
 	_, pc, fp := withSiteFakes(t, e)
 	storeSite(t, svc, settings.Site{ID: "nyc1", Code: "AZ-US-NYC1", URL: pc.Srv.URL, APIKey: settings.Secret(pc.Key)})
 	e.login(t)
-	body := e.do("GET", "/setup/sites/nyc1/status", nil, true).Body.String()
+	body := e.do("POST", "/setup/sites/nyc1/status", e.form(), true).Body.String()
 	for _, want := range []string{"certificate is not verified", fp, `action="/setup/sites/nyc1/pin"`, `name="fingerprint" value="` + fp + `"`, "Pin the current certificate"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("legacy status lacks %q:\n%s", want, body)
@@ -177,7 +187,7 @@ func TestCertificateChangedShowsConfirm(t *testing.T) {
 	_, pc, fp := withSiteFakes(t, e)
 	storeSite(t, svc, settings.Site{ID: "nyc1", Code: "AZ-US-NYC1", URL: pc.Srv.URL, TLSPin: "AB:CD", APIKey: settings.Secret(pc.Key)})
 	e.login(t)
-	body := e.do("GET", "/setup/sites/nyc1/status", nil, true).Body.String()
+	body := e.do("POST", "/setup/sites/nyc1/status", e.form(), true).Body.String()
 	for _, want := range []string{"certificate changed", fp, `action="/setup/sites/nyc1/pin"`, "Confirm the new certificate"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("changed certificate lacks %q:\n%s", want, body)

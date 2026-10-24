@@ -51,7 +51,7 @@ func TestFinishSetupFromTheSitePage(t *testing.T) {
 	_, pc, fp := withSiteFakes(t, e)
 	storeSite(t, svc, settings.Site{ID: "nyc1", Code: "AZ-US-NYC1", URL: pc.Srv.URL, TLSPin: fp})
 	e.login(t)
-	status := e.do("GET", "/setup/sites/nyc1/status", nil, true).Body.String()
+	status := e.do("POST", "/setup/sites/nyc1/status", e.form(), true).Body.String()
 	if !strings.Contains(status, ">Finish setup</button>") || !strings.Contains(status, "no service account key is stored") {
 		t.Fatalf("an incomplete site's card:\n%s", status)
 	}
