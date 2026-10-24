@@ -171,6 +171,10 @@ func TestLegacyVerifyOffShowsPinAction(t *testing.T) {
 			t.Fatalf("legacy status lacks %q:\n%s", want, body)
 		}
 	}
+	const pinFirst = "Pin the certificate on the status card first: Portico sends the credentials only to a confirmed certificate."
+	if page := e.do("GET", "/setup/sites/nyc1", nil, true).Body.String(); !strings.Contains(page, pinFirst) {
+		t.Fatalf("the Remove card of an unverified site does not say to pin first:\n%s", page)
+	}
 	rec := e.do("POST", "/setup/sites/nyc1/pin", e.form("fingerprint", fp), true)
 	if rec.Code != 303 || strings.Contains(rec.Header().Get("Location"), "Apply") {
 		t.Fatalf("pin: %d %q", rec.Code, rec.Header().Get("Location"))
@@ -178,6 +182,9 @@ func TestLegacyVerifyOffShowsPinAction(t *testing.T) {
 	cur, _ := svc.Get(context.Background())
 	if s, _ := cur.Site("nyc1"); s.TLSPin != fp {
 		t.Fatalf("pin = %q", s.TLSPin)
+	}
+	if page := e.do("GET", "/setup/sites/nyc1", nil, true).Body.String(); strings.Contains(page, pinFirst) {
+		t.Fatal("a pinned site is still asked to pin first")
 	}
 }
 
