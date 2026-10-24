@@ -57,6 +57,15 @@ out=$(env -i PATH="$PATH" HOME="$HOME" bash lab/portico/deploy.sh 2>&1); rc=$?
 if [ "$rc" -ne 0 ] && grep -q 'source lab/env.sh' <<<"$out"; then ok "deploy.sh needs lab/env.sh"; else ko "deploy.sh ran without env (rc=$rc)"; fi
 # M1-3: the unit runs unprivileged and binds 443 through a capability.
 if grep -q '^User=portico' deploy/portico.service 2>/dev/null && grep -q 'AmbientCapabilities=CAP_NET_BIND_SERVICE' deploy/portico.service && grep -q 'ProtectSystem=strict' deploy/portico.service; then ok "portico.service is unprivileged and hardened"; else ko "portico.service lacks hardening"; fi
+# Milestone 5 Task 11: the tighter sandbox, and the workflows' supply chain.
+missing=""
+for d in UMask=0077 'RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK' SystemCallFilter=@system-service SystemCallArchitectures=native RestrictNamespaces=yes ProtectHostname=yes ProtectClock=yes ProtectProc=invisible ProtectKernelLogs=yes MemoryDenyWriteExecute=yes; do
+  grep -qxF -- "$d" deploy/portico.service || missing="$missing $d"
+done
+if [ -z "$missing" ]; then ok "portico.service carries the Milestone 5 sandbox directives"; else ko "portico.service lacks:$missing"; fi
+unpinned=$(grep -h 'uses:' .github/workflows/*.yml | grep -vE '@[0-9a-f]{40}( |$)')
+if [ -z "$unpinned" ]; then ok "every GitHub action is pinned by commit"; else ko "actions pinned by tag: $unpinned"; fi
+if [ "$(grep -c 'contents: write' .github/workflows/image.yml)" = 1 ] && grep -A1 '^permissions:' .github/workflows/image.yml | grep -q 'contents: read' && [ "$(grep -n 'contents: write' .github/workflows/image.yml | cut -d: -f1)" -gt "$(grep -n '^  release:' .github/workflows/image.yml | cut -d: -f1)" ]; then ok "image.yml gives contents: write to the release job only"; else ko "image.yml token scope"; fi
 # M1-4: Keycloak publishes backchannel endpoints dynamically (OIDC over loopback).
 if grep -q 'KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true' lab/vm/keycloak.container; then ok "keycloak.container enables dynamic backchannel"; else ko "keycloak.container lacks KC_HOSTNAME_BACKCHANNEL_DYNAMIC"; fi
 
