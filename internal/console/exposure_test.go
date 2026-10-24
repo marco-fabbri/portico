@@ -198,3 +198,46 @@ func TestSecondInterfaceTakesTheAdminListener(t *testing.T) {
 		t.Fatal("single interface: admin listener moved")
 	}
 }
+
+// Design 4.9: "SSH key-only, internal interface only". With two
+// interfaces SSH follows the admin listener to the internal one; a single
+// interface keeps it where it is.
+func TestTwoInterfacesMoveSSHToTheInternalOne(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true}, Interface{Name: "eth1", Up: true})
+	sys.files["/etc/portico/portico.yaml"] = []byte(sampleYAML + "internal:\n  admin_listen: \"0.0.0.0:8443\"\n")
+	out := run(t, sys, "1\nportico\n203.0.113.5\n24\n203.0.113.1\n\ny\n192.168.10.5\n24\n\n\ny\n0\n")
+	f := string(sys.files[sshListenPath])
+	if !strings.Contains(f, "ListenAddress 192.168.10.5\n") || sys.modes[sshListenPath] != 0o600 {
+		t.Fatalf("ssh listen file = %q mode %v\n%s", f, sys.modes[sshListenPath], out)
+	}
+	if !sys.execd("sshd", "-t") || !sys.execd("systemctl", "reload", "sshd") {
+		t.Fatalf("sshd not checked and reloaded: %v", sys.execs)
+	}
+	if !strings.Contains(out, "SSH moved to the internal interface: 192.168.10.5") {
+		t.Fatalf("no message:\n%s", out)
+	}
+	sys = newFakeSystem(Interface{Name: "eth0", Up: true})
+	sys.files["/etc/portico/portico.yaml"] = []byte(sampleYAML + "internal:\n  admin_listen: \"0.0.0.0:8443\"\n")
+	run(t, sys, "1\nportico\n10.0.0.5\n24\n10.0.0.254\n\ny\n0\n")
+	if _, ok := sys.files[sshListenPath]; ok {
+		t.Fatal("single interface: SSH listen file written")
+	}
+}
+
+// A listen address sshd refuses is withdrawn before the reload, so the
+// console never locks the administrator out.
+func TestSSHNotMovedWhenTheConfigIsRefused(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true}, Interface{Name: "eth1", Up: true})
+	sys.files["/etc/portico/portico.yaml"] = []byte(sampleYAML + "internal:\n  admin_listen: \"0.0.0.0:8443\"\n")
+	sys.execErr["sshd -t"] = errors.New("exit status 255")
+	out := run(t, sys, "1\nportico\n203.0.113.5\n24\n203.0.113.1\n\ny\n192.168.10.5\n24\n\n\ny\n0\n")
+	if f := string(sys.files[sshListenPath]); strings.Contains(f, "ListenAddress") {
+		t.Fatalf("refused listen address kept: %q", f)
+	}
+	if sys.execd("systemctl", "reload", "sshd") {
+		t.Fatal("sshd reloaded with a refused configuration")
+	}
+	if !strings.Contains(out, "SSH not moved: ") {
+		t.Fatalf("no message:\n%s", out)
+	}
+}

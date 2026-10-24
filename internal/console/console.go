@@ -116,6 +116,10 @@ func (s *session) adminURL() string {
 	return first
 }
 
+// sshListenPath is the sshd drop-in the console writes so that SSH, like
+// the admin listener, answers on the internal interface only (design 4.9).
+const sshListenPath = "/etc/ssh/sshd_config.d/10-portico-listen.conf"
+
 var adminListenRe = regexp.MustCompile(`(?m)^(\s*admin_listen:\s*)"[^"]*"`)
 
 // internalAdmin binds the admin listener to the internal interface's
@@ -144,6 +148,30 @@ func (s *session) internalAdmin(addr string) {
 		return
 	}
 	fmt.Fprintf(s.out, "admin UI moved to the internal interface: https://%s:%s/\n", addr, AdminPort)
+}
+
+// internalSSH makes sshd listen on the internal interface's address only
+// (design 4.9: "SSH key-only, internal interface only"), through a drop-in
+// that is rewritten at every network change. The configuration is checked
+// with sshd -t before the reload; a refused one is withdrawn, so the
+// console never cuts the administrator off.
+func (s *session) internalSSH(addr string) {
+	conf := "# Written by the Portico console at every network change: SSH answers on the internal interface only.\nListenAddress " + addr + "\n"
+	if err := s.sys.WriteFile(sshListenPath, []byte(conf), 0o600); err != nil {
+		fmt.Fprintf(s.out, "  SSH not moved: %v\n", err)
+		return
+	}
+	if _, err := s.sys.Exec(nil, "sshd", "-t"); err != nil {
+		// A comment-only drop-in is valid and listens everywhere again.
+		s.sys.WriteFile(sshListenPath, []byte("# Cleared by the Portico console: sshd refused the listen address "+addr+".\n"), 0o600)
+		fmt.Fprintf(s.out, "  SSH not moved: sshd refused ListenAddress %s: %v\n", addr, err)
+		return
+	}
+	if _, err := s.sys.Exec(nil, "systemctl", "reload", "sshd"); err != nil {
+		fmt.Fprintf(s.out, "  SSH not moved: sshd did not reload: %v\n", err)
+		return
+	}
+	fmt.Fprintf(s.out, "SSH moved to the internal interface: %s\n", addr)
 }
 
 // line reads one line; ok is false at the end of the input.
@@ -262,6 +290,7 @@ func (s *session) network() {
 			fmt.Fprintf(s.out, "%s configured\n", i.Name)
 			if n > 0 && c.Gateway == "" {
 				s.internalAdmin(c.Address)
+				s.internalSSH(c.Address)
 			}
 		}
 	}
