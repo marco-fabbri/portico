@@ -2,10 +2,12 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"github.com/marco-fabbri/portico/internal/auth"
+	"github.com/marco-fabbri/portico/internal/branding"
 	"io"
 	"log/slog"
 	"net"
@@ -264,5 +266,25 @@ func TestUpstreamErrorPageForNavigations(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != 502 || strings.TrimSpace(string(b)) != `{"error":"upstream unavailable"}` {
 		t.Fatalf("api call: %d %q", resp.StatusCode, b)
+	}
+}
+
+// A navigation to "//evil.example/x" must not get a "Try again" link to
+// evil.example from the branded 502 page.
+func TestUpstreamErrorPageRetryOnDoubleSlashPath(t *testing.T) {
+	up, _ := recordingUpstream(t, false, nil)
+	up.Close()
+	pages := branding.NewPages(func(context.Context) branding.Branding { return branding.Branding{MSPName: "ACME"} })
+	p := proxyFor(t, up.URL, UpstreamOptions{ErrorPage: pages.Error})
+	req, _ := http.NewRequest("GET", p.URL+"//evil.example/x", nil)
+	req.Header.Set("Accept", "text/html")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 502 || !strings.Contains(string(b), `href="/"`) || strings.Contains(string(b), "evil.example") {
+		t.Fatalf("got %d %q", resp.StatusCode, b)
 	}
 }
