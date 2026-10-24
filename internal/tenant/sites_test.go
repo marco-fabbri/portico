@@ -108,7 +108,7 @@ func TestCreateOnTwoSites(t *testing.T) {
 
 func TestPartialFailureAndRetry(t *testing.T) {
 	e := newEnv2(t)
-	e.pcB.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 500, Message: "membership exploded"}
+	e.pcB.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 400, Message: "membership exploded"}
 	e.createOn(t, "acme", "site-a", "site-b")
 	tn := e.tenant(t, "acme")
 	if tn.Status != store.StatusFailed || !strings.Contains(tn.LastError, "site SITE-B") || !strings.Contains(tn.LastError, "role-membership") {
@@ -195,7 +195,7 @@ func TestAddSiteLater(t *testing.T) {
 	ctx := context.Background()
 	e.createOn(t, "acme", "site-a")
 	before := e.pcA.Creates["CreateProject"]
-	e.pcB.FailOnce["ShareIdP"] = &nutanix.APIError{Status: 500, Message: "share failed"}
+	e.pcB.FailOnce["ShareIdP"] = &nutanix.APIError{Status: 400, Message: "share failed"}
 	if err := e.svc.AddSite(ctx, "acme", PlacementRequest{Site: "site-b"}); err != nil {
 		t.Fatalf("AddSite: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestRetrySkipsAFailedRemoval(t *testing.T) {
 	e := newEnv2(t)
 	ctx := context.Background()
 	e.createOn(t, "acme", "site-a", "site-b")
-	e.pcB.FailOnce["DeleteUserGroup"] = &nutanix.APIError{Status: 500, Message: "group busy"}
+	e.pcB.FailOnce["DeleteUserGroup"] = &nutanix.APIError{Status: 400, Message: "group busy"}
 	if err := e.svc.Disconnect(ctx, "acme", "site-b"); err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +336,7 @@ func TestRetryProvisionsOnlyFailedProvisioning(t *testing.T) {
 	e := newEnv2(t)
 	ctx := context.Background()
 	e.createOn(t, "acme", "site-a")
-	e.pcB.FailOnce["ShareIdP"] = &nutanix.APIError{Status: 500, Message: "share failed"}
+	e.pcB.FailOnce["ShareIdP"] = &nutanix.APIError{Status: 400, Message: "share failed"}
 	e.svc.AddSite(ctx, "acme", PlacementRequest{Site: "site-b"})
 	e.svc.Wait()
 	a := e.placement(t, "acme", "site-a")
@@ -425,7 +425,7 @@ func TestSuspendRefusedUnlessActive(t *testing.T) {
 
 func TestProvisionSkipsSuspended(t *testing.T) {
 	e := newEnv2(t)
-	e.pcB.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 500, Message: "membership exploded"}
+	e.pcB.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 400, Message: "membership exploded"}
 	e.createOn(t, "acme", "site-a", "site-b")
 	ctx := context.Background()
 	if err := e.svc.Suspend(ctx, "acme", "site-a"); err != nil {
@@ -574,14 +574,14 @@ func TestDisconnectNeverDeletesForeignProject(t *testing.T) {
 
 func TestRetrySiteProvisionsOnlyThatSite(t *testing.T) {
 	e := newEnv2(t)
-	e.pcA.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 500, Message: "a exploded"}
-	e.pcB.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 500, Message: "b exploded"}
+	e.pcA.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 400, Message: "a exploded"}
+	e.pcB.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 400, Message: "b exploded"}
 	e.createOn(t, "acme", "site-a", "site-b")
 	ctx := context.Background()
 	if a, b := e.placement(t, "acme", "site-a"), e.placement(t, "acme", "site-b"); a.Status != store.PlacementFailed || b.Status != store.PlacementFailed {
 		t.Fatalf("setup: %s %s", a.Status, b.Status)
 	}
-	e.pcB.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 500, Message: "b would be retried"}
+	e.pcB.FailOnce["CreateRoleMembership"] = &nutanix.APIError{Status: 400, Message: "b would be retried"}
 	if err := e.svc.RetrySite(ctx, "acme", "site-a"); err != nil {
 		t.Fatal(err)
 	}
