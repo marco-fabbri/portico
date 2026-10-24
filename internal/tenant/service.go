@@ -768,6 +768,12 @@ func (s *Service) setEnabled(ctx context.Context, id string, enabled bool) error
 // CreateUser creates a Keycloak user in the tenant group with a temporary
 // password that is returned once and never stored.
 func (s *Service) CreateUser(ctx context.Context, id, email, firstName, lastName string) (string, error) {
+	// The lock first, then the status: read before the lock, an active
+	// tenant could be mid-deletion by the time the user is created.
+	if !s.acquire(id) {
+		return "", ErrBusy
+	}
+	defer s.release(id)
 	t, err := s.st.GetTenant(ctx, id)
 	if err != nil {
 		return "", err
@@ -775,10 +781,6 @@ func (s *Service) CreateUser(ctx context.Context, id, email, firstName, lastName
 	if t.Status != store.StatusActive {
 		return "", fmt.Errorf("%w: %s", ErrState, t.Status)
 	}
-	if !s.acquire(id) {
-		return "", ErrBusy
-	}
-	defer s.release(id)
 	if _, err := s.kc.FindUserByEmail(ctx, email); err == nil {
 		return "", ErrExists
 	} else if !errors.Is(err, keycloak.ErrNotFound) {
