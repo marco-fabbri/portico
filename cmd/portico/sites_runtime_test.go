@@ -191,3 +191,21 @@ func TestRuntimeTrustCheckGatesNewEntries(t *testing.T) {
 		t.Fatalf("create on an incomplete site: %v", err)
 	}
 }
+
+func TestRuntimeRebuildClosesIdleConnections(t *testing.T) {
+	e := newRuntimeEnv(t)
+	doc := settings.Settings{Sites: []settings.Site{e.site("site-a", "SITE-A", e.pcA)}}
+	e.rt.Apply(context.Background(), doc)
+	e.monitor.ProbeOnce(context.Background(), time.Second) // leaves a kept-alive connection
+	before := e.pcA.ClosedConns()
+	doc.Sites[0].Name = "Milan"
+	e.rt.Apply(context.Background(), doc)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if e.pcA.ClosedConns() > before {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("the rebuilt site's old connections stay open")
+}

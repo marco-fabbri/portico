@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -185,6 +187,7 @@ type PC struct {
 	// refuses their deletion with 403.
 	SAMLUsers           []map[string]any
 	UserDeleteForbidden bool
+	closed              atomic.Int32
 }
 
 // OpCatalog is the operations the double lists by name.
@@ -193,10 +196,19 @@ var OpCatalog = []string{"Create_User", "Create_User_Key", "Update_Authorization
 // NewPC starts a Prism Central double over http.
 func NewPC(t *testing.T) *PC {
 	f := &PC{Password: "pc-pw-1", Key: "issued-key-4242"}
-	f.Srv = httptest.NewServer(http.HandlerFunc(f.handle))
+	f.Srv = httptest.NewUnstartedServer(http.HandlerFunc(f.handle))
+	f.Srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
+		if st == http.StateClosed {
+			f.closed.Add(1)
+		}
+	}
+	f.Srv.Start()
 	t.Cleanup(f.Srv.Close)
 	return f
 }
+
+// ClosedConns counts the client connections the double saw closed.
+func (f *PC) ClosedConns() int { return int(f.closed.Load()) }
 
 // NewTLSPC starts a Prism Central double over https, with httptest's
 // certificate (trusted by no root).
