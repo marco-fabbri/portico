@@ -241,3 +241,23 @@ func TestSSHNotMovedWhenTheConfigIsRefused(t *testing.T) {
 		t.Fatalf("no message:\n%s", out)
 	}
 }
+
+// Back to one interface, the drop-in loses its ListenAddress: sshd would
+// otherwise fail to bind an address the host no longer has.
+func TestBackToOneInterfaceClearsTheSSHListenAddress(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true}, Interface{Name: "eth1", Up: true})
+	sys.files["/etc/portico/portico.yaml"] = []byte(sampleYAML + "internal:\n  admin_listen: \"0.0.0.0:8443\"\n")
+	run(t, sys, "1\nportico\n203.0.113.5\n24\n203.0.113.1\n\ny\n192.168.10.5\n24\n\n\ny\n0\n")
+	if !strings.Contains(string(sys.files[sshListenPath]), "ListenAddress 192.168.10.5") {
+		t.Fatal("precondition: not moved")
+	}
+	sys.ifaces = []Interface{{Name: "eth0", Up: true}}
+	sys.execs = nil
+	out := run(t, sys, "1\nportico\n203.0.113.5\n24\n203.0.113.1\n\ny\n0\n")
+	if f := string(sys.files[sshListenPath]); strings.Contains(f, "ListenAddress") || !strings.Contains(f, "#") {
+		t.Fatalf("drop-in after going back to one interface: %q", f)
+	}
+	if !sys.execd("sshd", "-t") || !sys.execd("systemctl", "reload", "sshd") || !strings.Contains(out, "SSH listens on every address again") {
+		t.Fatalf("sshd not reloaded or no message: %v\n%s", sys.execs, out)
+	}
+}
