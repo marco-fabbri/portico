@@ -63,7 +63,7 @@ func (h *Handler) siteSetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /setup/sites/new", h.siteNew)
 	mux.HandleFunc("POST /setup/sites/new/inspect", h.siteInspect)
 	mux.HandleFunc("POST /setup/sites/new", h.siteCreate)
-	mux.HandleFunc("GET /setup/sites/{id}/status", h.siteStatusCard)
+	mux.HandleFunc("POST /setup/sites/{id}/status", h.siteStatusCard)
 	mux.HandleFunc("POST /setup/sites/{id}/setup", h.siteSetup)
 	mux.HandleFunc("POST /setup/sites/{id}/pin", h.sitePin)
 }
@@ -145,6 +145,10 @@ func (h *Handler) siteCreate(w http.ResponseWriter, r *http.Request) {
 // siteStatusCard checks the site in Prism Central and Keycloak now, as
 // the API's status does, and renders the card.
 func (h *Handler) siteStatusCard(w http.ResponseWriter, r *http.Request) {
+	// The check reports to the monitor: an effect, so a POST with the token.
+	if !h.requireCSRF(w, r) {
+		return
+	}
 	s, ok := h.loadSite(w, r)
 	if !ok {
 		return

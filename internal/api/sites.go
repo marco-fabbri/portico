@@ -513,7 +513,7 @@ func (h *handler) siteRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/setup", h.setupSite)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/pin", h.pinSite)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/check", h.checkSite)
-	mux.HandleFunc("GET "+Prefix+"sites/{id}/status", h.siteStatus)
+	mux.HandleFunc("POST "+Prefix+"sites/{id}/status", h.siteStatus)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/bootstrap/prism-central", h.bootstrapPrismCentral)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/bootstrap/saml", h.bootstrapSAML)
 	h.runtimeRoutes(mux)
