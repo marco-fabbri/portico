@@ -223,3 +223,23 @@ func TestSitesTileSuspended(t *testing.T) {
 		t.Fatalf("suspended tile: %s", body)
 	}
 }
+
+// The retry link is built from the request's own URI; a path starting
+// with "//" would become a link to another host.
+func TestErrorRetryNeverLeavesTheHost(t *testing.T) {
+	p := pagesFor(noLogo())
+	for in, want := range map[string]string{"//evil.example/x": `href="/"`, "/\\evil": `href="/"`, "/console/#/x": `href="/console/#/x"`, "": ""} {
+		w := httptest.NewRecorder()
+		p.Error(w, httptest.NewRequest("GET", "/", nil), 502, "Down", "down", in)
+		body := w.Body.String()
+		if want == "" {
+			if strings.Contains(body, "Try again") {
+				t.Fatalf("%q: a retry link: %s", in, body)
+			}
+			continue
+		}
+		if !strings.Contains(body, want) {
+			t.Fatalf("%q: want %s in %s", in, want, body)
+		}
+	}
+}

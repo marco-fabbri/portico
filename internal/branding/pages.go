@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -95,5 +96,20 @@ func (p *Pages) Error(w http.ResponseWriter, r *http.Request, status int, title,
 // for a tenant with several sites.
 func (p *Pages) ErrorSwitch(w http.ResponseWriter, r *http.Request, status int, title, text, retry, switchURL string) {
 	b := p.get(r.Context())
-	p.write(w, status, "error.html", pageData{B: b, Status: status, Title: title, Text: text, Retry: retry, SwitchURL: switchURL})
+	p.write(w, status, "error.html", pageData{B: b, Status: status, Title: title, Text: text, Retry: safeRetry(retry), SwitchURL: switchURL})
+}
+
+// safeRetry keeps the retry link on this host. Callers build it from the
+// request's own URI, and a path starting with "//" would be read by the
+// browser as another host. Empty stays empty (no link); a path with one
+// leading slash and no backslash or line break is kept; anything else
+// becomes "/".
+func safeRetry(retry string) string {
+	if retry == "" {
+		return ""
+	}
+	if !strings.HasPrefix(retry, "/") || strings.HasPrefix(retry, "//") || strings.ContainsAny(retry, "\\\r\n") {
+		return "/"
+	}
+	return retry
 }
