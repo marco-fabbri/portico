@@ -26,10 +26,34 @@ type TLS struct {
 
 // Public configures the tenant-facing listener.
 type Public struct {
-	Listen    string `yaml:"listen"`
-	TLS       TLS    `yaml:"tls"`
-	PrismHost string `yaml:"prism_host"`
-	IDHost    string `yaml:"id_host"`
+	Listen string `yaml:"listen"`
+	TLS    TLS    `yaml:"tls"`
+	// PortalHost is the public name tenants use: the portal, which leads
+	// to every site. Its old name, prism_host, is still read.
+	PortalHost string `yaml:"portal_host"`
+	IDHost     string `yaml:"id_host"`
+}
+
+// UnmarshalYAML reads the section, accepting prism_host (the name before
+// v0.1.0, when the public name led to one Prism Central) for portal_host.
+func (p *Public) UnmarshalYAML(n *yaml.Node) error {
+	type plain Public
+	var aux struct {
+		plain     `yaml:",inline"`
+		PrismHost string `yaml:"prism_host"`
+	}
+	aux.plain = plain(*p) // keep the defaults the file does not mention
+	if err := n.Decode(&aux); err != nil {
+		return err
+	}
+	*p = Public(aux.plain)
+	if aux.PrismHost != "" {
+		if p.PortalHost != "" && p.PortalHost != aux.PrismHost {
+			return errors.New("public.prism_host is the old name of public.portal_host; keep one")
+		}
+		p.PortalHost = aux.PrismHost
+	}
+	return nil
 }
 
 // Internal configures the administrator-facing listeners.
@@ -223,7 +247,7 @@ func (c *Config) ValidateProcess() error {
 func (c *Config) ValidateRuntime() error {
 	var errs []error
 	required := []struct{ key, value string }{
-		{"public.prism_host", c.Public.PrismHost},
+		{"public.portal_host", c.Public.PortalHost},
 		{"public.id_host", c.Public.IDHost},
 		{"prism_central.url", c.PrismCentral.URL},
 		{"oidc.issuer", c.OIDC.Issuer},

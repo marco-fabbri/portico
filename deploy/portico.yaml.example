@@ -6,9 +6,10 @@ public:
   tls:                           # both empty = plain HTTP behind cloudflared
     cert_file: /etc/portico/tls/public.crt
     key_file: /etc/portico/tls/public.key
-  prism_host: prism.msp.example  # required: public name of Prism Central
+  portal_host: portal.msp.example # required: public name of the portal (every site behind it;
+                                 # prism_host, the name before v0.1.0, is still read)
   id_host: id.msp.example        # required: public name of the identity provider
-                                 # (same registrable domain as prism_host)
+                                 # (same registrable domain as portal_host)
 
 internal:
   admin_listen: "127.0.0.1:8443"       # health, the admin UI and the JSON API; off the
@@ -63,8 +64,8 @@ keycloak:
 
 oidc:
   # Keycloak client: confidential, standard flow, PKCE S256,
-  # redirect URI https://<prism_host>/.portico/callback and
-  # post-logout redirect URI https://<prism_host>/ (logout fails otherwise).
+  # redirect URI https://<portal_host>/.portico/callback and
+  # post-logout redirect URI https://<portal_host>/ (logout fails otherwise).
   issuer: https://id.msp.example/realms/portico  # required: as it appears in tokens
   client_id: portico                            # required
   client_secret_file: /etc/portico/oidc-client-secret  # required, mode 0600

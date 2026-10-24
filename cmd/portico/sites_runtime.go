@@ -28,12 +28,12 @@ const sitesReload = 30 * time.Second
 
 // siteDeps is what the runtime needs to build a site's parts.
 type siteDeps struct {
-	prismHost string
-	strip     []string
-	errorPage func(w http.ResponseWriter, r *http.Request, status int, title, text, retry string)
-	settings  *settings.Service // backfills a site's identity provider id
-	kc        *keycloak.Client  // the trust check reads the site's Keycloak client
-	log       *slog.Logger
+	portalHost string
+	strip      []string
+	errorPage  func(w http.ResponseWriter, r *http.Request, status int, title, text, retry string)
+	settings   *settings.Service // backfills a site's identity provider id
+	kc         *keycloak.Client  // the trust check reads the site's Keycloak client
+	log        *slog.Logger
 }
 
 // siteParts is one served site, built from its settings.
@@ -205,7 +205,7 @@ func (r *siteRuntime) build(site settings.Site) (*siteParts, error) {
 	if err != nil {
 		return nil, err
 	}
-	up := proxy.NewUpstream(proxy.UpstreamOptions{Target: siteURL, HostHeader: r.deps.prismHost, TLS: siteTLS, StripCookies: r.deps.strip, Log: r.deps.log, ErrorPage: r.deps.errorPage})
+	up := proxy.NewUpstream(proxy.UpstreamOptions{Target: siteURL, HostHeader: r.deps.portalHost, TLS: siteTLS, StripCookies: r.deps.strip, Log: r.deps.log, ErrorPage: r.deps.errorPage})
 	landingTr := &http.Transport{TLSClientConfig: siteTLS, ForceAttemptHTTP2: false}
 	p := &siteParts{
 		fp: siteFingerprint(site),

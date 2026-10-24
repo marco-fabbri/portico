@@ -43,7 +43,7 @@ type settingsEnv struct {
 
 func sampleSettings(pcURL string) settings.Settings {
 	var s settings.Settings
-	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	s.PortalHost, s.IDHost = "prism.example.test", "id.example.test"
 	s.Sites = []settings.Site{{ID: "site-a", Code: "SITE-A", Name: "pc", URL: pcURL, APIKey: "key-secret-1", SAMLIdPName: "portico-idp", ClusterExtID: "cl-1", StorageContainerExtID: "sc-1"}}
 	s.Keycloak.Realm, s.Keycloak.AdminClientID, s.Keycloak.AdminClientSecret = "portico", "portico-admin", "admin-secret-1"
 	s.OIDC.Issuer, s.OIDC.ClientID, s.OIDC.ClientSecret = "https://id.example.test/realms/portico", "portico", "client-secret-1"
@@ -164,7 +164,7 @@ func TestSettingsGetHidesSecrets(t *testing.T) {
 
 func TestSettingsPutKeepsSecretsWhenOmitted(t *testing.T) {
 	e := newSettingsEnv(t, true)
-	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"12m"}}`)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"portal_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"12m"}}`)
 	if rec.Code != 200 || out["tenants"].(map[string]any)["operation_timeout"] != "12m0s" {
 		t.Fatalf("PUT: %d %v", rec.Code, out)
 	}
@@ -176,7 +176,7 @@ func TestSettingsPutKeepsSecretsWhenOmitted(t *testing.T) {
 
 func TestSettingsPutValidationNamesField(t *testing.T) {
 	e := newSettingsEnv(t, true)
-	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"Bad Prefix","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"portal_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"Bad Prefix","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
 	if rec.Code != 400 || !strings.Contains(out["error"].(string), "tenants.project_prefix") {
 		t.Fatalf("PUT invalid: %d %v", rec.Code, out)
 	}
@@ -184,7 +184,7 @@ func TestSettingsPutValidationNamesField(t *testing.T) {
 
 func TestSettingsPutNeverLogsSecret(t *testing.T) {
 	e := newSettingsEnv(t, false)
-	rec, _ := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin","admin_client_secret":"adm-xyz"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico","client_secret":"cli-xyz"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
+	rec, _ := e.do("PUT", "/api/v1/settings", `{"portal_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin","admin_client_secret":"adm-xyz"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico","client_secret":"cli-xyz"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
 	if rec.Code != 200 {
 		t.Fatalf("PUT: %d %s", rec.Code, rec.Body.String())
 	}
@@ -292,7 +292,7 @@ func TestSettingsCheckKeepsTLSVerifyWhenOmitted(t *testing.T) {
 
 func TestSettingsPutAdoptsFileSecrets(t *testing.T) {
 	e := newSettingsEnv(t, false)
-	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"portal_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
 	if rec.Code != 200 || out["stored"] != true || out["source"] != "store" {
 		t.Fatalf("PUT on a file-based installation: %d %v", rec.Code, out)
 	}
@@ -323,7 +323,7 @@ func TestGetSettingsReportsModeAndMissing(t *testing.T) {
 		t.Fatalf("GET: %d %v", rec.Code, out)
 	}
 	missing, _ := out["missing"].([]any)
-	if len(missing) != 7 || missing[0] != "prism_host" || missing[2] != "sites" {
+	if len(missing) != 7 || missing[0] != "portal_host" || missing[2] != "sites" {
 		t.Fatalf("missing = %v", missing)
 	}
 	if tenants, _ := out["tenants"].(map[string]any); tenants["project_prefix"] != "portico" || tenants["operation_timeout"] != "10m0s" {
@@ -333,7 +333,7 @@ func TestGetSettingsReportsModeAndMissing(t *testing.T) {
 
 func TestPutDraftThenApplyRefusedUntilComplete(t *testing.T) {
 	e := newDraftEnv(t)
-	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"portal_host":"prism.example.test","id_host":"id.example.test","tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
 	if rec.Code != 200 || out["stored"] != true || out["complete"] != false {
 		t.Fatalf("PUT draft: %d %v", rec.Code, out)
 	}
@@ -365,7 +365,7 @@ func (failingStore) SetSetting(context.Context, string, []byte) error {
 func TestSettingsPutStoreFailureIs500(t *testing.T) {
 	e := newSettingsEnv(t, true)
 	e.so.Service = settings.NewService(failingStore{e.st}, e.sealer)
-	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"portal_host":"prism.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
 	if rec.Code != 500 || !strings.Contains(out["error"].(string), "disk full") {
 		t.Fatalf("PUT on a broken store: %d %v", rec.Code, out)
 	}
@@ -395,5 +395,25 @@ func TestApplyWritesTheKeycloakHostnameFile(t *testing.T) {
 	rec, out := e2.do("POST", "/api/v1/settings/apply", "")
 	if rec.Code != 500 || e2.restarted != 0 || !strings.Contains(fmt.Sprint(out["error"]), "missing-dir") {
 		t.Fatalf("apply with an unwritable hostname file: %d restarted=%d %v", rec.Code, e2.restarted, out)
+	}
+}
+
+// The API accepts the old field name on a PUT and answers the new one only.
+func TestSettingsAPIAcceptsTheOldField(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	rec, out := e.do("PUT", "/api/v1/settings", `{"prism_host":"old.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
+	if rec.Code != 200 || out["portal_host"] != "old.example.test" {
+		t.Fatalf("PUT with prism_host: %d %v", rec.Code, out)
+	}
+	if _, ok := out["prism_host"]; ok {
+		t.Fatalf("the answer still carries prism_host: %v", out)
+	}
+	rec, out = e.do("GET", "/api/v1/settings", "")
+	if rec.Code != 200 || out["portal_host"] != "old.example.test" {
+		t.Fatalf("GET: %d %v", rec.Code, out)
+	}
+	rec, out = e.do("PUT", "/api/v1/settings", `{"prism_host":"a.example.test","portal_host":"b.example.test","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`)
+	if rec.Code != 400 || !strings.Contains(out["error"].(string), "prism_host is the old name of portal_host") {
+		t.Fatalf("both keys differing: %d %v", rec.Code, out)
 	}
 }

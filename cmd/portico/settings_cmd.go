@@ -108,7 +108,7 @@ func settingsImport(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(stdout, "settings imported into the store (sealed with the master key):")
-	for _, f := range []string{"public.prism_host", "public.id_host", "prism_central.url", "prism_central.tls_verify", "prism_central.ca_pem", "prism_central.api_key", "prism_central.saml_idp_name", "keycloak.realm", "keycloak.admin_client_id", "keycloak.admin_client_secret", "oidc.issuer", "oidc.client_id", "oidc.client_secret", "tenants.*"} {
+	for _, f := range []string{"public.portal_host", "public.id_host", "prism_central.url", "prism_central.tls_verify", "prism_central.ca_pem", "prism_central.api_key", "prism_central.saml_idp_name", "keycloak.realm", "keycloak.admin_client_id", "keycloak.admin_client_secret", "oidc.issuer", "oidc.client_id", "oidc.client_secret", "tenants.*"} {
 		fmt.Fprintln(stdout, "  "+f)
 	}
 	fmt.Fprintln(stdout, "the YAML's runtime sections and secret files can now be removed; the store wins from the next start")
@@ -188,7 +188,7 @@ func redacted(d settings.Settings) map[string]any {
 		})
 	}
 	return map[string]any{
-		"public":           map[string]any{"prism_host": d.PrismHost, "id_host": d.IDHost},
+		"public":           map[string]any{"portal_host": d.PortalHost, "id_host": d.IDHost},
 		"sites":            sites,
 		"passthrough_site": d.PassthroughSite,
 		"keycloak":         map[string]any{"realm": d.Keycloak.Realm, "admin_client_id": d.Keycloak.AdminClientID, "admin_client_secret": set(d.Keycloak.AdminClientSecret)},

@@ -75,7 +75,7 @@ func newSitesHarness(t *testing.T) *sitesHarness {
 	}
 	h.routing, h.auth, h.keycloak = routing, a, upstreamFor(t, kcUp.URL, "id.test")
 	h.handler = NewPublic(PublicOptions{
-		PrismHost: "prism.test", IDHost: "id.test",
+		PortalHost: "prism.test", IDHost: "id.test",
 		Sites: routing, Keycloak: h.keycloak, Auth: a,
 		Policy: PrismPolicy{AllowPrefixes: config.DefaultAllowPrefixes}, Log: log,
 	})
@@ -87,10 +87,10 @@ func newSitesHarness(t *testing.T) *sitesHarness {
 func (h *sitesHarness) withLanding() *sitesHarness {
 	log := slog.New(slog.NewJSONHandler(h.log, nil))
 	h.handler = NewPublic(PublicOptions{
-		PrismHost: "prism.test", IDHost: "id.test",
+		PortalHost: "prism.test", IDHost: "id.test",
 		Sites: h.routing, Keycloak: h.keycloak, Auth: h.auth,
 		Policy: PrismPolicy{AllowPrefixes: config.DefaultAllowPrefixes}, Log: log,
-		Landing: &LandingOptions{Pages: h.routing.Pages, Logo: func(context.Context) ([]byte, string, bool) { return nil, "", false }, PrismHost: "prism.test"},
+		Landing: &LandingOptions{Pages: h.routing.Pages, Logo: func(context.Context) ([]byte, string, bool) { return nil, "", false }, PortalHost: "prism.test"},
 	})
 	return h
 }
@@ -355,9 +355,9 @@ func TestLandingUsesSiteIdP(t *testing.T) {
 	pages := branding.NewPages(func(context.Context) branding.Branding { return branding.Default() })
 	routing.Pages = pages
 	a := auth.NewAuthenticator(auth.OIDCConfig{Issuer: "https://id.test/realms/x", DiscoveryURL: "https://127.0.0.1:1/realms/x", ClientID: "portico", ClientSecret: "s", RedirectURL: "https://prism.test/.portico/callback"}, h.store, nil, nil)
-	h.handler = NewPublic(PublicOptions{PrismHost: "prism.test", IDHost: "id.test", Sites: routing, Keycloak: http.NotFoundHandler(), Auth: a,
+	h.handler = NewPublic(PublicOptions{PortalHost: "prism.test", IDHost: "id.test", Sites: routing, Keycloak: http.NotFoundHandler(), Auth: a,
 		Policy:  PrismPolicy{AllowPrefixes: config.DefaultAllowPrefixes},
-		Landing: &LandingOptions{Pages: pages, Logo: func(context.Context) ([]byte, string, bool) { return nil, "", false }, PrismHost: "prism.test"}})
+		Landing: &LandingOptions{Pages: pages, Logo: func(context.Context) ([]byte, string, bool) { return nil, "", false }, PortalHost: "prism.test"}})
 	h.session("s1", "acme", "site-b")
 	rec := h.do("GET", "/ui/iam/providers", "s1", nav, nil)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `href="/.portico/sites">Switch site`) {

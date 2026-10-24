@@ -8,7 +8,7 @@ public:
   tls:
     cert_file: /etc/portico/tls/lab.crt
     key_file: /etc/portico/tls/lab.key
-  prism_host: prism.lab.portico.test
+  portal_host: prism.lab.portico.test
   id_host: id.lab.portico.test
 
 internal:

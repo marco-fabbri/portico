@@ -14,7 +14,7 @@ func samlEnv(t *testing.T) (*fakePCAdmin, *fakeKCAdmin, Settings) {
 	pc, kc := newFakePCAdmin(t), newFakeKCAdmin(t)
 	kc.realmReps["msp"] = map[string]any{"realm": "msp"}
 	s := Defaults()
-	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	s.PortalHost, s.IDHost = "prism.example.test", "id.example.test"
 	s.Keycloak.Realm, s.Keycloak.AdminClientSecret = "msp", Secret(kc.adminSecret)
 	s.Sites = []Site{{ID: "site-a", Code: "SITE-A", URL: pc.srv.URL, APIKey: Secret(pc.issuedKey)}}
 	return pc, kc, s

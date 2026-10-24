@@ -69,7 +69,7 @@ func testServeConfig(t *testing.T, prismURL string) *config.Config {
 	os.WriteFile(secret, []byte("s3cret\n"), 0o600)
 	cfg := config.Default()
 	cfg.Public.Listen = freeAddr(t)
-	cfg.Public.PrismHost = "prism.test"
+	cfg.Public.PortalHost = "prism.test"
 	cfg.Public.IDHost = "id.test"
 	cfg.Internal.AdminListen = freeAddr(t)
 	cfg.Internal.PassthroughListen = freeAddr(t)
@@ -390,7 +390,7 @@ func TestServeSetupModeWithEmptyStore(t *testing.T) {
 			setupLine = l
 		}
 	}
-	if setupLine == "" || !strings.Contains(setupLine, "prism_host") || !strings.Contains(setupLine, "keycloak.realm") {
+	if setupLine == "" || !strings.Contains(setupLine, "portal_host") || !strings.Contains(setupLine, "keycloak.realm") {
 		t.Fatalf("setup-mode line %q must list the missing keys; log: %s", setupLine, logBuf.String())
 	}
 	client := apiClient()
@@ -407,7 +407,7 @@ func TestServeSetupModeWithEmptyStore(t *testing.T) {
 		t.Fatalf("settings: %d %v", resp.StatusCode, out)
 	}
 	// A complete document stored through the API, then Apply → ErrRestart.
-	body := `{"prism_host":"prism.test","id_host":"id.test","keycloak":{"realm":"x","admin_client_id":"portico-admin","admin_client_secret":"s"},"oidc":{"issuer":"https://id.test/realms/x","client_id":"portico","client_secret":"s"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`
+	body := `{"portal_host":"prism.test","id_host":"id.test","keycloak":{"realm":"x","admin_client_id":"portico-admin","admin_client_secret":"s"},"oidc":{"issuer":"https://id.test/realms/x","client_id":"portico","client_secret":"s"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`
 	req, _ = http.NewRequest("PUT", "http://"+cfg.Internal.AdminListen+"/api/v1/settings", strings.NewReader(body))
 	req.SetBasicAuth("admin", "pw-12345678")
 	req.Header.Set("Content-Type", "application/json")

@@ -30,7 +30,7 @@ func setupEnv(t *testing.T) *setupFixture {
 	kc.Realms["msp"] = map[string]any{"realm": "msp"}
 	svc := NewService(newStore(t), sealerFor(t, 1))
 	s := Defaults()
-	s.PrismHost, s.IDHost = "prism.example.test", "id.example.test"
+	s.PortalHost, s.IDHost = "prism.example.test", "id.example.test"
 	s.Keycloak.Realm, s.Keycloak.AdminClientID, s.Keycloak.AdminClientSecret = "msp", "portico-admin", Secret(kc.RealmSecret)
 	s.Sites = []Site{{ID: "site-a", Code: "SITE-A", Name: "Milan", URL: pc.Srv.URL, TLSVerify: true}}
 	if err := svc.Set(context.Background(), s); err != nil {

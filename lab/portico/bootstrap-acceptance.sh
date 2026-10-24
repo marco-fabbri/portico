@@ -39,7 +39,7 @@ fi
 # 1. Setup mode on an empty store.
 code=$(api GET /api/v1/settings)
 line "GET settings on a fresh store" "$code mode=$(field .mode) stored=$(field .stored)" "200 mode=setup stored=false"
-jq -n --arg p "$LAB_PRISM_HOST" --arg i "$LAB_ID_HOST" '{prism_host:$p, id_host:$i}' > "$tmp/hosts.json"
+jq -n --arg p "$LAB_PRISM_HOST" --arg i "$LAB_ID_HOST" '{portal_host:$p, id_host:$i}' > "$tmp/hosts.json"
 code=$(api PUT /api/v1/settings "$tmp/hosts.json")
 line "PUT hosts (draft)" "$code stored=$(field .stored) complete=$(field .complete)" "200 stored=true complete=false"
 code=$(api POST /api/v1/settings/apply)
@@ -70,7 +70,7 @@ code=$(api PUT "/api/v1/sites/$SITE" "$tmp/site.json")
 line "PUT site defaults" "$code $(field .cluster_ext_id)" "200 $cluster"
 jq -n --arg pp "$PROJECT_PREFIX" '{project_prefix:$pp, group_prefix:"tenant-", role:"Project Admin", operation_timeout:"15m"}' > "$tmp/tenants.json"
 api GET /api/v1/settings >/dev/null
-jq --slurpfile t "$tmp/tenants.json" '{prism_host, id_host, passthrough_site, keycloak:{realm:.keycloak.realm, admin_client_id:.keycloak.admin_client_id}, oidc:{issuer:.oidc.issuer, client_id:.oidc.client_id}, tenants:$t[0]}' "$tmp/out" > "$tmp/put.json"
+jq --slurpfile t "$tmp/tenants.json" '{portal_host, id_host, passthrough_site, keycloak:{realm:.keycloak.realm, admin_client_id:.keycloak.admin_client_id}, oidc:{issuer:.oidc.issuer, client_id:.oidc.client_id}, tenants:$t[0]}' "$tmp/out" > "$tmp/put.json"
 code=$(api PUT /api/v1/settings "$tmp/put.json")
 line "PUT tenants card" "$code missing=$(field '.missing|join(",")')" "200 missing=sites.$SITE.saml_idp_name"
 

@@ -27,11 +27,11 @@ type LandingOptions struct {
 	Icons func(ctx context.Context) branding.Icons
 	// PrismHTTP, PrismBase and IdPExtID are the request's site's: forSite
 	// fills them from the SiteBackend.
-	PrismHTTP *http.Client // to Prism Central, same TLS as the upstream, no redirects
-	PrismBase *url.URL     // https://<pc>:9440
-	PrismHost string       // public host name, sent as Host
-	IdPExtID  func(ctx context.Context) (string, error)
-	Log       *slog.Logger
+	PrismHTTP  *http.Client // to Prism Central, same TLS as the upstream, no redirects
+	PrismBase  *url.URL     // https://<pc>:9440
+	PortalHost string       // public host name, sent as Host
+	IdPExtID   func(ctx context.Context) (string, error)
+	Log        *slog.Logger
 	// SiteCode names the request's site on the "responding slowly" page.
 	SiteCode string
 	// SwitchURL, when set, puts a "switch site" link on the landing page
@@ -158,7 +158,7 @@ func (l *LandingOptions) loginRequest(ctx context.Context, method, id string, bo
 	if err != nil {
 		return 0, err
 	}
-	req.Host = l.PrismHost
+	req.Host = l.PortalHost
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Cookie", iamCookie+"="+id)
 	if body != nil {
