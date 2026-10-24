@@ -656,3 +656,25 @@ func TestDisconnectGivesUpOnTheResourceGroupAtTheTimeout(t *testing.T) {
 		t.Fatalf("placement = %q %q", p.Status, p.LastError)
 	}
 }
+
+// CreateUser reads the tenant under its lock: with the lock held by another
+// operation it answers ErrBusy, whatever the stored status says, so a user
+// is never added to a tenant that a concurrent deletion is taking apart.
+func TestCreateUserReadsTheStatusUnderTheLock(t *testing.T) {
+	e := newEnv(t)
+	e.create(t, "acme")
+	e.svc.Wait()
+	ctx := context.Background()
+	tn := e.get(t, "acme")
+	tn.Status = store.StatusDeleting
+	if err := e.st.UpdateTenant(ctx, tn); err != nil {
+		t.Fatal(err)
+	}
+	if !e.svc.acquire("acme") {
+		t.Fatal("lock not acquired")
+	}
+	defer e.svc.release("acme")
+	if _, err := e.svc.CreateUser(ctx, "acme", "carol@acme.test", "Carol", "Rossi"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("CreateUser under a held lock = %v, want ErrBusy", err)
+	}
+}
