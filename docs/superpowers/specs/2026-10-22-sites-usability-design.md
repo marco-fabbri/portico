@@ -111,8 +111,11 @@ checkbox or an identifier typed by hand.
 One page, `Add a site`, in two steps on the same page.
 
 **Step 1, the address.** Code, name, order (optional, default last) and
-the Prism Central address. Portico connects and reads the certificate and
-the Prism Central version.
+the Prism Central address. Portico connects and reads the certificate.
+The Prism Central version is read at the start of step 2's run, with the
+administrator's credentials and before anything is created: Portico
+reads it from the clusters list, which needs them (Part C final review,
+2026-10-24).
 
 - The certificate is trusted (system roots, or a CA PEM the MSP pasted
   under "Advanced"): the page says so, naming the issuer.
@@ -121,8 +124,9 @@ the Prism Central version.
   expiry, and says where to compare it (the browser's certificate viewer
   on the Prism Central address). The MSP confirms it; Portico pins it
   (4.3).
-- The version is older than pc.7.6, or nothing answers: the page says
-  what was found and stops.
+- Nothing answers: the page says what was found and stops. A version
+  older than pc.7.6 stops step 2's run at its version step, before
+  anything is created.
 
 **Step 2, the administrator.** Username and password of a Prism Central
 account allowed to create users, roles and identity providers. The fields
