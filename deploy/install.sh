@@ -35,16 +35,25 @@ while [ $# -gt 0 ]; do
     *) echo "install.sh: unknown argument $1" >&2; usage ;;
   esac
 done
-HERE=$(cd "$(dirname "$0")" && pwd)
+# The script resolves itself through BASH_SOURCE: the quadlets, units and
+# drop-ins it installs live beside it, so it runs from the unpacked
+# release (or the repository), never piped into bash.
+SELF=${BASH_SOURCE[0]}
+HERE=$(cd "$(dirname "$SELF")" && pwd)
 REPO="https://github.com/marco-fabbri/portico"
+if [ ! -d "$HERE/quadlets" ]; then echo "install.sh: run it from the unpacked release: $HERE/quadlets is missing" >&2; exit 1; fi
 if [ $RENDER -eq 0 ] && [ "$(id -u)" -ne 0 ]; then echo "install.sh: run as root" >&2; exit 1; fi
 if [ $RENDER -eq 0 ] && [ ! -r /etc/os-release ]; then echo "install.sh: not a Linux host" >&2; exit 1; fi
 if [ $RENDER -eq 0 ] && ! grep -qE '^ID="?rocky"?' /etc/os-release; then echo "install.sh: Rocky Linux 9 is the supported host" >&2; exit 1; fi
 
 # put MODE OWNER GROUP SRC DST: install one file (owner and group skipped in render mode).
+# A destination that was absent or differs is noted in CHANGED, so a second
+# run restarts only the services whose files changed.
+CHANGED=""
 put() {
   local mode=$1 owner=$2 group=$3 src=$4 dst="$ROOT$5"
   mkdir -p "$(dirname "$dst")"
+  if [ ! -e "$dst" ] || ! cmp -s "$src" "$dst"; then CHANGED="$CHANGED $5"; fi
   if [ $RENDER -eq 1 ]; then install -m "$mode" "$src" "$dst"; else install -m "$mode" -o "$owner" -g "$group" "$src" "$dst"; fi
 }
 # putdir MODE OWNER GROUP PATH
@@ -183,13 +192,21 @@ else
 fi
 put 0644 root root "$HERE/sysctl/60-portico.conf" /etc/sysctl.d/60-portico.conf
 # This script itself, for the first boot of an appliance.
-put 0755 root root "$0" /usr/local/sbin/portico-install
+put 0755 root root "$SELF" /usr/local/sbin/portico-install
 put 0644 root root "$HERE/portico-firstboot.service" /etc/systemd/system/portico-firstboot.service
 # On a host of your own the secrets are generated now; the image build
 # leaves them to the first boot.
 if [ $START -eq 1 ] || [ $RENDER_SECRETS -eq 1 ]; then generate_secrets; fi
 
-if [ $RENDER -eq 1 ]; then log "rendered under $ROOT"; exit 0; fi
+# PostgreSQL and Keycloak are restarted when a quadlet or the network
+# changed (a quadlet edit takes effect at the next start only); started
+# otherwise, so an unchanged re-run does not interrupt logins.
+containers_changed() { case "$CHANGED" in *" /etc/containers/systemd/"*) return 0 ;; esac; return 1; }
+
+if [ $RENDER -eq 1 ]; then
+  if containers_changed; then log "would restart: postgres keycloak"; fi
+  log "rendered under $ROOT"; exit 0
+fi
 
 # 8. Apply: SELinux labels, kernel parameters, units, firewall, sshd.
 restorecon -R /etc/portico /usr/local/bin/portico /usr/local/sbin/portico-install /etc/containers/systemd /etc/systemd/system /var/lib/portico
@@ -200,6 +217,10 @@ if sshd -t 2>/dev/null; then systemctl reload sshd 2>/dev/null || true; fi
 if [ $START -eq 1 ]; then
   systemctl start firewalld
   configure_firewall
+  if containers_changed; then
+    log "a quadlet changed: restarting PostgreSQL and Keycloak"
+    systemctl restart postgres.service keycloak.service
+  fi
   log "starting the services"
   systemctl start postgres.service keycloak.service keycloak-hostname.path
   systemctl restart portico.service
