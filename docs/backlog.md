@@ -102,7 +102,6 @@ and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
 - `Apply(ctx, hook, b)` surface is clumsy (`Apply(ctx)` would do);
   `serve.go` variable `store` shadows the store package (rename to
   `sessions`).
-- Store file created with the umask, not chmod 0600 (plus `-wal`/`-shm`).
 - `go.mod` marks `modernc.org/sqlite` and `x/crypto` as indirect (`go mod
   tidy`).
 - `TestPrismBootstrapPolicyMissingDeletesTheKey`-style gaps elsewhere:
@@ -118,17 +117,13 @@ and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
   runs the boot test (write-up 19).
 - Minor findings of the Milestone 3 review, deferred: `api.BasicAuth`
   duplicates the factory-password check of `RequireAdmin` and only tests
-  use it; `install.sh` copies `$0` (breaks under `curl | bash`, use
-  `BASH_SOURCE`); a second `install.sh` run does not restart PostgreSQL
-  and Keycloak when their quadlets changed; `portico-firstboot`'s
+  use it; `portico-firstboot`'s
   once-only condition is `keycloak.env`, not a marker written last;
   `sysctl` sets `ip_forward = 0` while the tailoring documents that
-  netavark needs it; the kickstart opens SSH on every interface;
-  `harden.sh` never fails the build on an OpenSCAP regression; the
-  console's "show once" wording and scrollback after the credentials;
+  netavark needs it;
+  the console's "show once" wording and scrollback after the credentials;
   the console writes `portico.yaml` in place (no temp file and rename);
-  the image workflow gives the `contents: write` token to Packer's plugin
-  getter and pins actions by tag; Packer uploads the whole `deploy/` tree
+  Packer uploads the whole `deploy/` tree
   (a developer's gitignored tfvars would ride along until the cleanup);
   `ParseKeyfile` does not check the `[ipv4]` section; the password page
   accepts the current password as the new one and keeps the session;
@@ -141,9 +136,6 @@ and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
   (160 MB) so an appliance can be re-scanned in place; drop them and
   document a scan from outside if the image must shrink further.
 
-- `portico.service` could add `RestrictAddressFamilies`,
-  `SystemCallFilter`, `RestrictNamespaces`, `ProtectHostname`,
-  `ProtectClock`, `ProtectProc`, `UMask` (Milestone 3 image).
 - Theme caches off in production are a Milestone 3 image requirement.
 - `provision.sh` stages `keycloak.env` and `lab-ca.key` in `/tmp` on the
   VM; `create-vm.sh` exits silently if cluster or subnet are missing and
