@@ -43,12 +43,19 @@ func (h *Handler) passwordSubmit(w http.ResponseWriter, r *http.Request) {
 	case next == api.FactoryPassword:
 		fail("the factory password cannot stay")
 		return
+	case next == current:
+		fail("the new password must differ from the current one")
+		return
 	}
 	if err := api.SetAdminPassword(r.Context(), h.st, next); err != nil {
 		h.log.Error("admin password change", "err", err.Error())
 		fail("the password could not be stored")
 		return
 	}
-	h.log.Info("admin password changed", "source", sourceOf(r))
+	// A password is usually changed because someone else may know it:
+	// every admin session ends, and this browser gets a fresh one.
+	n := h.sessions.DeleteSubject("admin")
+	h.newSession(w)
+	h.log.Info("admin password changed", "source", sourceOf(r), "sessions_ended", n)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
