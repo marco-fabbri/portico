@@ -38,7 +38,7 @@ done
 # The script resolves itself through BASH_SOURCE: the quadlets, units and
 # drop-ins it installs live beside it, so it runs from the unpacked
 # release (or the repository), never piped into bash.
-SELF=${BASH_SOURCE[0]}
+SELF=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")
 HERE=$(cd "$(dirname "$SELF")" && pwd)
 REPO="https://github.com/marco-fabbri/portico"
 # --first-boot runs from the installed copy alone (/usr/local/sbin) and installs nothing from the tree.
