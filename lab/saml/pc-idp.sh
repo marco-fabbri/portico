@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Read or create the SAML identity provider in Prism Central (design 6.8).
 #   lab/saml/pc-idp.sh list
-#   lab/saml/pc-idp.sh create [REDIRECT_URL]   refuses if an IdP not named portico-lab-keycloak exists
+#   lab/saml/pc-idp.sh create [REDIRECT_URL]   refuses if an IdP not named LAB_SAML_IDP (default portico-keycloak) exists
 #   lab/saml/pc-idp.sh delete              deletes the SAML users it created first
 # The IdP metadata XML is fetched from Keycloak by the Mac and passed inline
 # (base64), because the PCVM cannot resolve the lab host names.
@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 : "${PC_URL:?source lab/env.sh first}" "${LAB_ID_HOST:?}" "${LAB_VM_IP:?}" "${LAB_PRISM_HOST:?}"
 S="${PORTICO_SECRETS:-$HOME/portico-secrets}"
-NAME="portico-lab-keycloak"
+NAME="${LAB_SAML_IDP:-portico-keycloak}"
 # v4.1.b3: the served v4.0 schema rejects redirectURL ("property unsupported").
 EP="/api/iam/v4.1.b3/authn/saml-identity-providers"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
@@ -27,7 +27,7 @@ case "${1:?subcommand}" in
     fi
     if [ "$existing" = "$NAME" ]; then echo "idp $NAME exists"; list; exit 0; fi
     curl -sf --cacert "$S/lab-ca.crt" --resolve "$LAB_ID_HOST:443:$LAB_VM_IP" \
-      "https://$LAB_ID_HOST/realms/portico-lab/protocol/saml/descriptor" > "$tmp/idp.xml"
+      "https://$LAB_ID_HOST/realms/${LAB_REALM:-portico}/protocol/saml/descriptor" > "$tmp/idp.xml"
     jq -n --arg n "$NAME" --arg x "$(base64 < "$tmp/idp.xml" | tr -d '\n')" --arg r "$redirect" '
       {name:$n, idpMetadataXml:$x, usernameAttribute:"email", emailAttribute:"email",
        groupsAttribute:"groups", isSignedAuthnReqEnabled:false}

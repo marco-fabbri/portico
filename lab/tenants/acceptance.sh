@@ -6,7 +6,7 @@
 # and group) and verify nothing is left (and _internal unchanged).
 # Prints one line per check: got (expected). Exit 1 on any mismatch.
 #   source lab/env.sh && lab/tenants/acceptance.sh [--delete]
-# Tenant slug "tenant-b" → project portico-lab-tenant-b (lab prefix) and
+# Tenant slug "tenant-b" → project portico-tenant-b (the Portico prefix) and
 # Keycloak/SAML group tenant-tenant-b (derived name, not pretty).
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
@@ -18,9 +18,10 @@ source lab/projects/lib.sh
 # the Mac; after the 2e bootstrap the key lives in the store only and the
 # reads fall back to the admin credentials of lab/env.sh.
 if [ -s "$S/portico-sa-key" ]; then export PC_API_KEY; PC_API_KEY=$(cut -d= -f2- "$S/portico-sa-key" | tr -d '\r\n'); fi
-# Against the appliance (Milestone 3) the names are the definitive ones: LAB_PROJECT_PREFIX=portico, LAB_REALM=portico, LAB_TENANT_SLUG=acme.
-PREFIX="${LAB_PROJECT_PREFIX:-portico-lab}"; REALM="${LAB_REALM:-portico-lab}"
-slug="${LAB_TENANT_SLUG:-tenant-b}"; project="$PREFIX-$slug"; group="tenant-$slug"; email="${LAB_TENANT_EMAIL:-carol@lab.portico.test}"
+PREFIX="${LAB_PROJECT_PREFIX:-portico}"; REALM="${LAB_REALM:-portico}"
+# The test user's address is the tenant's own domain: an email is unique
+# across the realm, so the tenant's users never collide with acme's.
+slug="${LAB_TENANT_SLUG:-tenant-b}"; project="$PREFIX-$slug"; group="tenant-$slug"; email="${LAB_TENANT_EMAIL:-carol@$slug.example}"
 # The test user's temporary password, named after the tenant: the
 # appliance's carol-tmp-pw belongs to tenant acme and is never touched.
 pwfile="$S/$slug-user-tmp-pw"
@@ -47,7 +48,7 @@ if [ "${1:-}" != "--delete" ]; then
   # 1. create
   # LAB_TENANT_SITES (comma-separated site ids) places the tenant on those
   # sites; empty leaves the choice to Portico (the only site).
-  jq -n --arg s "$slug" --arg d "${LAB_TENANT_NAME:-Tenant B (lab)}" --arg c "${LAB_TENANT_CONTACT:-ops@lab.portico.test}" --arg sites "${LAB_TENANT_SITES:-}" \
+  jq -n --arg s "$slug" --arg d "${LAB_TENANT_NAME:-Tenant $slug}" --arg c "${LAB_TENANT_CONTACT:-ops@$slug.example}" --arg sites "${LAB_TENANT_SITES:-}" \
     '{slug:$s, display_name:$d, contacts:$c} + (if $sites == "" then {} else {sites: ($sites | split(",") | map({site: .}))} end)' > "$tmp/create.json"
   code=$(api POST /api/v1/tenants "$tmp/create.json")
   [ "$code" = 409 ] && { echo "     tenant exists already, continuing"; code=202; }

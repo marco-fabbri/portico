@@ -9,14 +9,14 @@ cd "$(dirname "$0")/../.." || exit 1
 # shellcheck source=lab/projects/lib.sh
 source lab/projects/lib.sh
 name="${1:?project name}"
-# Lab safety: only projects named portico-lab-* are ever touched.
-[[ "$name" == portico-lab-* ]] || { echo "refusing: project name must start with portico-lab-: $name" >&2; exit 2; }
+# Lab safety: only projects named portico-* (the Portico prefix) are ever touched.
+[[ "$name" == portico-* ]] || { echo "refusing: project name must start with portico-: $name" >&2; exit 2; }
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
 pj=$(project_extid "$name")
 if [ -z "$pj" ]; then
   # 'id' (a slug) is required by the v4.4.b1 schema: "missing property 'id'".
-  jq -n --arg n "$name" '{id:$n, name:$n, description:("Portico lab project " + $n)}' > "$tmp/p.json"
+  jq -n --arg n "$name" '{id:$n, name:$n, description:("Portico project " + $n)}' > "$tmp/p.json"
   cp "$tmp/p.json" docs/lab/payloads/project-create.json
   code=$(post "$MD/config/projects" "$tmp/p.json" "$tmp/resp.json") || { echo "$code"; cat "$tmp/resp.json"; exit 1; }
   wait_task "$(jq -r .data.extId "$tmp/resp.json")" >/dev/null

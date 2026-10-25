@@ -11,15 +11,15 @@ if grep -q 'auth="\$http_authorization"' lab/vm/nginx.conf; then ko "nginx.conf 
 # I1: no credential on a curl command line in the probe.
 if grep -nE -- '-u "admin:|j_password=\$PC_PASS|X-ntnx-api-key: \$' lab/auth/probe-local-login.sh | grep -q .; then ko "probe-local-login.sh puts credentials on the command line"; else ok "probe-local-login.sh keeps credentials in curl config files"; fi
 
-# I2: project scripts refuse names outside portico-lab-* before any API call.
+# I2: project scripts refuse names outside portico-* before any API call.
 for s in create bind-group delete; do
-  out=$(PC_URL=https://invalid.test PC_USER=x PC_PASS=x LAB_PRISM_HOST=x LAB_ID_HOST=x LAB_VM_IP=x bash "lab/projects/$s.sh" not-a-lab-project tenant-x 2>&1); rc=$?
-  if [ "$rc" -eq 2 ] && grep -q 'refusing' <<<"$out"; then ok "$s.sh refuses non-lab project names"; else ko "$s.sh accepted a non-lab name (rc=$rc): $out"; fi
+  out=$(PC_URL=https://invalid.test PC_USER=x PC_PASS=x LAB_PRISM_HOST=x LAB_ID_HOST=x LAB_VM_IP=x bash "lab/projects/$s.sh" not-a-portico-project tenant-x 2>&1); rc=$?
+  if [ "$rc" -eq 2 ] && grep -q 'refusing' <<<"$out"; then ok "$s.sh refuses project names outside the prefix"; else ko "$s.sh accepted a name outside the prefix (rc=$rc): $out"; fi
 done
 
-# I3: the lab IdP is selected by name (LAB_SAML_IDP, default the lab
-# VM's), never "the first one".
-if grep -q 'select(.name==$n)' lab/projects/lib.sh && grep -q 'LAB_SAML_IDP:-portico-lab-keycloak' lab/projects/lib.sh; then ok "lib.sh selects the lab IdP by name"; else ko "lib.sh picks the first SAML IdP"; fi
+# I3: the identity provider is selected by name (LAB_SAML_IDP), never
+# "the first one".
+if grep -q 'select(.name==$n)' lab/projects/lib.sh && grep -q 'LAB_SAML_IDP:-portico-keycloak' lab/projects/lib.sh; then ok "lib.sh selects the identity provider by name"; else ko "lib.sh picks the first SAML IdP"; fi
 
 # I4: create-vm.sh checks the IP (ping + Prism Central NIC list) before creating.
 if grep -q 'learnedIpAddresses' lab/vm/create-vm.sh && grep -q 'ping -c' lab/vm/create-vm.sh; then ok "create-vm.sh checks the IP before creating"; else ko "create-vm.sh does not check the IP"; fi
@@ -77,8 +77,8 @@ if grep -q 'realms/master' lab/saml/kc.sh && ! grep -q 'LAB_ID_HOST' lab/saml/kc
 if grep -q 'admin set-password -config /etc/portico/portico.yaml < ' lab/portico/deploy.sh && ! grep -qE 'set-password.*\$\(cat' lab/portico/deploy.sh; then ok "deploy.sh passes the admin password on stdin"; else ko "deploy.sh puts the admin password on a command line"; fi
 # M2-2: only the key part of the service-account file is staged.
 if grep -q 'cut -d= -f2- "\$S/portico-sa-key"' lab/portico/deploy.sh; then ok "deploy.sh stages the API key only"; else ko "deploy.sh stages the whole portico-sa-key file"; fi
-# M2-3: the lab project prefix keeps the portico-lab-* safety rule.
-if grep -q '^  project_prefix: portico-lab' lab/portico/portico.yaml; then ok "portico.yaml keeps the portico-lab prefix"; else ko "portico.yaml prefix is not portico-lab"; fi
+# M2-3: the project prefix the scripts default to is the one the safety rule of lab/projects checks.
+if grep -q 'LAB_PROJECT_PREFIX:-portico}' lab/env.sh && grep -q '== portico-\* \]\]' lab/projects/delete.sh; then ok "env.sh prefix and the project safety rule agree"; else ko "env.sh prefix and the project safety rule differ"; fi
 # M2-4: the Bearer/v3 probe keeps bob's credentials in curl config files.
 if ! grep -nE -- '-u "portico-lab-bob|Bearer \$' lab/auth/probe-bearer-and-v3-users.sh | grep -q .; then ok "probe-bearer-and-v3-users.sh keeps credentials off the command line"; else ko "probe-bearer-and-v3-users.sh puts credentials on the command line"; fi
 
@@ -191,7 +191,15 @@ rm -rf "$d"
 # pass-through.
 if grep -nE '\$S/carol' lab/tenants/acceptance.sh | grep -q .; then ko "tenants/acceptance.sh touches \$S/carol-*"; else ok "tenants/acceptance.sh keeps to its own password file"; fi
 if grep -q '^gone()' lab/tenants/acceptance.sh && ! grep -q 'absent || echo present)" absent' lab/tenants/acceptance.sh; then ok "tenants/acceptance.sh: a failed lookup is not absent"; else ko "tenants/acceptance.sh reads a failed lookup as absent"; fi
-if grep -q 'realm="${LAB_REALM:-portico-lab}"' lab/auth/probe-local-login.sh && grep -q 'LAB_PASSTHROUGH:-exposed' lab/auth/probe-local-login.sh && ! grep -q 'realms/portico-lab/' lab/auth/probe-local-login.sh; then ok "probe-local-login.sh: realm and pass-through from LAB_*"; else ko "probe-local-login.sh hardcodes the lab VM"; fi
+if grep -q 'realm="${LAB_REALM:-portico}"' lab/auth/probe-local-login.sh && grep -q 'LAB_PASSTHROUGH:-loopback' lab/auth/probe-local-login.sh && ! grep -q 'realms/portico/' lab/auth/probe-local-login.sh; then ok "probe-local-login.sh: realm and pass-through from LAB_*"; else ko "probe-local-login.sh hardcodes a realm or a pass-through"; fi
+
+# The appliance is the default target (write-up 28): env.sh names it, the
+# scripts that reach Portico carry no name of the retired VM, and
+# bootstrap-acceptance.sh adds its site in one step with a pinned
+# certificate, not with the two-step path a current build refuses.
+if grep -q 'LAB_VM_IP:-10.23.210.191}' lab/env.sh && grep -q 'LAB_SSH_USER:-admin}' lab/env.sh && grep -q 'LAB_REALM:-portico}' lab/env.sh && grep -q 'LAB_PASSTHROUGH:-loopback}' lab/env.sh; then ok "env.sh defaults to the appliance"; else ko "env.sh does not default to the appliance"; fi
+if ! grep -rn 'lab\.portico\.test\|portico-lab' lab/env.sh lab/sites lab/tenants lab/portico/bootstrap-acceptance.sh lab/portico/upgrade-appliance.sh lab/appliance lab/auth/probe-local-login.sh lab/projects lab/saml/pc-idp.sh lab/saml/kc.sh | grep -q .; then ok "the scripts that reach the appliance carry no name of the retired VM"; else ko "a script still names the retired VM: $(grep -rln 'lab\.portico\.test\|portico-lab' lab/env.sh lab/sites lab/tenants lab/portico/bootstrap-acceptance.sh lab/appliance lab/projects lab/saml/pc-idp.sh | tr '\n' ' ')"; fi
+if grep -q '/api/v1/sites/inspect' lab/portico/bootstrap-acceptance.sh && grep -q 'tls_pin:\$pin' lab/portico/bootstrap-acceptance.sh && ! grep -q 'bootstrap/prism-central' lab/portico/bootstrap-acceptance.sh && ! grep -q 'tls_verify:false' lab/portico/bootstrap-acceptance.sh; then ok "bootstrap-acceptance.sh adds the site in one step with a pinned certificate"; else ko "bootstrap-acceptance.sh still uses the two-step site path"; fi
 
 # Sites usability measurements (write-ups 24 and 25): each script prints its usage
 # without the lab environment.
