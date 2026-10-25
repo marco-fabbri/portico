@@ -475,7 +475,7 @@ Prism Central: rename `public.prism_host` to a portal name (old key
 accepted) before v0.1.0". Decided with Marco on 2026-10-20.
 
 **Files:**
-- Modify: `internal/config/config.go`, `internal/settings/settings.go`, `internal/api/settings.go`, `internal/web/setup.go`, `internal/web/templates/setup.html`, `cmd/portico/settings_cmd.go`, every Go use of `PrismHost` (rename to `PortalHost`), `deploy/portico.yaml.example`, `deploy/portico.appliance.yaml` if it names it, `lab/portico/portico.yaml`, `docs/api.md`, the design §4.2 and the sites design (one note that the key was renamed), `docs/install.md`
+- Modify: `internal/config/config.go`, `internal/settings/settings.go`, `internal/api/settings.go`, `internal/web/setup.go`, `internal/web/templates/setup.html`, `cmd/portico/settings_cmd.go`, every Go use of `PrismHost` (rename to `PortalHost`), `deploy/portico.yaml.example`, `deploy/portico.appliance.yaml` if it names it, `lab/portico/portico.yaml`, the design §4.2 and the sites design (one note that the key was renamed), `docs/install.md`
 - Test: `internal/config/config_test.go`, `internal/settings/settings_test.go`, `internal/api/settings_test.go`
 
 **Interfaces:**
