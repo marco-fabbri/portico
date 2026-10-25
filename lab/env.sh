@@ -22,8 +22,18 @@ export PC_PASS
 [ -n "$_portico_xtrace" ] && set -x
 unset _portico_xtrace
 
-export LAB_VM_IP="${LAB_VM_IP:-10.23.210.190}"
-# The portal names of the appliance (write-up 27); the retired lab VM .190
-# still answers to prism.lab.portico.test and id.lab.portico.test.
+# The appliance is the Portico of the lab (write-ups 21 to 27): its
+# address, SSH user, portal names, realm, identity provider name, project
+# prefix and loopback pass-through are the defaults. The VM of Milestones
+# 0 to 2 is retired; its scripts under lab/vm still run with the LAB_*
+# values of write-up 15 set by hand. PORTICO_SECRETS holds the
+# appliance's files (portico-admin-pw, keycloak-admin-pw, probe-*-pw).
+export LAB_VM_IP="${LAB_VM_IP:-10.23.210.191}"
+export LAB_SSH_USER="${LAB_SSH_USER:-admin}"
 export LAB_PRISM_HOST="${LAB_PRISM_HOST:-msp.portico.test}"
 export LAB_ID_HOST="${LAB_ID_HOST:-id.portico.test}"
+export LAB_REALM="${LAB_REALM:-portico}"
+export LAB_SAML_IDP="${LAB_SAML_IDP:-portico-keycloak}"
+export LAB_PROJECT_PREFIX="${LAB_PROJECT_PREFIX:-portico}"
+export LAB_SERVICE_ACCOUNT="${LAB_SERVICE_ACCOUNT:-portico}"
+export LAB_PASSTHROUGH="${LAB_PASSTHROUGH:-loopback}"

@@ -21,7 +21,7 @@ kc_client_uuid() { lab/saml/kc.sh GET "/$REALM/clients?clientId=$(jq -rn --arg c
 # and no empty groupsDelim (measured: 400 IAM-20011 otherwise): the realm
 # descriptor is read from Keycloak's loopback on the appliance.
 read -r -a sshopts <<<"${LAB_SSH_OPTS:-}"
-ssh -o BatchMode=yes -o LogLevel=ERROR "${sshopts[@]}" "${LAB_SSH_USER:-lab}@$LAB_VM_IP" "curl -s http://127.0.0.1:8080/realms/$REALM/protocol/saml/descriptor" > "$tmp/desc.xml" 2>/dev/null
+ssh -o BatchMode=yes -o LogLevel=ERROR "${sshopts[@]}" "${LAB_SSH_USER:-admin}@$LAB_VM_IP" "curl -s http://127.0.0.1:8080/realms/$REALM/protocol/saml/descriptor" > "$tmp/desc.xml" 2>/dev/null
 grep -q EntityDescriptor "$tmp/desc.xml" || { echo "no SAML descriptor from Keycloak" >&2; exit 1; }
 set_issuer() {  # set_issuer VALUE -> prints the HTTP code of the PUT
   lab/pc.sh GET "$path" 2>/dev/null | jq --arg e "$1" --rawfile x "$tmp/desc.xml" '.data | {name, idpMetadataXml: ($x|@base64), usernameAttribute, emailAttribute, groupsAttribute, isSignedAuthnReqEnabled, redirectURL, entityIssuer: $e}' > "$tmp/put.json"

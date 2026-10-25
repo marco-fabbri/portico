@@ -11,8 +11,8 @@ cd "$(dirname "$0")/../.." || exit 1
 # shellcheck source=lab/projects/lib.sh
 source lab/projects/lib.sh
 pname="${1:?project name}"; gname="${2:?group name}"; rname="${3:-Project Admin}"
-# Lab safety: only projects named portico-lab-* are ever touched.
-[[ "$pname" == portico-lab-* ]] || { echo "refusing: project name must start with portico-lab-: $pname" >&2; exit 2; }
+# Lab safety: only projects named portico-* (the Portico prefix) are ever touched.
+[[ "$pname" == portico-* ]] || { echo "refusing: project name must start with portico-: $pname" >&2; exit 2; }
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
 pj=$(project_extid "$pname"); [ -n "$pj" ] || { echo "no project $pname" >&2; exit 1; }

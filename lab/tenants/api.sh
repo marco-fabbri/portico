@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Call Portico's admin API on the lab VM. Lab only.
+# Call Portico's admin API on the appliance. Lab only.
 #   lab/tenants/api.sh METHOD PATH [JSON_FILE]     (PATH like /api/v1/tenants)
 # Prints the body on stdout and "HTTP <code>" on stderr. The break-glass
 # password (~/portico-secrets/portico-admin-pw, written by

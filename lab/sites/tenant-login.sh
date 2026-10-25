@@ -8,7 +8,7 @@
 #   source lab/env.sh && lab/sites/tenant-login.sh acme [--keep-jar DIR] [--site ID]
 # With several sites the login lands on the site page; --site picks one
 # there (write-up 26), as the tile's form does.
-# The probe user portico-probe-<slug>@lab.portico.test is a member of
+# The probe user portico-probe-<slug>@portico.test is a member of
 # tenant-<slug>; its password is generated once into
 # $PORTICO_SECRETS/probe-<slug>-pw (0600) and never printed.
 set -uo pipefail
@@ -20,7 +20,7 @@ umask 077
 
 if [ "${1:-}" = "--ensure-probe" ]; then
   slug="${2:?usage: tenant-login.sh --ensure-probe SLUG}"
-  email="portico-probe-$slug@lab.portico.test"; pwf="$S/probe-$slug-pw"
+  email="portico-probe-$slug@portico.test"; pwf="$S/probe-$slug-pw"
   if [ ! -s "$pwf" ]; then
     # 24 characters from letters and digits, with each class present.
     LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 21 > "$pwf"; printf 'Aa1' >> "$pwf"
@@ -54,7 +54,7 @@ while [ $# -gt 0 ]; do
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
 done
-email="portico-probe-$slug@lab.portico.test"; pwf="$S/probe-$slug-pw"
+email="portico-probe-$slug@portico.test"; pwf="$S/probe-$slug-pw"
 [ -s "$pwf" ] || { echo "no $pwf: run --ensure-probe $slug first" >&2; exit 1; }
 if [ -n "$keep" ]; then mkdir -p "$keep"; chmod 700 "$keep"; d="$keep"; else d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; fi
 jar="$d/jar"; : > "$jar"

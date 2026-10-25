@@ -10,7 +10,7 @@ cd "$(dirname "$0")/../.." || exit 1
 : "${PC_URL:?source lab/env.sh first}"
 S="${PORTICO_SECRETS:-$HOME/portico-secrets}"
 IAM0="/api/iam/v4.0"; IAM1="/api/iam/v4.1.b3"
-SA_NAME="portico"; KEY_NAME="portico-lab-key"; POLICY_NAME="Project Manager_acp"
+SA_NAME="portico"; KEY_NAME="portico-key"; POLICY_NAME="Project Manager_acp"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 # shellcheck source=lab/lib.sh
 source lab/lib.sh
@@ -41,7 +41,7 @@ case "${1:-create}" in
       sa=$(jq -r '.data.extId' "$tmp/resp.json"); echo "service account created: $sa"
     else echo "service account exists: $sa"; fi
     if ! lab/pc.sh GET "$IAM1/authn/users/$sa/keys" 2>/dev/null | jq -e --arg k "$KEY_NAME" '.data[]? | select(.name==$k and .status=="VALID")' >/dev/null; then
-      jq -n --arg k "$KEY_NAME" '{name:$k, keyType:"API_KEY", description:"Portico lab API key"}' > "$tmp/k.json"
+      jq -n --arg k "$KEY_NAME" '{name:$k, keyType:"API_KEY", description:"Portico API key"}' > "$tmp/k.json"
       cp "$tmp/k.json" docs/lab/payloads/service-account-key-create.json
       post "$IAM1/authn/users/$sa/keys" "$tmp/k.json" "$tmp/resp.json" || exit 1
       umask 077; jq -er '.data.keyDetails | "apiKey=" + .apiKey' "$tmp/resp.json" > "$S/portico-sa-key"

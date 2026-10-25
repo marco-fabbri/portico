@@ -21,7 +21,7 @@ cd "$(dirname "$0")/../.." || exit 1
 source lab/projects/lib.sh
 site="${LAB_SITE_ID:-site-1}"; code_want="${LAB_SITE_CODE:-AZ-IT-MI1}"
 slug="${LAB_TENANT_SLUG:-acme}"; prefix="${LAB_PROJECT_PREFIX:-portico}"
-probe="portico-probe-$slug@lab.portico.test"
+probe="portico-probe-$slug@portico.test"
 with_tenant=0; [ "${1:-}" = "--with-tenant" ] && with_tenant=1
 umask 077; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 fail=0
@@ -93,7 +93,7 @@ line "lab/auth/probe-local-login.sh ($(grep -c . "$tmp/local.txt") requests)" "$
 # 6. A tenant created, checked and deleted on the site.
 if [ $with_tenant -eq 1 ]; then
   export LAB_TENANT_SITES="$site" LAB_TENANT_SLUG="${LAB_NEW_TENANT:-beta}" LAB_PROJECT_PREFIX="$prefix"
-  export LAB_TENANT_EMAIL="$LAB_TENANT_SLUG-user@lab.portico.test"
+  export LAB_TENANT_EMAIL="$LAB_TENANT_SLUG-user@$LAB_TENANT_SLUG.example"
   if lab/tenants/acceptance.sh && lab/tenants/acceptance.sh --delete; then r=pass; else r=fail; fi
   line "lab/tenants/acceptance.sh on $site" "$r" "pass"
 fi
