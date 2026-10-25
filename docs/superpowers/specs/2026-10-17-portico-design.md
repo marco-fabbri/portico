@@ -637,7 +637,9 @@ internal admin UI. Nothing else is configurable from the console.
   and the public names towards the tenants.
 - Updates: `dnf` for the OS, a new `portico` rpm for the application,
   container image tags for Keycloak/PostgreSQL. Full image replacement
-  documented as the clean path.
+  documented as the clean path. The qcow2 carries no container image:
+  PostgreSQL and Keycloak are pulled from their registries at first boot
+  (write-up 29), a known limit of v0.1.0 until they ship in the image.
 - Builder's calls, fixed with Marco on 2026-10-19 for Milestone 3:
   - Build: Packer with the QEMU builder on a GitHub Actions x86_64 runner
     (KVM available), from the Rocky Linux 9 boot ISO with a kickstart,
