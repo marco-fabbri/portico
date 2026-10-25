@@ -52,6 +52,13 @@ and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
   then records the 504, not the task's reason. Look the entity's latest
   task up on a 504 and report its `legacyErrorMessage`
   (`internal/nutanix`).
+- The tenant step retry of Milestone 5 covers 500, 502 and 503 only: a
+  gateway `504 upstream request timeout` on a create step, and a `401
+  AUTHENTICATION_REQUIRED` from a key that worked a second earlier (an
+  IAM hiccup of NTNX-01 under load, write-up 28), fail the tenant and
+  leave the Retry to the MSP, which then succeeds at once. Retry a 504
+  on a create when the entity does not exist yet, and a 401 once after a
+  short pause (`internal/tenant/provision.go`).
 - A "danger zone" that deletes a tenant's resources (VMs, images, volume
   groups) from Portico so a non-empty project can be disconnected: kept
   out with Marco on 2026-10-22 (sites usability design 4.6, ADR 0006);
@@ -190,11 +197,6 @@ drawn across the logo on the Keycloak login page.
   Prism Central, so a new name and Apply break the login. Apply should
   carry a changed name there. (The rename to `portal_host` and the lab's
   new names were done in Milestone 5, write-up 27.)
-- `lab/portico/bootstrap-acceptance.sh` adds its site with the Milestone
-  2e two-step path (`tls_verify: false`, then `bootstrap/prism-central`
-  and `bootstrap/saml`), which a current build refuses: a new site needs
-  a trusted or pinned certificate (write-up 27). Move it to the one-step
-  `POST /api/v1/sites` with `tls_pin` and `admin`.
 - Minor findings of the appliance acceptance (write-up 21): the legacy
   adoption line ("the single Prism Central of the stored document is now
   site site-1") is written in plain text before the JSON logger exists;
