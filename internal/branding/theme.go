@@ -14,8 +14,15 @@ import (
 // of another type left by a previous save is removed. The tab icon goes
 // in as img/favicon.ico, the file keycloak.v2's template links.
 func WriteTheme(dir string, b Branding) error {
-	for _, d := range []string{"login", "login/resources/css", "login/resources/img", "login/messages"} {
-		if err := os.MkdirAll(filepath.Join(dir, d), 0o755); err != nil {
+	// Keycloak's own user reads the theme inside its container: every
+	// directory is made world-readable explicitly, since MkdirAll is
+	// subject to the service's umask (0077 on the appliance).
+	for _, d := range []string{"", "login", "login/resources", "login/resources/css", "login/resources/img", "login/messages"} {
+		p := filepath.Join(dir, d)
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			return fmt.Errorf("theme: %s: %w", dir, err)
+		}
+		if err := os.Chmod(p, 0o755); err != nil {
 			return fmt.Errorf("theme: %s: %w", dir, err)
 		}
 	}
