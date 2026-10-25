@@ -365,7 +365,7 @@ func TestValidateFormatRefusesBadHostNames(t *testing.T) {
 		}
 	}
 	for _, h := range []string{"id.example.test", "id.example.test:8443", "localhost"} {
-		if err := (Settings{IDHost: h, PortalHost: h}).ValidateFormat(); err != nil {
+		if err := (Settings{IDHost: h, PortalHost: "portal.example.test"}).ValidateFormat(); err != nil {
 			t.Errorf("%q refused: %v", h, err)
 		}
 	}
@@ -394,5 +394,13 @@ func TestSettingsDocumentFromBeforeTheRename(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(`{"prism_host":"a.example","portal_host":"b.example"}`), &s); err == nil || !strings.Contains(err.Error(), "prism_host is the old name of portal_host; keep one") {
 		t.Fatalf("both keys differing: %v", err)
+	}
+}
+
+func TestValidateFormatRefusesEqualHosts(t *testing.T) {
+	s := Settings{PortalHost: "msp.example.test", IDHost: "MSP.example.test"}
+	err := s.ValidateFormat()
+	if err == nil || !strings.Contains(err.Error(), "id_host must differ from portal_host") {
+		t.Fatalf("equal hosts: %v", err)
 	}
 }
