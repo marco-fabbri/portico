@@ -305,3 +305,14 @@ func TestConfigRefusesBothHostKeysDiffering(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// One public name cannot serve both the portal and the identity provider:
+// Portico routes by host name.
+func TestValidateRefusesEqualPublicHosts(t *testing.T) {
+	cfg := m1Config()
+	cfg.Public.IDHost = "Prism.example.test"
+	err := cfg.ValidateRuntime()
+	if err == nil || !strings.Contains(err.Error(), "public.id_host must differ from public.portal_host") {
+		t.Fatalf("equal hosts: %v", err)
+	}
+}

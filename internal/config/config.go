@@ -266,6 +266,11 @@ func (c *Config) ValidateRuntime() error {
 			errs = append(errs, fmt.Errorf("config: %s is required", r.key))
 		}
 	}
+	// Portico routes by host name: the portal and the identity provider
+	// cannot share one.
+	if c.Public.PortalHost != "" && strings.EqualFold(strings.TrimSpace(c.Public.PortalHost), strings.TrimSpace(c.Public.IDHost)) {
+		errs = append(errs, errors.New("config: public.id_host must differ from public.portal_host"))
+	}
 	// The prefix becomes part of a project id and a group name.
 	if !rePrefix.MatchString(c.Tenants.ProjectPrefix) {
 		errs = append(errs, fmt.Errorf("config: tenants.project_prefix %q must be lower-case letters, digits and dashes", c.Tenants.ProjectPrefix))
