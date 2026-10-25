@@ -129,6 +129,7 @@ alone=$(mktemp -d); cp deploy/install.sh "$alone/install.sh"
 out=$(bash "$alone/install.sh" --render-only "$d" --binary "$bin" 2>&1); rc=$?
 if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q 'run it from the unpacked release'; then ok "install.sh copied alone refuses and names the missing release tree"; else ko "install.sh copied alone: rc=$rc $out"; fi
 if cmp -s deploy/install.sh "$d/usr/local/sbin/portico-install"; then ok "install.sh installs itself as portico-install"; else ko "portico-install differs from install.sh"; fi
+if grep -q '^SELF=$(cd "$(dirname "${BASH_SOURCE\[0\]}")" && pwd)/$(basename "${BASH_SOURCE\[0\]}")$' deploy/install.sh; then ok "install.sh resolves its own path to an absolute one"; else ko "install.sh keeps a relative SELF"; fi
 out=$(bash deploy/install.sh --render-only "$d" --render-secrets --binary "$bin" 2>&1)
 if ! printf '%s' "$out" | grep -q 'would restart'; then ok "install.sh: an unchanged second run restarts no container"; else ko "install.sh would restart unchanged containers: $out"; fi
 echo "# edited" >> "$d/etc/containers/systemd/keycloak.container"
