@@ -119,10 +119,20 @@ func find(bs []*SiteBackend, id string) *SiteBackend {
 // page answers a browser navigation with a branded page, anything else
 // with the JSON refusal.
 func (s *SiteRouting) page(w http.ResponseWriter, r *http.Request, status int, rule, title, text, retry string) {
+	s.errorPage(w, r, status, rule, title, text, retry, false)
+}
+
+// errorPage is page with the choice of the branded page's button: a
+// retry link, or a sign-out when staying signed in cannot help.
+func (s *SiteRouting) errorPage(w http.ResponseWriter, r *http.Request, status int, rule, title, text, retry string, signOut bool) {
 	setRule(r, rule)
 	if s.Pages != nil && isNavigation(r) {
 		w.Header().Set("X-Portico-Rule", rule)
-		s.Pages.Error(w, r, status, title, text, retry)
+		if signOut {
+			s.Pages.ErrorSignOut(w, r, status, title, text)
+		} else {
+			s.Pages.Error(w, r, status, title, text, retry)
+		}
 		return
 	}
 	Refuse(w, status, rule, strings.ToLower(title[:1])+title[1:]+": "+text)
@@ -138,17 +148,10 @@ func isNavigation(r *http.Request) bool {
 	return false
 }
 
+// noSite offers a sign-out: the tenant is resolved at login only, so a
+// transient error there would otherwise strand the user.
 func (s *SiteRouting) noSite(w http.ResponseWriter, r *http.Request) {
-	const title, text = "No site available", "No site is available for your account. Contact your provider."
-	if s.Pages != nil && isNavigation(r) {
-		// With a sign-out: the tenant is resolved at login only, so a
-		// transient error there would otherwise strand the user.
-		setRule(r, "no-site")
-		w.Header().Set("X-Portico-Rule", "no-site")
-		s.Pages.ErrorSignOut(w, r, http.StatusForbidden, title, text)
-		return
-	}
-	s.page(w, r, http.StatusForbidden, "no-site", title, text, "")
+	s.errorPage(w, r, http.StatusForbidden, "no-site", "No site available", "No site is available for your account. Contact your provider.", "", true)
 }
 
 func (s *SiteRouting) unavailable(w http.ResponseWriter, r *http.Request, b *SiteBackend, st sites.Status) {
