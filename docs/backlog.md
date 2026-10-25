@@ -59,6 +59,14 @@ and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
   leave the Retry to the MSP, which then succeeds at once. Retry a 504
   on a create when the entity does not exist yet, and a 401 once after a
   short pause (`internal/tenant/provision.go`).
+- The setup's "check keycloak" and "check oidc" pass with a broken login
+  page (write-up 29: a theme without a readable `parent` answered 500):
+  the OIDC check could fetch the realm's login page and expect 200
+  (`internal/settings`).
+- Portico's start applies the theme to Keycloak while an upgrade may
+  still be restarting it ("theme not applied at start"); the theme is
+  applied at the next save. Retry the application a few times at start
+  (`internal/branding`).
 - A "danger zone" that deletes a tenant's resources (VMs, images, volume
   groups) from Portico so a non-empty project can be disconnected: kept
   out with Marco on 2026-10-22 (sites usability design 4.6, ADR 0006);
@@ -135,6 +143,15 @@ and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
   document a scan from outside if the image must shrink further.
 
 - Theme caches off in production are a Milestone 3 image requirement.
+- The qcow2 carries no container image: PostgreSQL and Keycloak are
+  pulled from docker.io and quay.io at first boot (write-up 29), so a
+  first boot without egress never gets an identity provider, and on a
+  slow link it takes a minute after the network. Ship the two images in
+  the qcow2 (`podman pull` at build, about 700 MB more) or document the
+  mirror variables (`image/`, `deploy/quadlets`). Known limit of v0.1.0.
+- `lab/appliance/deploy.sh` reports "appliance ready" on `healthz` 200,
+  which is the Go binary only: wait for Keycloak too (the setup status
+  card) before saying so.
 - `provision.sh` stages `keycloak.env` and `lab-ca.key` in `/tmp` on the
   VM; `create-vm.sh` exits silently if cluster or subnet are missing and
   its `sed` breaks on `|` or `&` in the SSH key comment; `env.sh` leaves
