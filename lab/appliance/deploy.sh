@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Lab: the appliance image built by .github/workflows/image.yml on NTNX-01
 # (Milestone 3 acceptance). Downloads the workflow artifacts, serves the
-# qcow2 from the lab VM over HTTP for Prism Central's image service, and
-# runs deploy/tofu/nutanix with the lab values. Requires `source lab/env.sh`
-# and `gh` logged in. Lab only.
+# qcow2 over HTTP from LAB_IMAGE_HOST (a host Prism Central can download
+# from, user lab: the VM of Milestones 0 to 2) for Prism Central's image
+# service, and runs deploy/tofu/nutanix with the lab values. Requires
+# `source lab/env.sh` and `gh` logged in. Lab only.
 #   lab/appliance/deploy.sh [--run ID | --image PATH] [--version V]
 set -euo pipefail
 cd "$(dirname "$0")/../.." || exit 1
-: "${LAB_VM_IP:?source lab/env.sh first}" "${PC_URL:?}" "${PC_USER:?}" "${PC_PASS:?}"
+: "${PC_URL:?source lab/env.sh first}" "${PC_USER:?}" "${PC_PASS:?}"
+IMAGE_HOST="${LAB_IMAGE_HOST:-10.23.210.190}"
 # shellcheck source=lab/lib.sh
 source lab/lib.sh
 RUN=""; IMAGE=""; VERSION="0.0.0-dev"
@@ -46,14 +48,14 @@ fi
 # 2. The address must be free (as lab/vm/create-vm.sh checks).
 if ping -c 2 -W 1 "$APPLIANCE_IP" >/dev/null 2>&1; then echo "refusing: $APPLIANCE_IP answers ping" >&2; exit 2; fi
 
-# 3. Serve the image from the lab VM: Prism Central downloads it from a URL.
-SSH=(ssh -o BatchMode=yes -o ConnectTimeout=5 "lab@$LAB_VM_IP")
-stage=$(remote_stage_dir "lab@$LAB_VM_IP")
-echo "copying $(du -h "$IMAGE" | cut -f1) to the lab VM"
-scp -q -o BatchMode=yes "$IMAGE" "lab@$LAB_VM_IP:$stage/portico-$VERSION.qcow2"
+# 3. Serve the image from the image host: Prism Central downloads it from a URL.
+SSH=(ssh -o BatchMode=yes -o ConnectTimeout=5 "lab@$IMAGE_HOST")
+stage=$(remote_stage_dir "lab@$IMAGE_HOST")
+echo "copying $(du -h "$IMAGE" | cut -f1) to $IMAGE_HOST"
+scp -q -o BatchMode=yes "$IMAGE" "lab@$IMAGE_HOST:$stage/portico-$VERSION.qcow2"
 "${SSH[@]}" "sudo firewall-cmd -q --add-port=8000/tcp; cd '$stage' && (nohup python3 -m http.server 8000 >/dev/null 2>&1 & echo \$! > '$stage/http.pid')"
 echo "$stage" > "$A/.stage"
-IMAGE_URL="http://$LAB_VM_IP:8000/portico-$VERSION.qcow2"
+IMAGE_URL="http://$IMAGE_HOST:8000/portico-$VERSION.qcow2"
 
 # 4. The OpenTofu variables: nothing secret in the file, the password in the environment.
 host=${PC_URL#https://}; host=${host%%:*}
