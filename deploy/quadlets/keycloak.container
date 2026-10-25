@@ -3,7 +3,12 @@
 # reaches it on the loopback.
 [Unit]
 Description=Keycloak
-Requires=postgres.service
+# Ordered after PostgreSQL, not bound to it: at first boot the images are
+# pulled from the Internet and the network may not be up yet. PostgreSQL
+# retries by itself (Restart=always); a Requires= would turn its first
+# failure into a failed start job for Keycloak that systemd never retries
+# (write-up 29). Keycloak's own restarts cover a database still coming up.
+Wants=postgres.service
 After=postgres.service
 
 [Container]
