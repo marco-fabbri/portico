@@ -89,8 +89,8 @@ and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
 - `min_display_ms` rounds down to whole seconds (label the field).
 - The branding save logs the MSP name value (the plan said field names).
 - `Validate` does not trim the MSP name on the API path.
-- Config validation accepts `prism_host == id_host`; a TLS private key
-  file is not mode-checked like the client secret (`internal/config`).
+- A TLS private key file is not mode-checked like the client secret
+  (`internal/config`).
 - `Apply(ctx, hook, b)` surface is clumsy (`Apply(ctx)` would do);
   `serve.go` variable `store` shadows the store package (rename to
   `sessions`).

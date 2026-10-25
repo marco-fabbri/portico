@@ -216,6 +216,9 @@ func (s Settings) ValidateFormat() error {
 			errs = append(errs, fmt.Errorf("settings: %s %q must be a host name (letters, digits, dots, dashes, optional :port)", r.key, r.value))
 		}
 	}
+	if s.PortalHost != "" && strings.EqualFold(strings.TrimSpace(s.PortalHost), strings.TrimSpace(s.IDHost)) {
+		errs = append(errs, errors.New("settings: id_host must differ from portal_host"))
+	}
 	errs = append(errs, s.validateSites()...)
 	for _, r := range []struct{ key, value string }{{"oidc.issuer", s.OIDC.Issuer}} {
 		if r.value == "" {
