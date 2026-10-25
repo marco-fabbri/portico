@@ -163,7 +163,9 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request, status int, nam
 		p.Admin = "admin"
 		p.CSRF = s.CSRF
 	}
-	if c, err := r.Cookie(noticeCookie); err == nil && c.Value != "" && status == http.StatusOK {
+	// Consumed by the first page rendered, whatever its status: a notice
+	// left behind a 404 would otherwise reappear on the next page.
+	if c, err := r.Cookie(noticeCookie); err == nil && c.Value != "" {
 		if n, err := url.QueryUnescape(c.Value); err == nil {
 			p.Notice = n
 		}
