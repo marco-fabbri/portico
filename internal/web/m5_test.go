@@ -7,8 +7,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/marco-fabbri/portico/internal/api"
 )
 
 // doWith is do with extra cookies on the request.
@@ -162,5 +160,25 @@ func TestIdlePostLoginReturnsHome(t *testing.T) {
 	if rec.Code != 303 || rec.Header().Get("Location") != "/login?next=%2Ftenants%2Fnew" {
 		t.Fatalf("GET without a session: %d %q", rec.Code, rec.Header().Get("Location"))
 	}
-	_ = api.FactoryPassword
+}
+
+// A notice is consumed by the first page rendered after it, whatever its
+// status: a notice followed by a "not found" page must not reappear on
+// the next page a minute later.
+func TestNoticeIsConsumedByAnErrorPage(t *testing.T) {
+	e := newEnv(t, true)
+	withSetup(t, e, true)
+	e.login(t)
+	rec := e.do("POST", "/setup/sites/site-a/save", e.form("code", "SITE-A", "name", "Milan", "order", "1"), true)
+	nc := cookieNamed(rec, noticeCookie)
+	if rec.Code != 303 || nc == nil {
+		t.Fatalf("save: %d, notice cookie %+v", rec.Code, nc)
+	}
+	rec = e.doWith("GET", "/setup/sites/nope", nil, e.cookie, nc)
+	if rec.Code != 404 {
+		t.Fatalf("unknown site: %d", rec.Code)
+	}
+	if c := cookieNamed(rec, noticeCookie); c == nil || c.MaxAge >= 0 {
+		t.Fatalf("notice cookie not expired by the 404 page: %+v", c)
+	}
 }
