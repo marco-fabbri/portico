@@ -8,8 +8,10 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -44,8 +46,9 @@ func Inspect(certPEM []byte) (Info, error) {
 // Validate checks a certificate chain and its key before anything is
 // installed; the error names the failing check in words an operator can
 // act on. The leaf comes first, each certificate is followed by its
-// issuer, the leaf names every host, is for TLS servers, is valid at now
-// and matches the key. PKCS#1, PKCS#8 and EC keys are accepted.
+// issuer, key and signatures are ones browsers accept, the leaf names
+// every host, is for TLS servers, is valid at now and matches the key.
+// PKCS#1, PKCS#8 and EC keys are accepted.
 func Validate(certPEM, keyPEM []byte, hosts []string, now time.Time) (Info, error) {
 	certs, err := parseChain(certPEM)
 	if err != nil {
@@ -59,6 +62,9 @@ func Validate(certPEM, keyPEM []byte, hosts []string, now time.Time) (Info, erro
 		if !bytes.Equal(certs[i-1].RawIssuer, certs[i].RawSubject) {
 			return Info{}, fmt.Errorf("the chain is in the wrong order: certificate %d (%s) is not the issuer of the one before it; put the server's first, then each issuer", i+1, certs[i].Subject.CommonName)
 		}
+	}
+	if err := browserGrade(certs); err != nil {
+		return Info{}, err
 	}
 	for _, h := range hosts {
 		if leaf.VerifyHostname(h) != nil {
@@ -83,6 +89,36 @@ func Validate(certPEM, keyPEM []byte, hosts []string, now time.Time) (Info, erro
 		return Info{}, fmt.Errorf("the key does not match the certificate")
 	}
 	return info(leaf), nil
+}
+
+// browserGrade refuses what browsers refuse although Go parses it: an
+// RSA key under 2048 bits, an EC key on a curve other than P-256 or
+// P-384, an Ed25519 certificate, and a SHA-1 or MD5 signature on any
+// certificate but a self-signed root, whose signature no browser checks.
+func browserGrade(certs []*x509.Certificate) error {
+	const ask = "ask the certificate authority for one with an RSA 2048 or ECDSA P-256 key"
+	switch k := certs[0].PublicKey.(type) {
+	case *rsa.PublicKey:
+		if n := k.N.BitLen(); n < 2048 {
+			return fmt.Errorf("the key is RSA %d bits: browsers need at least 2048; %s", n, ask)
+		}
+	case *ecdsa.PublicKey:
+		if c := k.Curve.Params().Name; c != "P-256" && c != "P-384" {
+			return fmt.Errorf("the key is on curve %s: browsers accept P-256 and P-384; %s", c, ask)
+		}
+	case ed25519.PublicKey:
+		return fmt.Errorf("browsers do not accept Ed25519 certificates; %s", ask)
+	}
+	for i, c := range certs {
+		if bytes.Equal(c.RawIssuer, c.RawSubject) {
+			continue
+		}
+		switch c.SignatureAlgorithm {
+		case x509.SHA1WithRSA, x509.ECDSAWithSHA1, x509.DSAWithSHA1, x509.MD5WithRSA, x509.MD2WithRSA:
+			return fmt.Errorf("certificate %d (%s) is signed with %s, which browsers refuse; ask the certificate authority for a SHA-256 chain", i+1, c.Subject.CommonName, c.SignatureAlgorithm)
+		}
+	}
+	return nil
 }
 
 func parseChain(certPEM []byte) ([]*x509.Certificate, error) {

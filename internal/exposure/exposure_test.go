@@ -3,6 +3,7 @@ package exposure
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
@@ -138,6 +139,93 @@ func TestValidateNamesTheFailingCheck(t *testing.T) {
 				t.Fatalf("err = %v, want %q", err, c.want)
 			}
 		})
+	}
+}
+
+// sha1Issue is issue with a SHA-1 signature, which browsers refuse.
+func sha1Issue(t *testing.T, names []string, ca bool, parent *issued) issued {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(7), Subject: pkix.Name{CommonName: names[0]}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(90 * 24 * time.Hour),
+		SignatureAlgorithm: x509.SHA1WithRSA, KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign}
+	if ca {
+		tmpl.IsCA, tmpl.BasicConstraintsValid = true, true
+	} else {
+		tmpl.DNSNames, tmpl.ExtKeyUsage = names, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
+	}
+	parentCert, parentKey := tmpl, crypto.Signer(key)
+	if parent != nil {
+		parentCert, parentKey = parent.cert, parent.key
+		if _, ok := parent.key.(*rsa.PrivateKey); !ok {
+			t.Fatal("a SHA-1 signature needs an RSA parent")
+		}
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, parentCert, key.Public(), parentKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := x509.ParseCertificate(der)
+	return issued{cert: c, der: der, key: key}
+}
+
+// Browsers refuse small RSA keys, curves other than P-256 and P-384,
+// Ed25519 certificates and SHA-1 signatures: Validate refuses them
+// first, with what to ask the certificate authority for.
+func TestValidateRefusesWhatBrowsersRefuse(t *testing.T) {
+	gen := func(k crypto.Signer, err error) crypto.Signer {
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k
+	}
+	rsaCA := issue(t, []string{"RSA CA"}, true, nil, gen(rsa.GenerateKey(rand.Reader, 2048)), now.Add(10*365*24*time.Hour))
+	ca := issue(t, []string{"Test CA"}, true, nil, nil, now.Add(10*365*24*time.Hour))
+	leafWith := func(k crypto.Signer) issued { return issue(t, hosts, false, &ca, k, now.Add(90*24*time.Hour)) }
+	_, ed, _ := ed25519.GenerateKey(rand.Reader)
+	sha1Inter := sha1Issue(t, []string{"SHA-1 intermediate"}, true, &rsaCA)
+	sha1Leaf := sha1Issue(t, hosts, false, &rsaCA)
+	underSha1 := issue(t, hosts, false, &sha1Inter, nil, now.Add(90*24*time.Hour))
+	for _, c := range []struct {
+		name string
+		leaf issued
+		rest []issued
+		want string // "" = accepted
+	}{
+		{"RSA 3072", leafWith(gen(rsa.GenerateKey(rand.Reader, 3072))), []issued{ca}, ""},
+		{"P-384", leafWith(gen(ecdsa.GenerateKey(elliptic.P384(), rand.Reader))), []issued{ca}, ""},
+		{"RSA 1024", leafWith(gen(rsa.GenerateKey(rand.Reader, 1024))), []issued{ca}, "the key is RSA 1024 bits: browsers need at least 2048"},
+		{"P-521", leafWith(gen(ecdsa.GenerateKey(elliptic.P521(), rand.Reader))), []issued{ca}, "the key is on curve P-521: browsers accept P-256 and P-384"},
+		{"P-224", leafWith(gen(ecdsa.GenerateKey(elliptic.P224(), rand.Reader))), []issued{ca}, "the key is on curve P-224"},
+		{"Ed25519", leafWith(ed), []issued{ca}, "browsers do not accept Ed25519 certificates"},
+		{"SHA-1 leaf", sha1Leaf, []issued{rsaCA}, "certificate 1 (prism.msp.example) is signed with SHA1-RSA"},
+		{"SHA-1 intermediate", underSha1, []issued{sha1Inter, rsaCA}, "certificate 2 (SHA-1 intermediate) is signed with SHA1-RSA"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			key, err := x509.MarshalPKCS8PrivateKey(c.leaf.key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = Validate(certPEM(append([]issued{c.leaf}, c.rest...)...), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key}), hosts, now)
+			if c.want == "" {
+				if err != nil {
+					t.Fatalf("refused: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("err = %v, want %q", err, c.want)
+			}
+		})
+	}
+	// A self-signed root's own signature is never checked by a browser.
+	sha1Root := sha1Issue(t, []string{"SHA-1 root"}, true, nil)
+	leaf := issue(t, hosts, false, &sha1Root, gen(rsa.GenerateKey(rand.Reader, 2048)), now.Add(90*24*time.Hour))
+	key, _ := x509.MarshalPKCS8PrivateKey(leaf.key)
+	if _, err := Validate(certPEM(leaf, sha1Root), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key}), hosts, now); err != nil {
+		t.Fatalf("a SHA-1 self-signed root refused: %v", err)
 	}
 }
 
