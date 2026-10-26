@@ -27,8 +27,7 @@ type siteRow struct {
 }
 
 func toSiteRow(s settings.Site, tenants []string) siteRow {
-	row := siteRow{KeySet: s.APIKey != "", Tenants: tenants}
-	row.Done = s.URL != "" && row.KeySet && s.SAMLIdPName != ""
+	row := siteRow{KeySet: s.APIKey != "", Done: s.Complete(), Tenants: tenants}
 	s.APIKey = ""
 	row.S = s
 	return row
