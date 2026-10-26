@@ -146,10 +146,10 @@ func (h *Handler) exposureReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, pending, _ := pendingRequest(h.exposure.Dir); pending {
-		w.Write([]byte(`<div class="banner warning" hx-get="/exposure/ready" hx-trigger="every 2s" hx-swap="outerHTML">Applying: Portico restarts to change the mode, which ends this session.</div>`))
+		w.Write([]byte(`<div class="banner warning" hx-get="/exposure/ready" hx-trigger="every 2s" hx-swap="outerHTML">Applying: if the mode changes, Portico restarts and this session ends.</div>`))
 		return
 	}
-	w.Write([]byte(`<div class="banner notice">The change is applied. <a href="/login?next=/setup">Log in again</a> to see its result.</div>`))
+	w.Write([]byte(`<div class="banner notice">Done. <a href="/setup">Open the setup page</a> to see the result; after a restart it asks you to log in again.</div>`))
 }
 
 // exposureSubmit checks what the form carries and writes a request: the
