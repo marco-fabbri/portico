@@ -5,13 +5,11 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 )
@@ -54,10 +52,13 @@ func NewUpstream(o UpstreamOptions) *httputil.ReverseProxy {
 			Timeout:   10 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
-		TLSClientConfig:       o.TLS,
-		ForceAttemptHTTP2:     false,
-		TLSNextProto:          map[string]func(string, *tls.Conn) http.RoundTripper{}, // no HTTP/2
+		TLSClientConfig:   o.TLS,
+		ForceAttemptHTTP2: false,
+		TLSNextProto:      map[string]func(string, *tls.Conn) http.RoundTripper{}, // no HTTP/2
+		// One site is one host, shared by every tenant on it: keep its
+		// idle connections instead of net/http's default of 2 per host.
 		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 60 * time.Second,
@@ -164,21 +165,4 @@ func errorClass(err error) string {
 	default:
 		return "transport"
 	}
-}
-
-// PrismTLS builds the client TLS configuration for Prism Central.
-func PrismTLS(targetHost, caFile string, verify bool) (*tls.Config, error) {
-	var pemData []byte
-	if verify && caFile != "" {
-		var err error
-		pemData, err = os.ReadFile(caFile)
-		if err != nil {
-			return nil, fmt.Errorf("prism_central.ca_file: %w", err)
-		}
-	}
-	cfg, err := PrismTLSFor(targetHost, SiteTrust{CAPEM: pemData, Verify: verify})
-	if err != nil {
-		return nil, fmt.Errorf("prism_central.ca_file: %w", err)
-	}
-	return cfg, nil
 }
