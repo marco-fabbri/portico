@@ -16,10 +16,10 @@ appliance:
 
 ## Measured on
 
-- Appliance: `10.23.210.191`, from `dev-03cd3de` to `dev-5b1d3e8`,
+- Appliance: `10.23.210.191`, from `dev-03cd3de` to `dev-5df267e`,
   setup mode (no sites yet)
 - Keycloak 26.3 (quadlet image of `deploy/`), cloudflared 2026.10.4
-- Date: 2026-10-26
+- Date: 2026-10-26 and 2026-10-27
 - By: Claude
 
 ## Method
@@ -79,6 +79,23 @@ appliance:
   with the first Apply), so the served certificate is read from the file,
   not from the listener.
 
+- MEASURED (dev-5df267e, systemd 252-67.el9_8.6): a path unit with
+  `PathChanged=` on a file fires when a file is renamed onto that name,
+  absent or present, as well as when it is removed. The page now writes
+  each request file aside and renames it; a direct renewal sent that way
+  ran `portico exposure apply` and left only `result.json` in the
+  request directory, with no temporary file.
+- MEASURED (dev-5df267e): the setup page refuses, with 200 and the
+  message in the card, an RSA 1024 key, a P-521 key, a SHA-1 signed
+  certificate and an Ed25519 certificate, each made with `openssl req
+  -x509` and `basicConstraints=CA:FALSE`. This found that a self-signed
+  server certificate's SHA-1 signature was let through (only a root
+  above the server's certificate is exempt); fixed before the release.
+- NOT MEASURED live: the needs-admin phase of an appliance without a
+  temporary administrator (this appliance has its realm) and the job
+  racing "Use an existing realm" (no reliable way to time it by hand);
+  both are covered by tests.
+
 ## Implications for the design
 
 - The tunnel token check reads `cloudflared`'s `/ready` on a pinned
@@ -97,3 +114,6 @@ appliance:
   page and read `curl http://127.0.0.1:20241/ready` and
   `journalctl -u cloudflared` on the appliance while it waits; the page
   must answer within about 30 s that the connection did not register.
+- The path unit: run a throwaway `systemd-run --path-property=PathChanged=<dir>/request.json`
+  unit on a scratch directory, rename a file onto that name and count
+  its runs.
