@@ -33,6 +33,12 @@ func withExposure(t *testing.T) (dir, certFile string, opt envOpt) {
 // upload posts the exposure form as multipart, with the session cookie.
 func (e *env) upload(t *testing.T, fields map[string]string, files map[string][]byte) *httptest.ResponseRecorder {
 	t.Helper()
+	return e.uploadAs(t, false, fields, files)
+}
+
+// uploadAs posts the exposure form, as HTMX does when hx is set.
+func (e *env) uploadAs(t *testing.T, hx bool, fields map[string]string, files map[string][]byte) *httptest.ResponseRecorder {
+	t.Helper()
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	mw.WriteField("_csrf", e.csrf)
@@ -46,11 +52,33 @@ func (e *env) upload(t *testing.T, fields map[string]string, files map[string][]
 	mw.Close()
 	r := httptest.NewRequest("POST", "https://127.0.0.1:8443/exposure", &body)
 	r.Header.Set("Content-Type", mw.FormDataContentType())
+	if hx {
+		r.Header.Set("HX-Request", "true")
+	}
 	r.AddCookie(e.cookie)
 	r.RemoteAddr = "10.0.0.9:4000"
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, r)
 	return rec
+}
+
+// HTMX 2 swaps only 2xx responses: a refusal sent with its 4xx status
+// would never reach the page, so an HTMX request gets it with 200.
+func TestExposureRefusalsReachTheBrowser(t *testing.T) {
+	e, dir, _ := exposureEnv(t, true)
+	c, _ := pairFor(t, "prism.example.test", "id.example.test")
+	_, k := pairFor(t, "prism.example.test", "id.example.test")
+	rec := e.uploadAs(t, true, map[string]string{"mode": "certificate"}, map[string][]byte{"cert": c, "key": k})
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "the key does not match the certificate") {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	rec = e.uploadAs(t, true, map[string]string{"mode": "tunnel", "token": "not a token"}, nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "spaces") {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("files written: %v", entries)
+	}
 }
 
 // exposureEnv is a logged-in admin UI with the public names saved.
