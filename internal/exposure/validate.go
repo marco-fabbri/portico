@@ -94,7 +94,8 @@ func Validate(certPEM, keyPEM []byte, hosts []string, now time.Time) (Info, erro
 // browserGrade refuses what browsers refuse although Go parses it: an
 // RSA key under 2048 bits, an EC key on a curve other than P-256 or
 // P-384, an Ed25519 certificate, and a SHA-1 or MD5 signature on any
-// certificate but a self-signed root, whose signature no browser checks.
+// certificate but a self-signed root above the leaf, whose signature no
+// browser checks.
 func browserGrade(certs []*x509.Certificate) error {
 	const ask = "ask the certificate authority for one with an RSA 2048 or ECDSA P-256 key"
 	switch k := certs[0].PublicKey.(type) {
@@ -110,7 +111,7 @@ func browserGrade(certs []*x509.Certificate) error {
 		return fmt.Errorf("browsers do not accept Ed25519 certificates; %s", ask)
 	}
 	for i, c := range certs {
-		if bytes.Equal(c.RawIssuer, c.RawSubject) {
+		if i > 0 && bytes.Equal(c.RawIssuer, c.RawSubject) {
 			continue
 		}
 		switch c.SignatureAlgorithm {
