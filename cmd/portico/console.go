@@ -154,6 +154,8 @@ func (h *hostSystem) Exec(stdin io.Reader, argv ...string) (string, error) {
 
 func (h *hostSystem) ReadFile(path string) ([]byte, error) { return os.ReadFile(path) }
 
+func (h *hostSystem) Remove(path string) error { return os.Remove(path) }
+
 func (h *hostSystem) WriteFile(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err

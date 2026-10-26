@@ -24,7 +24,7 @@ restorecon -R /etc /var/lib/portico >/dev/null 2>&1 || true
 sync
 fstrim -av >/dev/null 2>&1 || true
 # The image carries no secret: whatever the build generated goes, the first boot makes new ones.
-rm -f /etc/portico/keycloak.env /etc/portico/tls/*
+rm -f /etc/portico/keycloak.env /etc/portico/tls/* /var/lib/portico/keycloak-bootstrap.env
 # LVM must find its volumes on any hypervisor: anaconda's devices file pins
 # the physical volume to the build VM's disk identity; without it LVM
 # scans every disk. The initramfs is rebuilt with the same setting.
