@@ -519,29 +519,39 @@ func (h *handler) siteRoutes(mux *http.ServeMux) {
 	h.runtimeRoutes(mux)
 }
 
-// siteError maps the site operations' errors to statuses.
+// SiteStatus maps the site operations' errors to HTTP statuses. The admin
+// UI answers with the same table.
+func SiteStatus(err error) int {
+	switch {
+	case errors.Is(err, ErrUnknownSite):
+		return http.StatusNotFound
+	case errors.As(err, new(*PinChangedError)), errors.As(err, new(*SiteConflictError)), errors.As(err, new(*BusyError)),
+		errors.As(err, new(*settings.StateError)):
+		return http.StatusConflict
+	case errors.Is(err, ErrConfirmMismatch), errors.As(err, new(*settings.ValidationError)), errors.Is(err, ErrNeedsTrust),
+		errors.Is(err, ErrVerifyOff):
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
+}
+
+// siteError answers a site operation's error with SiteStatus; a removal
+// stopped half-way and a changed pin carry their details.
 func (h *handler) siteError(w http.ResponseWriter, err error) {
-	var conflict *SiteConflictError
-	var busy *BusyError
-	var ve *settings.ValidationError
-	var se *settings.StateError
+	status := SiteStatus(err)
 	var pin *PinChangedError
 	var partial *RemoveIncompleteError
 	switch {
 	case errors.As(err, &partial):
 		h.log.Error("site removal stopped", "err", partial.Err.Error(), "deleted", len(partial.Deleted))
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error(), "deleted": partial.Deleted})
-	case errors.Is(err, ErrUnknownSite):
-		writeError(w, http.StatusNotFound, err.Error())
 	case errors.As(err, &pin):
-		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error(), "fingerprint": pin.Fingerprint})
-	case errors.As(err, &conflict), errors.As(err, &busy), errors.As(err, &se):
-		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, ErrConfirmMismatch), errors.As(err, &ve), errors.Is(err, ErrNeedsTrust), errors.Is(err, ErrVerifyOff):
-		writeError(w, http.StatusBadRequest, err.Error())
-	default:
+		writeJSON(w, status, map[string]string{"error": err.Error(), "fingerprint": pin.Fingerprint})
+	case status == http.StatusInternalServerError:
 		h.log.Error("site operation failed", "err", err.Error())
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, status, err.Error())
+	default:
+		writeError(w, status, err.Error())
 	}
 }
 

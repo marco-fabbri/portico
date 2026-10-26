@@ -159,22 +159,8 @@ func siteFromForm(r *http.Request, s *settings.Site) error {
 	return nil
 }
 
-// siteStatus maps the site operations' errors to statuses.
-func siteStatus(err error) int {
-	var conflict *api.SiteConflictError
-	var busy *api.BusyError
-	var ve *settings.ValidationError
-	var se *settings.StateError
-	switch {
-	case errors.Is(err, api.ErrUnknownSite):
-		return http.StatusNotFound
-	case errors.As(err, &conflict), errors.As(err, &busy), errors.As(err, &se):
-		return http.StatusConflict
-	case errors.Is(err, api.ErrConfirmMismatch), errors.As(err, &ve), errors.Is(err, api.ErrNeedsTrust), errors.Is(err, api.ErrVerifyOff):
-		return http.StatusBadRequest
-	}
-	return http.StatusInternalServerError
-}
+// siteStatus answers a site error with the API's status.
+func siteStatus(err error) int { return api.SiteStatus(err) }
 
 // loadSite returns the stored site or renders the not-found page.
 func (h *Handler) loadSite(w http.ResponseWriter, r *http.Request) (settings.Site, bool) {
