@@ -38,8 +38,19 @@ type SettingsOptions struct {
 	// Runtime is the live state of the sites (status, maintenance,
 	// sessions); nil in setup mode.
 	Runtime SitesRuntime
+	// Realm is the background creation of the Keycloak realm once the
+	// public names are saved; nil when the process does not run it.
+	Realm RealmJob
 
 	restarting atomic.Bool
+}
+
+// RealmJob is the realm creation as the setup page sees it: the phase
+// (waiting-names, waiting-keycloak, creating, ready, failed) with its
+// message, and Kick to run it now.
+type RealmJob interface {
+	State() (phase, msg string)
+	Kick()
 }
 
 // Current returns the document the process would run from: the stored

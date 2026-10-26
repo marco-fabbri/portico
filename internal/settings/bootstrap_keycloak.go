@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -138,11 +140,7 @@ func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Setti
 	}
 
 	// OIDC client for Portico's own login on the public name.
-	oidcRep := map[string]any{"clientId": oidcClientID, "protocol": "openid-connect", "enabled": true, "name": "Portico", "publicClient": false,
-		"standardFlowEnabled": true, "directAccessGrantsEnabled": false, "implicitFlowEnabled": false, "serviceAccountsEnabled": false,
-		"frontchannelLogout": false, "redirectUris": []string{"https://" + s.PortalHost + "/.portico/callback"}, "webOrigins": []string{},
-		"attributes": map[string]string{"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "https://" + s.PortalHost + "/"}}
-	oidcUUID, created, err := kc.EnsureClient(ctx, oidcRep)
+	oidcUUID, created, err := kc.EnsureClient(ctx, oidcRep(s.PortalHost))
 	if err != nil {
 		return remote(err)
 	}
@@ -176,6 +174,149 @@ func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Setti
 	}
 	res.OK, res.Stored = true, stored
 	return res, out, nil
+}
+
+// oidcRep is Portico's OIDC client for the portal's public name.
+func oidcRep(portalHost string) map[string]any {
+	return map[string]any{"clientId": oidcClientID, "protocol": "openid-connect", "enabled": true, "name": "Portico", "publicClient": false,
+		"standardFlowEnabled": true, "directAccessGrantsEnabled": false, "implicitFlowEnabled": false, "serviceAccountsEnabled": false,
+		"frontchannelLogout": false, "redirectUris": []string{"https://" + portalHost + "/.portico/callback"}, "webOrigins": []string{},
+		"attributes": map[string]string{"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "https://" + portalHost + "/"}}
+}
+
+// The realm Portico creates by itself.
+const (
+	AutoRealm            = "portico"
+	AutoRealmDisplayName = "Portico MSP"
+)
+
+// KeycloakAuto is the Identity card without credentials typed by anyone
+// (design §4.5). On a new appliance the installer leaves a copy of
+// Keycloak's temporary administrator in bootstrapFile, readable by
+// portico alone: KeycloakAuto creates the realm and Portico's clients
+// with it, stores the settings, then deletes that administrator from the
+// master realm and the file, in this order, so a restart in between
+// finishes the job at the next run. Without the file and with the realm
+// set (the public names changed later), Portico's own admin client
+// updates the OIDC client and the issuer follows the identity name.
+func (b *Bootstrapper) KeycloakAuto(ctx context.Context, keycloakURL string, s Settings, bootstrapFile string) (KeycloakResult, Settings, error) {
+	if strings.TrimSpace(s.PortalHost) == "" || strings.TrimSpace(s.IDHost) == "" {
+		return KeycloakResult{}, s, &StateError{Msg: "save the public names first: the clients need them"}
+	}
+	user, pw, err := readBootstrapFile(bootstrapFile)
+	if err != nil {
+		return KeycloakResult{}, s, err
+	}
+	realmDone := s.Keycloak.Realm != "" && s.Keycloak.AdminClientID != "" && s.Keycloak.AdminClientSecret != "" && s.OIDC.ClientSecret != ""
+	if user == "" && !realmDone {
+		return KeycloakResult{}, s, &StateError{Msg: "Keycloak's temporary administrator is gone (it is used once and deleted): use an existing realm"}
+	}
+	res := KeycloakResult{Created: []string{}}
+	if !realmDone {
+		res, s, err = b.Keycloak(ctx, keycloakURL, s, KeycloakInput{AdminUsername: user, AdminPassword: pw, Realm: AutoRealm, DisplayName: AutoRealmDisplayName})
+		if err != nil || !res.OK || (b.svc != nil && !res.Stored) {
+			return res, s, err
+		}
+	}
+	if user != "" {
+		if msg := b.deleteTemporaryAdmin(ctx, keycloakURL, user, pw); msg != "" {
+			res.OK, res.Message = false, msg
+			return res, s, nil
+		}
+		if err := os.Remove(bootstrapFile); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			res.OK, res.Message = false, "the temporary Keycloak administrator is deleted but its copy is not: "+err.Error()
+			return res, s, nil
+		}
+		b.log.Info("bootstrap keycloak: temporary administrator deleted", "user", user)
+		if !realmDone {
+			res.Message += "; the temporary Keycloak administrator is deleted"
+			return res, s, nil
+		}
+	}
+	return b.followNames(ctx, keycloakURL, s)
+}
+
+// deleteTemporaryAdmin deletes the first boot's administrator from the
+// master realm; the message is empty on success. Credentials Keycloak
+// refuses mean it is gone already (a restart after the delete).
+func (b *Bootstrapper) deleteTemporaryAdmin(ctx context.Context, keycloakURL, user, pw string) string {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	kc := keycloak.NewWithPassword(keycloakURL, "master", user, pw, &http.Client{Timeout: 15 * time.Second}, b.log)
+	err := kc.DeleteMasterUser(ctx, user)
+	var se *keycloak.StatusError
+	if err == nil || (errors.As(err, &se) && se.Op == "token" && se.Status == http.StatusUnauthorized) {
+		return ""
+	}
+	return "the realm is ready but the temporary Keycloak administrator was not deleted: " + kcErr(err)
+}
+
+// followNames points Portico's OIDC client and the issuer at the current
+// public names, with Portico's own admin client. A realm typed by hand
+// with clients of other names is left alone.
+func (b *Bootstrapper) followNames(ctx context.Context, keycloakURL string, s Settings) (KeycloakResult, Settings, error) {
+	res := KeycloakResult{Created: []string{}, Realm: s.Keycloak.Realm, AdminClientID: s.Keycloak.AdminClientID, ClientID: s.OIDC.ClientID}
+	if s.OIDC.ClientID != oidcClientID || s.Keycloak.AdminClientID != adminClientID {
+		res.OK, res.Issuer, res.Message = true, s.OIDC.Issuer, "Keycloak realm "+s.Keycloak.Realm+" is configured"
+		return res, s, nil
+	}
+	if !waitKeycloakReady(ctx, keycloakURL) {
+		res.Message = "Keycloak is not answering yet"
+		return res, s, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	kc := keycloak.New(keycloakURL, s.Keycloak.Realm, s.Keycloak.AdminClientID, string(s.Keycloak.AdminClientSecret), &http.Client{Timeout: 15 * time.Second}, b.log)
+	if _, _, err := kc.EnsureClient(ctx, oidcRep(s.PortalHost)); err != nil {
+		res.Message = "Keycloak refused the update of Portico's OIDC client: " + kcErr(err)
+		return res, s, nil
+	}
+	issuer := "https://" + s.IDHost + "/realms/" + s.Keycloak.Realm
+	if s.OIDC.Issuer != issuer {
+		if _, err := b.store(ctx, func(d *Settings) { d.OIDC.Issuer = issuer }); err != nil {
+			res.Message = "the issuer was not stored: " + err.Error()
+			return res, s, nil
+		}
+		s.OIDC.Issuer = issuer
+	}
+	res.OK, res.Issuer, res.Message = true, issuer, "Keycloak realm "+s.Keycloak.Realm+" is ready for "+s.PortalHost
+	return res, s, nil
+}
+
+// kcErr says what Keycloak answered, or why it did not.
+func kcErr(err error) string {
+	var se *keycloak.StatusError
+	if errors.As(err, &se) {
+		return strings.TrimPrefix(err.Error(), "keycloak: ")
+	}
+	return errClass(err)
+}
+
+// readBootstrapFile reads the installer's copy of the temporary
+// administrator; an absent file is no administrator, not an error.
+func readBootstrapFile(path string) (user, pw string, err error) {
+	if path == "" {
+		return "", "", nil
+	}
+	b, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("keycloak bootstrap file: %w", err)
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(line, "KC_BOOTSTRAP_ADMIN_USERNAME="); ok {
+			user = strings.TrimSpace(v)
+		}
+		if v, ok := strings.CutPrefix(line, "KC_BOOTSTRAP_ADMIN_PASSWORD="); ok {
+			pw = strings.TrimSpace(v)
+		}
+	}
+	if user == "" || pw == "" {
+		return "", "", fmt.Errorf("keycloak bootstrap file %s: no username or password", path)
+	}
+	return user, pw, nil
 }
 
 // KeycloakReadyWait bounds the wait for Keycloak before a bootstrap;

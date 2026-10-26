@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -33,6 +36,11 @@ type fakeKCAdmin struct {
 	descriptorEntityID, adminSecret string
 	onClients                       func() // called when the clients are listed (a save made meanwhile)
 	masterTokenStatus               int    // when set, the master token endpoint answers this status
+	// masterDeleted: the temporary administrator kcadmin was deleted
+	// from the master realm (its password no longer gets a token);
+	// onMasterDelete runs just before.
+	masterDeleted  bool
+	onMasterDelete func()
 }
 
 func newFakeKCAdmin(t *testing.T) *fakeKCAdmin {
@@ -81,7 +89,7 @@ func (f *fakeKCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		r.ParseForm()
-		if r.Form.Get("grant_type") != "password" || r.Form.Get("client_id") != "admin-cli" || r.Form.Get("username") != "kcadmin" || r.Form.Get("password") != "adm-pw-1" {
+		if f.masterDeleted || r.Form.Get("grant_type") != "password" || r.Form.Get("client_id") != "admin-cli" || r.Form.Get("username") != "kcadmin" || r.Form.Get("password") != "adm-pw-1" {
 			w.WriteHeader(401)
 			w.Write([]byte(`{"error":"invalid_grant"}`))
 			return
@@ -118,6 +126,22 @@ func (f *fakeKCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 	var body map[string]any
 	json.Unmarshal(raw, &body)
 	w.Header().Set("Content-Type", "application/json")
+	if r.URL.Path == "/admin/realms/master/users" && r.Method == "GET" {
+		out := []map[string]any{}
+		if !f.masterDeleted && r.URL.Query().Get("username") == "kcadmin" {
+			out = append(out, map[string]any{"id": "u-kcadmin", "username": "kcadmin"})
+		}
+		json.NewEncoder(w).Encode(out)
+		return
+	}
+	if r.URL.Path == "/admin/realms/master/users/u-kcadmin" && r.Method == "DELETE" {
+		if f.onMasterDelete != nil {
+			f.onMasterDelete()
+		}
+		f.masterDeleted = true
+		w.WriteHeader(204)
+		return
+	}
 	if r.URL.Path == "/admin/realms" && r.Method == "POST" {
 		name := body["realm"].(string)
 		f.realmReps[name] = body
@@ -355,4 +379,114 @@ func shortKeycloakWait(t *testing.T) {
 	w, p := KeycloakReadyWait, KeycloakReadyPoll
 	KeycloakReadyWait, KeycloakReadyPoll = 50*time.Millisecond, 10*time.Millisecond
 	t.Cleanup(func() { KeycloakReadyWait, KeycloakReadyPoll = w, p })
+}
+
+// writeBootstrapFile is the installer's copy of the temporary
+// administrator, readable by portico alone.
+func writeBootstrapFile(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "keycloak-bootstrap.env")
+	if err := os.WriteFile(p, []byte("KC_BOOTSTRAP_ADMIN_USERNAME=kcadmin\nKC_BOOTSTRAP_ADMIN_PASSWORD=adm-pw-1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func namedSettings(t *testing.T, svc *Service) Settings {
+	s := Defaults()
+	s.PortalHost, s.IDHost = "prism.example.test", "id.example.test"
+	if err := svc.Set(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestKeycloakAutoCreatesTheRealmAndDeletesTheTemporaryAdmin(t *testing.T) {
+	ctx := context.Background()
+	kc := newFakeKCAdmin(t)
+	svc := newService(t)
+	s := namedSettings(t, svc)
+	file := writeBootstrapFile(t)
+	storedBeforeDelete := false
+	kc.onMasterDelete = func() {
+		got, _ := svc.Get(ctx)
+		storedBeforeDelete = got.Keycloak.Realm == "portico" && got.OIDC.ClientSecret != ""
+	}
+	res, out, err := NewBootstrapper(nil, svc).KeycloakAuto(ctx, kc.srv.URL, s, file)
+	if err != nil || !res.OK || out.Keycloak.Realm != "portico" || out.OIDC.Issuer != "https://id.example.test/realms/portico" {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if rep := kc.realmReps["portico"]; rep["displayName"] != "Portico MSP" {
+		t.Fatalf("realm %v", rep)
+	}
+	if !kc.masterDeleted || !storedBeforeDelete {
+		t.Fatalf("temporary admin deleted %v, settings stored before %v", kc.masterDeleted, storedBeforeDelete)
+	}
+	if _, err := os.Stat(file); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("bootstrap file left: %v", err)
+	}
+	if strings.Contains(res.Message, "adm-pw-1") {
+		t.Fatal("password in the message")
+	}
+}
+
+// A restart between "settings stored" and "temporary administrator
+// deleted" (or between the delete and the file's removal): the next run
+// finishes the job and keeps the realm.
+func TestKeycloakAutoAfterARestartBeforeTheDelete(t *testing.T) {
+	ctx := context.Background()
+	for _, adminGone := range []bool{false, true} {
+		kc := newFakeKCAdmin(t)
+		svc := newService(t)
+		s := namedSettings(t, svc)
+		if res, _, err := NewBootstrapper(nil, svc).Keycloak(ctx, kc.srv.URL, s, KeycloakInput{AdminUsername: "kcadmin", AdminPassword: "adm-pw-1", Realm: "portico", DisplayName: "Portico MSP"}); err != nil || !res.OK {
+			t.Fatalf("first run: %+v %v", res, err)
+		}
+		kc.masterDeleted = adminGone
+		stored, _ := svc.Get(ctx)
+		file := writeBootstrapFile(t)
+		res, out, err := NewBootstrapper(nil, svc).KeycloakAuto(ctx, kc.srv.URL, stored, file)
+		if err != nil || !res.OK || out.Keycloak.Realm != "portico" || out.OIDC.ClientSecret != stored.OIDC.ClientSecret {
+			t.Fatalf("admin gone %v: res=%+v err=%v", adminGone, res, err)
+		}
+		if !kc.masterDeleted {
+			t.Fatal("temporary admin not deleted")
+		}
+		if _, err := os.Stat(file); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("admin gone %v: bootstrap file left", adminGone)
+		}
+	}
+}
+
+// Public names changed after the realm exists (no temporary administrator
+// any more): the OIDC client's redirect and the issuer follow, through
+// Portico's own admin client.
+func TestKeycloakAutoNameChangeUsesTheAdminClient(t *testing.T) {
+	ctx := context.Background()
+	kc := newFakeKCAdmin(t)
+	svc := newService(t)
+	s := namedSettings(t, svc)
+	if res, _, err := NewBootstrapper(nil, svc).KeycloakAuto(ctx, kc.srv.URL, s, writeBootstrapFile(t)); err != nil || !res.OK {
+		t.Fatalf("first run: %+v %v", res, err)
+	}
+	cur, _ := svc.Get(ctx)
+	cur.PortalHost, cur.IDHost = "portal.new.test", "id.new.test"
+	if err := svc.Set(ctx, cur); err != nil {
+		t.Fatal(err)
+	}
+	res, out, err := NewBootstrapper(nil, svc).KeycloakAuto(ctx, kc.srv.URL, cur, filepath.Join(t.TempDir(), "absent.env"))
+	if err != nil || !res.OK || out.OIDC.Issuer != "https://id.new.test/realms/portico" {
+		t.Fatalf("res=%+v out=%+v err=%v", res, out.OIDC, err)
+	}
+	if got := kc.client("portico"); got["redirectUris"].([]any)[0] != "https://portal.new.test/.portico/callback" {
+		t.Fatalf("oidc client %v", got)
+	}
+	if got, _ := svc.Get(ctx); got.OIDC.Issuer != "https://id.new.test/realms/portico" {
+		t.Fatalf("issuer not stored: %s", got.OIDC.Issuer)
+	}
+	// No realm and no temporary administrator: the operator types an existing realm.
+	var se *StateError
+	if _, _, err := NewBootstrapper(nil, nil).KeycloakAuto(ctx, kc.srv.URL, Settings{PortalHost: "a.test", IDHost: "b.test"}, filepath.Join(t.TempDir(), "absent.env")); !errors.As(err, &se) || !strings.Contains(err.Error(), "existing realm") {
+		t.Fatalf("no file, no realm: %v", err)
+	}
 }

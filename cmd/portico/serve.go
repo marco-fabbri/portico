@@ -145,6 +145,11 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}
 	setup := &api.SettingsOptions{Service: settingsSvc, Checker: settings.NewChecker(log), Bootstrapper: settings.NewBootstrapper(log, settingsSvc), KeycloakURL: cfg.Keycloak.URL, HostnameFile: cfg.Keycloak.HostnameFile,
 		Restart: func() { restartOnce.Do(func() { close(restart) }) }}
+	// The realm is created by Portico once the public names are saved, in
+	// both modes: a name changed later moves the OIDC client with it.
+	realm := newRealmJob(realmAttempt(setup, cfg.Keycloak.URL, filepath.Join(filepath.Dir(cfg.Store.Path), "keycloak-bootstrap.env")))
+	setup.Realm = realm
+	go realm.Start(ctx)
 	if setupMode {
 		setup.Mode = "setup"
 		log.Warn("setup mode: the public and pass-through listeners are off", "missing", missing)

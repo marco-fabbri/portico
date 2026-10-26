@@ -35,6 +35,9 @@ type setupData struct {
 	// Done says, per card, whether its required fields and secrets are
 	// all there: the card states it and folds its bootstrap form away.
 	Done map[string]bool
+	// Realm is the realm job's state for the Identity card; Realm.On is
+	// false when the process does not run the job.
+	Realm realmData
 	// Exposure is the exposure card's state, read from the request
 	// directory and the certificate in service.
 	Exposure exposureData
@@ -47,6 +50,8 @@ func (h *Handler) setupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /setup/apply", h.setupApply)
 	mux.HandleFunc("POST /setup/bootstrap/{target}", h.setupBootstrap)
 	mux.HandleFunc("GET /setup/ready", h.setupReady)
+	mux.HandleFunc("GET /setup/realm", h.setupRealm)
+	mux.HandleFunc("POST /setup/realm/retry", h.setupRealmRetry)
 	h.siteRoutes(mux)
 }
 
@@ -95,6 +100,8 @@ func toSetupData(s settings.Settings, source, mode string) setupData {
 func (h *Handler) renderSetup(w http.ResponseWriter, r *http.Request, status int, s settings.Settings, source, errMsg string) {
 	d := toSetupData(s, source, h.setup.Mode)
 	d.Exposure = h.exposureState(r)
+	d.Realm = h.realmState(r)
+	d.Realm.Reload = !d.Done["keycloak"]
 	for i := range d.Sites {
 		d.Sites[i].Tenants = h.siteTenants(r, d.Sites[i].S.ID)
 		if h.setup.Runtime != nil {
@@ -169,7 +176,65 @@ func (h *Handler) setupSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.log.Info("settings saved", "via", "ui", "section", section)
+	if section == "hosts" && h.setup.Realm != nil {
+		h.setup.Realm.Kick()
+	}
 	http.Redirect(w, r, "/setup", http.StatusSeeOther)
+}
+
+// realmData is the Identity card's view of the realm job. Reload makes
+// the fragment reload the page once the realm is ready, so the card shows
+// the stored settings.
+type realmData struct {
+	On         bool
+	Phase, Msg string
+	CSRF       string
+	Reload     bool
+}
+
+func (h *Handler) realmState(r *http.Request) realmData {
+	if h.setup == nil || h.setup.Realm == nil {
+		return realmData{}
+	}
+	d := realmData{On: true}
+	d.Phase, d.Msg = h.setup.Realm.State()
+	if s, ok := h.session(r); ok {
+		d.CSRF = s.CSRF
+	}
+	return d
+}
+
+func (h *Handler) renderRealm(w http.ResponseWriter, r *http.Request) {
+	d := h.realmState(r)
+	d.Reload = r.URL.Query().Get("reload") == "1"
+	if d.Reload && d.Phase == "ready" {
+		w.Header().Set("HX-Refresh", "true")
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.pages["setup"].ExecuteTemplate(w, "realm-status", d); err != nil {
+		h.log.Error("template", "page", "setup/realm", "err", err.Error())
+	}
+}
+
+func (h *Handler) setupRealm(w http.ResponseWriter, r *http.Request) {
+	if h.setup == nil || h.setup.Realm == nil {
+		http.NotFound(w, r)
+		return
+	}
+	h.renderRealm(w, r)
+}
+
+func (h *Handler) setupRealmRetry(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCSRF(w, r) {
+		return
+	}
+	if h.setup == nil || h.setup.Realm == nil {
+		http.NotFound(w, r)
+		return
+	}
+	h.setup.Realm.Kick()
+	h.log.Info("realm job kicked", "via", "ui")
+	h.renderRealm(w, r)
 }
 
 // checkData is the check fragment: the target and its result.
