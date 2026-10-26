@@ -168,7 +168,7 @@ func (s *session) pastePEM(label string, echo bool) ([]byte, bool) {
 }
 
 func (s *session) selfSigned() {
-	names, ok := s.ask("Public names, space-separated (prism and identity hosts)", "")
+	names, ok := s.ask("Public names, space-separated (portal and identity hosts)", "")
 	if !ok || strings.TrimSpace(names) == "" {
 		fmt.Fprintln(s.out, "  at least one name is needed")
 		return
