@@ -2,8 +2,8 @@
 # when no settings file exists. The runtime sections (public names, Prism
 # Central, Keycloak realm and clients, tenants) are not here: a fresh
 # appliance starts in setup mode and the setup page stores them, sealed
-# with the master key (design 4.7). The console wizard edits the public
-# block for the exposure mode; nothing here is a secret.
+# with the master key (design 4.7). `portico exposure apply` edits the
+# public block for the exposure mode; nothing here is a secret.
 public:
   listen: ":443"                 # tunnel mode: "127.0.0.1:8081" with no tls block (8080 is Keycloak)
   tls:                           # both empty = plain HTTP behind cloudflared

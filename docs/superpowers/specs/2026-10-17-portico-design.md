@@ -160,7 +160,7 @@ tenants) does not need nginx performance.
 |---|---|---|---|
 | public | `:443` (direct) or loopback behind `cloudflared` (tunnel) | tenants | only requests with a valid Portico session; local login paths blocked |
 | internal | internal IP `:8443` | MSP admins | Portico admin UI/API; raw pass-through to Prism Central with local login allowed |
-| console | tty1 | whoever opens the VM console | network wizard, status, URL to open |
+| console | tty1 | whoever opens the VM console | network wizard, break-glass password, status, URL to open |
 
 Firewall rule the design depends on: port 9440 of every site's Prism
 Central (Milestone 4) must be reachable
@@ -422,6 +422,18 @@ client ids, issuer `https://<id_host>/realms/<realm>` and secrets. Every
 client Portico creates has `frontchannelLogout: false`. The Keycloak
 administrator's credentials are never stored.
 
+Since 2026-10-26 (ADR 0007) nobody types those credentials on a new
+appliance. The first boot writes a copy of the temporary administrator
+(`kcadmin`) readable by the `portico` user alone; once the public names
+are saved, a background job runs the same bootstrap with it for the
+realm `portico` (display name "Portico MSP"), stores the settings, then
+deletes `kcadmin` from the master realm and the copy, in that order, so
+a restart in between finishes the job. Keycloak 26.3 does not create the
+temporary administrator again at its next start (measured). Public names
+changed later move the OIDC client's redirect and the issuer through
+Portico's own admin client. The typed path stays for a realm made
+outside Portico.
+
 ### 4.6 Data and secrets
 
 - SQLite with WAL, single file, backup = copy of `/var/lib/portico`.
@@ -444,6 +456,13 @@ administrator's credentials are never stored.
 - TLS: direct mode uses either an uploaded certificate or ACME (HTTP-01 on
   443/80 or DNS-01 via Cloudflare API). Tunnel mode terminates TLS at
   Cloudflare; Portico listens on loopback plain HTTP for `cloudflared`.
+  Since 2026-10-26 (ADR 0007) the certificate, a self-signed trial pair
+  and the tunnel token are given on the admin UI's setup page: Portico
+  checks them and writes a request that a root path unit
+  (`portico-exposure.path`) applies, because the service is
+  unprivileged. The public listener reloads its pair when the file
+  changes, so a renewal keeps the tenants' sessions; a mode change
+  restarts Portico. ACME is not built yet.
 
 ### 4.7 Web UI
 
@@ -605,8 +624,13 @@ Portico, and both carry the MSP's identity, not Nutanix's or Portico's.
 
 `portico console` (Go TUI) on tty1 via a getty override: hostname, IP/mask/
 gateway/DNS for the internal interface, re-runnable at any time, writes
-NetworkManager profiles with `nmcli`. Shows service health and the URL of the
+NetworkManager profiles with `nmcli`. Sets the break-glass password. Shows service health and the URL of the
 internal admin UI. Nothing else is configurable from the console.
+Milestone 3 had added the exposure and the Keycloak administrator's
+credentials to it; Marco's install test of 2026-10-26 moved both back to
+the admin UI (ADR 0007): the certificate is uploaded from the browser and
+Portico creates the Keycloak realm with the first boot's temporary
+administrator, which it then deletes.
 
 ### 4.9 Appliance image
 

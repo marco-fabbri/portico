@@ -1,10 +1,10 @@
 {{define "content"}}
-<div class="page-head"><div><h1>Setup</h1><p>The public names, the sites (one Prism Central each), Keycloak, and how tenants are named.</p></div></div>
+<div class="page-head"><div><h1>Setup</h1><p>The public names and how they are published, the identity realm, the sites (one Prism Central each), and how tenants are named.</p></div></div>
 {{if eq .Data.Mode "setup"}}
 <div class="banner warning">Setup mode: the public listener is off until every card is saved and applied.</div>
 {{end}}
 {{if .Data.Stored}}
-<p class="muted">Settings are stored in Portico's database and sealed with the master key. Saved changes to the public names, Keycloak and the tenants' naming take effect after <strong>Apply and restart</strong>; a site changes as soon as it is saved.</p>
+<p class="muted">Settings are stored in Portico's database and sealed with the master key. Saved changes to the public names, the identity realm and the tenants' naming take effect after <strong>Apply and restart</strong>; a site changes as soon as it is saved.</p>
 {{else if eq .Data.Source "file"}}
 <div class="banner warning">Portico is running from the file: save a card to move the settings into the store, which wins from the next start.</div>
 {{else}}
@@ -43,28 +43,6 @@
   {{end}}
 </section>
 
-<section class="card" id="card-sites">
-  <h2>Sites</h2>
-  {{if index .Data.Done "sites"}}<p class="state done">Configured: every site has its Prism Central connection, its service account and its SAML trust.</p>{{else}}<p class="state todo">Not configured yet: add at least one site and complete each one (connection, service account, SAML trust).</p>{{end}}
-  <p class="muted">A site is one Prism Central, shown to tenants by its code. Tenants sign in once on the public name and choose among the sites where they have resources.</p>
-  {{if .Data.Incomplete}}<p class="state todo">Not served until complete (the other sites keep running): {{range $i, $s := .Data.Incomplete}}{{if $i}}; {{end}}{{$s}}{{end}}.</p>{{end}}
-  {{if .Data.Sites}}
-  <table>
-    <thead><tr><th>Code</th><th>Name</th><th>Prism Central</th><th>Status</th><th>Service account</th><th>SAML trust</th><th>Tenants</th></tr></thead>
-    <tbody>
-    {{range .Data.Sites}}<tr>
-      <td><a href="/setup/sites/{{.S.ID}}">{{.S.Code}}</a></td><td>{{.S.Name}}</td><td><code>{{.S.URL}}</code></td>
-      <td>{{with .Status}}<span class="status status-{{.}}">{{.}}</span>{{else}}<span class="muted">not running</span>{{end}}</td>
-      <td>{{if .KeySet}}key stored{{else}}<span class="state todo">missing</span>{{end}}</td>
-      <td>{{with .S.SAMLIdPName}}<code>{{.}}</code>{{else}}<span class="state todo">missing</span>{{end}}</td>
-      <td>{{len .Tenants}}</td>
-    </tr>{{end}}
-    </tbody>
-  </table>
-  {{end}}
-  <div class="actions"><a class="button{{if not .Data.Sites}} primary{{end}}" href="/setup/sites/new">Add site</a></div>
-</section>
-
 <section class="card" id="card-keycloak">
   <h2>Identity</h2>
   {{if index .Data.Done "keycloak"}}<p class="state done">Configured: realm <code>{{.Data.S.Keycloak.Realm}}</code>, admin client <code>{{.Data.S.Keycloak.AdminClientID}}</code> and OIDC client <code>{{.Data.S.OIDC.ClientID}}</code>; both secrets are stored.</p>{{else}}<p class="state todo">Not configured yet: Portico creates the realm and its clients in Keycloak once the public names are saved.</p>{{end}}
@@ -91,6 +69,30 @@
   <div id="boot-keycloak" class="bootstrap">{{template "boot-form-keycloak" .}}</div>
   </details>
 </section>
+
+<section class="card" id="card-sites">
+  <h2>Sites</h2>
+  {{if index .Data.Done "sites"}}<p class="state done">Configured: every site has its Prism Central connection, its service account and its SAML trust.</p>{{else}}<p class="state todo">Not configured yet: add at least one site and complete each one (connection, service account, SAML trust).</p>{{end}}
+  <p class="muted">A site is one Prism Central, shown to tenants by its code. Tenants sign in once on the public name and choose among the sites where they have resources.</p>
+  {{if .Data.Incomplete}}<p class="state todo">Not served until complete (the other sites keep running): {{range $i, $s := .Data.Incomplete}}{{if $i}}; {{end}}{{$s}}{{end}}.</p>{{end}}
+  {{if .Data.Sites}}
+  <table>
+    <thead><tr><th>Code</th><th>Name</th><th>Prism Central</th><th>Status</th><th>Service account</th><th>SAML trust</th><th>Tenants</th></tr></thead>
+    <tbody>
+    {{range .Data.Sites}}<tr>
+      <td><a href="/setup/sites/{{.S.ID}}">{{.S.Code}}</a></td><td>{{.S.Name}}</td><td><code>{{.S.URL}}</code></td>
+      <td>{{with .Status}}<span class="status status-{{.}}">{{.}}</span>{{else}}<span class="muted">not running</span>{{end}}</td>
+      <td>{{if .KeySet}}key stored{{else}}<span class="state todo">missing</span>{{end}}</td>
+      <td>{{with .S.SAMLIdPName}}<code>{{.}}</code>{{else}}<span class="state todo">missing</span>{{end}}</td>
+      <td>{{len .Tenants}}</td>
+    </tr>{{end}}
+    </tbody>
+  </table>
+  {{end}}
+  <div class="actions"><a class="button{{if not .Data.Sites}} primary{{end}}" href="/setup/sites/new">Add site</a></div>
+</section>
+
+
 
 <section class="card" id="card-tenants">
   <h2>Tenants</h2>

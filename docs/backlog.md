@@ -140,13 +140,25 @@ this file.
   once-only condition is `keycloak.env`, not a marker written last;
   `sysctl` sets `ip_forward = 0` while the tailoring documents that
   netavark needs it;
-  the console's "show once" wording and scrollback after the credentials;
   the console writes `portico.yaml` in place (no temp file and rename);
   Packer uploads the whole `deploy/` tree
   (a developer's gitignored tfvars would ride along until the cleanup);
   `ParseKeyfile` does not check the `[ipv4]` section;
   tunnel mode is not measured with a real Cloudflare tunnel yet.
 
+- At the first boot `NetworkManager-wait-online` waits its full 60 s and
+  fails: the image's unused "Wired connection 1" never comes up, so
+  every unit after `network-online.target` starts a minute late
+  (write-up 30). Remove that profile in the image cleanup, or let the
+  console delete it when it writes the interface's keyfile.
+- The CI's actions run on Node.js 20, which GitHub retires: move
+  `actions/checkout`, `setup-go` and the upload actions to their Node 24
+  majors.
+- `portico exposure apply` decides that a tunnel token works when
+  `cloudflared` is still active five seconds after its start: a well
+  formed but revoked token keeps it retrying without exiting, and the
+  page says OK. Read `cloudflared`'s metrics endpoint (`/ready`) instead
+  (ADR 0007).
 - `deploy/tofu/nutanix` is validated by `tofu validate` and the CI boot
   test renders its template; a `tofu test` with a mock provider would
   also cover the VM resource's arguments (write-up 19).

@@ -155,7 +155,8 @@ word with no vendor name in it, and `portico serve` reads well.
 Download the appliance image of the
 [latest release](https://github.com/marco-fabbri/portico/releases/latest),
 check its checksum, import it into Prism Central and boot it; the
-console on tty1 and the setup page on port 8443 do the rest. The
+console on tty1 sets the network and the setup page on port 8443 does
+the rest, the certificate included. The
 [install guide](docs/install.md) has every step, the certificates and
 the upgrade; the [release notes](docs/releases/v0.1.0.md) list what
 0.1.0 does not do yet.
@@ -194,7 +195,8 @@ The design turns on four rules, and the code is reviewed against them
   exposure mode;
 - Portico works through its own `portico` service account and never
   stores a human administrator's credentials; the one-time credentials of
-  the setup page travel in that request only;
+  the setup page travel in that request only, and Keycloak's temporary
+  administrator of the first boot is deleted once the realm exists;
 - secrets at rest are sealed with a master key that never leaves the
   appliance (`/var/lib/portico/master.key`, mode 0600, created at first
   start).

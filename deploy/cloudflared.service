@@ -1,5 +1,5 @@
-# Cloudflare tunnel connector, enabled by the console wizard in tunnel
-# mode (design 4.6): the token pasted on the console lives in
+# Cloudflare tunnel connector, enabled by `portico exposure apply` in
+# tunnel mode (design 4.6): the token given on the setup page lives in
 # /etc/cloudflared/token (root, 0600) and never on a command line.
 [Unit]
 Description=Cloudflare tunnel connector for Portico

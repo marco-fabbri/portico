@@ -317,3 +317,21 @@ func TestIdentityCardFollowsTheRealmJob(t *testing.T) {
 		t.Fatalf("ready fragment: %s", frag)
 	}
 }
+
+// The cards in the order of the install guide: what each needs comes
+// before it (the names before the realm, the realm before the sites'
+// SAML trust).
+func TestSetupCardsInTheGuideOrder(t *testing.T) {
+	e := newEnv(t, true)
+	withSetup(t, e, true)
+	e.login(t)
+	body := e.do("GET", "/setup", nil, true).Body.String()
+	last := -1
+	for _, h := range []string{"<h2>Public names and exposure</h2>", "<h2>Identity</h2>", "<h2>Sites</h2>", "<h2>Tenants</h2>", "<h2>Apply</h2>"} {
+		i := strings.Index(body, h)
+		if i < last {
+			t.Fatalf("%s out of order", h)
+		}
+		last = i
+	}
+}
