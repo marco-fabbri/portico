@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/marco-fabbri/portico/internal/api"
+	"github.com/marco-fabbri/portico/internal/settings"
 )
 
 // The phases of the realm job, shown by the Identity card.
@@ -96,12 +97,18 @@ func (j *realmJob) Start(ctx context.Context) {
 
 // realmAttempt is one run of the job: the settings as they stand, a
 // look at Keycloak, then KeycloakAuto with the installer's copy of the
-// temporary administrator in bootstrapFile.
-func realmAttempt(setup *api.SettingsOptions, keycloakURL, bootstrapFile string) func(context.Context, *realmJob) (string, string) {
+// temporary administrator in bootstrapFile. In service, run is the
+// document the process runs with: names saved since the start take
+// effect at Apply, which restarts the process, so until then Keycloak
+// stays on the running names. In setup mode run is nil.
+func realmAttempt(setup *api.SettingsOptions, keycloakURL, bootstrapFile string, run *settings.Settings) func(context.Context, *realmJob) (string, string) {
 	return func(ctx context.Context, j *realmJob) (string, string) {
 		s, _, err := setup.Current(ctx)
 		if err != nil {
 			return phaseFailed, "the settings cannot be read: " + err.Error()
+		}
+		if run != nil {
+			s.PortalHost, s.IDHost = run.PortalHost, run.IDHost
 		}
 		if s.PortalHost == "" || s.IDHost == "" {
 			return phaseWaitingNames, "Save the public names: Portico then creates the realm and its clients."
