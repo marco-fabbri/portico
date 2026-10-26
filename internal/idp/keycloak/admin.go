@@ -220,3 +220,27 @@ func (c *Client) SAMLDescriptor(ctx context.Context) ([]byte, error) {
 	}
 	return raw, nil
 }
+
+// DeleteMasterUser deletes a user of the master realm by username: the
+// temporary administrator of the first boot, once Portico has its own
+// clients (design §4.5). An absent user is not an error.
+func (c *Client) DeleteMasterUser(ctx context.Context, username string) error {
+	var users []struct {
+		ID       string `json:"id"`
+		Username string `json:"username"`
+	}
+	if _, _, err := c.do(ctx, http.MethodGet, "/admin/realms/master/users", url.Values{"username": {username}, "exact": {"true"}}, nil, &users); err != nil {
+		return err
+	}
+	for _, u := range users {
+		if u.Username != username {
+			continue
+		}
+		_, _, err := c.do(ctx, http.MethodDelete, "/admin/realms/master/users/"+url.PathEscape(u.ID), nil, nil, nil)
+		if errors.Is(err, ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}

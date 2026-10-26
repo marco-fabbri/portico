@@ -259,7 +259,7 @@ func TestSetupPageStatesWhatIsConfigured(t *testing.T) {
 	if strings.Contains(body, `class="state todo"`) || strings.Contains(body, `<details open>`) {
 		t.Fatalf("a to-do state or an open bootstrap form on a complete store:\n%s", body)
 	}
-	for _, want := range []string{`<summary>Let Portico create the realm and clients</summary>`, `<code>portico-idp</code>`, `href="/setup/sites/site-a"`} {
+	for _, want := range []string{`<summary>Use an existing realm</summary>`, `<code>portico-idp</code>`, `href="/setup/sites/site-a"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("setup page lacks %q:\n%s", want, body)
 		}
@@ -278,5 +278,42 @@ func TestSetupPageStatesWhatIsConfigured(t *testing.T) {
 	body = e.do("GET", "/setup", nil, true).Body.String()
 	if n, o := strings.Count(body, `<p class="state todo">`), strings.Count(body, `<details open>`); n != 4 || o != 1 {
 		t.Fatalf("%d to-do states and %d open bootstrap forms on an empty store, want 4 (hosts, sites, identity, apply) and 1:\n%s", n, o, body)
+	}
+}
+
+type fakeRealm struct {
+	phase, msg string
+	kicks      int
+}
+
+func (f *fakeRealm) State() (string, string) { return f.phase, f.msg }
+func (f *fakeRealm) Kick()                   { f.kicks++ }
+
+// The Identity card shows the realm job and polls it until it is ready;
+// saving the public names starts it, and Retry kicks it again.
+func TestIdentityCardFollowsTheRealmJob(t *testing.T) {
+	e := newEnv(t, true)
+	withSetup(t, e, false)
+	realm := &fakeRealm{phase: "waiting-keycloak", msg: "Keycloak is starting"}
+	e.web.setup.Realm = realm
+	e.login(t)
+	body := e.do("GET", "/setup", nil, true).Body.String()
+	if !strings.Contains(body, "Keycloak is starting") || !strings.Contains(body, `hx-get="/setup/realm"`) || !strings.Contains(body, "Use an existing realm") {
+		t.Fatalf("identity card:\n%s", body)
+	}
+	if rec := e.do("POST", "/setup/save", e.form("section", "hosts", "portal_host", "prism.example.test", "id_host", "id.example.test"), true); rec.Code != 303 || realm.kicks != 1 {
+		t.Fatalf("hosts save: %d kicks %d", rec.Code, realm.kicks)
+	}
+	realm.phase, realm.msg = "failed", "Keycloak refused"
+	frag := e.do("GET", "/setup/realm", nil, true).Body.String()
+	if !strings.Contains(frag, "Keycloak refused") || strings.Contains(frag, "every 3s") || !strings.Contains(frag, `hx-post="/setup/realm/retry"`) {
+		t.Fatalf("failed fragment: %s", frag)
+	}
+	if rec := e.do("POST", "/setup/realm/retry", e.form(), true); rec.Code != 200 || realm.kicks != 2 {
+		t.Fatalf("retry: %d kicks %d", rec.Code, realm.kicks)
+	}
+	realm.phase, realm.msg = "ready", "realm portico is ready"
+	if frag := e.do("GET", "/setup/realm", nil, true).Body.String(); strings.Contains(frag, "every 3s") || !strings.Contains(frag, "realm portico is ready") {
+		t.Fatalf("ready fragment: %s", frag)
 	}
 }

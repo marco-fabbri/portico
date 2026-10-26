@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"slices"
 	"strings"
@@ -359,4 +360,46 @@ func TestSAMLDescriptorNeedsNoToken(t *testing.T) {
 	if f.admin().masterTokenReqs != 0 {
 		t.Fatal("the descriptor fetch requested a token")
 	}
+}
+
+// The temporary administrator of the first boot is deleted from the
+// master realm once Portico has its own clients; an absent one is fine.
+func TestDeleteMasterUser(t *testing.T) {
+	var deleted []string
+	users := map[string]string{"kcadmin": "u-1"}
+	srv := httptestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/realms/master/protocol/openid-connect/token":
+			w.Write([]byte(`{"access_token":"t","expires_in":60}`))
+		case r.URL.Path == "/admin/realms/master/users" && r.Method == "GET":
+			if r.URL.Query().Get("username") == "" || r.URL.Query().Get("exact") != "true" {
+				w.WriteHeader(400)
+				return
+			}
+			out := []map[string]string{}
+			if id, ok := users[r.URL.Query().Get("username")]; ok {
+				out = append(out, map[string]string{"id": id, "username": r.URL.Query().Get("username")})
+			}
+			json.NewEncoder(w).Encode(out)
+		case strings.HasPrefix(r.URL.Path, "/admin/realms/master/users/") && r.Method == "DELETE":
+			deleted = append(deleted, strings.TrimPrefix(r.URL.Path, "/admin/realms/master/users/"))
+			delete(users, "kcadmin")
+			w.WriteHeader(204)
+		default:
+			w.WriteHeader(404)
+		}
+	})
+	c := NewWithPassword(srv.URL, "portico", "kcadmin", "pw", nil, slog.New(slog.DiscardHandler))
+	if err := c.DeleteMasterUser(context.Background(), "kcadmin"); err != nil || len(deleted) != 1 || deleted[0] != "u-1" {
+		t.Fatalf("err %v deleted %v", err, deleted)
+	}
+	if err := c.DeleteMasterUser(context.Background(), "kcadmin"); err != nil || len(deleted) != 1 {
+		t.Fatalf("second delete: err %v deleted %v", err, deleted)
+	}
+}
+
+func httptestServer(t *testing.T, h http.HandlerFunc) *httptest.Server {
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return srv
 }
