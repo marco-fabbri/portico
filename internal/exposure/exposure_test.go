@@ -284,7 +284,7 @@ func TestApplyModeChangeRestartsPortico(t *testing.T) {
 	h = newFakeHost()
 	h.files[cfgPath] = []byte(directYAML)
 	h.files[dir+"/token"] = []byte("tok\n")
-	h.execOut["systemctl show -p ActiveState -p NRestarts cloudflared"] = "ActiveState=active\nNRestarts=0\n"
+	readyAfter(t, 1)
 	request(h, Request{ID: "r2", Mode: "tunnel"})
 	if r := Apply(h, dir, cfgPath); !r.OK || r.Mode != "tunnel" {
 		t.Fatalf("result %+v", r)
@@ -309,9 +309,10 @@ func TestApplyTunnelFailureKeepsExposure(t *testing.T) {
 		{"start refused", func(h *fakeHost) {
 			h.execErr["systemctl restart cloudflared"] = errors.New("Unit cloudflared.service not found")
 		}},
-		{"exits after the start", func(h *fakeHost) {
-			h.execOut["systemctl show -p ActiveState -p NRestarts cloudflared"] = "ActiveState=activating\nNRestarts=2\n"
-		}},
+		// Measured with cloudflared 2026.10.4: a token Cloudflare does not
+		// know keeps it running and retrying ("Failed to get tunnel"),
+		// with /ready answering 503 and no restart.
+		{"runs but never connects", func(h *fakeHost) {}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newFakeHost()
@@ -380,7 +381,41 @@ func TestSetModeEditsTheYAML(t *testing.T) {
 	}
 }
 
-func init() { sleep = func(time.Duration) {} }
+func init() {
+	sleep = func(time.Duration) {}
+	tunnelReady = func() bool { return false }
+}
+
+// readyAfter makes the connector report a registered connection from
+// its n-th look on.
+func readyAfter(t *testing.T, n int) *int {
+	looks := 0
+	tunnelReady = func() bool { looks++; return looks >= n }
+	t.Cleanup(func() { tunnelReady = func() bool { return false } })
+	return &looks
+}
+
+// Cloudflare registers the connection seconds after the start (about
+// eight, measured): Apply waits for it, up to tunnelWait.
+func TestApplyTunnelWaitsForARegisteredConnection(t *testing.T) {
+	h := newFakeHost()
+	h.files[cfgPath] = []byte(directYAML)
+	h.files[dir+"/token"] = []byte("tok\n")
+	looks := readyAfter(t, 8)
+	request(h, Request{ID: "r5", Mode: "tunnel"})
+	if r := Apply(h, dir, cfgPath); !r.OK || *looks != 8 {
+		t.Fatalf("result %+v after %d looks", r, *looks)
+	}
+	h = newFakeHost()
+	h.files[cfgPath] = []byte(directYAML)
+	h.files[dir+"/token"] = []byte("tok\n")
+	looks = readyAfter(t, 1000)
+	request(h, Request{ID: "r6", Mode: "tunnel"})
+	r := Apply(h, dir, cfgPath)
+	if r.OK || !strings.Contains(r.Message, "did not register") || *looks > int(tunnelWait/tunnelPoll)+1 {
+		t.Fatalf("result %+v after %d looks", r, *looks)
+	}
+}
 
 // The request directory belongs to the unprivileged portico user: Apply,
 // as root, reads only regular files there (never through a link).

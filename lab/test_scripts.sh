@@ -203,6 +203,7 @@ if grep -q 'PermitRootLogin no' "$d/etc/ssh/sshd_config.d/00-portico.conf" && gr
 if grep -q 'ExecStart=-/usr/local/bin/portico console' "$d/etc/systemd/system/getty@tty1.service.d/override.conf"; then ok "tty1 runs the console"; else ko "tty1 override"; fi
 if grep -q 'passthrough_listen: "127.0.0.1:9440"' "$d/etc/portico/portico.yaml" && grep -q 'admin_listen: "0.0.0.0:8443"' "$d/etc/portico/portico.yaml" && ! grep -q 'prism_central:' "$d/etc/portico/portico.yaml"; then ok "appliance YAML: process settings only, pass-through on the loopback"; else ko "appliance YAML"; fi
 if grep -q -- '--token-file /etc/cloudflared/token' "$d/etc/systemd/system/cloudflared.service" 2>/dev/null || grep -q 'token' "$d/etc/systemd/system/cloudflared.service"; then ok "cloudflared unit reads the token file"; else ko "cloudflared unit"; fi
+if grep -q -- 'tunnel --metrics 127.0.0.1:20241 run' "$d/etc/systemd/system/cloudflared.service"; then ok "cloudflared unit pins the metrics address apply reads"; else ko "cloudflared metrics address"; fi
 if ! grep -rn '10\.23\.210\|lab\.portico\.test\|portico-lab' deploy/ | grep -q .; then ok "deploy/ names no lab host"; else ko "deploy/ names the lab"; fi
 rm -rf "$d"
 
