@@ -207,27 +207,39 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-// fail maps service and store errors to statuses. Messages come from the
-// errors themselves, which never carry secrets.
-func (h *handler) fail(w http.ResponseWriter, err error) {
+// TenantStatus maps the tenant service's and the store's errors to HTTP
+// statuses. The admin UI answers with the same table.
+func TenantStatus(err error) int {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		writeError(w, http.StatusNotFound, "tenant not found")
-	case errors.Is(err, store.ErrExists), errors.Is(err, tenant.ErrExists):
-		writeError(w, http.StatusConflict, err.Error())
-	case errors.As(err, new(*tenant.NotEmptyError)):
-		var ne *tenant.NotEmptyError
-		errors.As(err, &ne)
-		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "counts": ne.Contents.Counts})
+		return http.StatusNotFound
+	case errors.Is(err, store.ErrExists), errors.Is(err, tenant.ErrExists), errors.As(err, new(*tenant.NotEmptyError)),
+		errors.Is(err, tenant.ErrBusy), errors.Is(err, tenant.ErrState), errors.Is(err, tenant.ErrPlacementExists),
+		errors.Is(err, tenant.ErrHasSites), errors.Is(err, tenant.ErrSiteIncomplete):
+		return http.StatusConflict
 	case errors.Is(err, tenant.ErrCount):
-		writeError(w, http.StatusServiceUnavailable, err.Error())
-	case errors.Is(err, tenant.ErrBusy), errors.Is(err, tenant.ErrState), errors.Is(err, tenant.ErrPlacementExists), errors.Is(err, tenant.ErrHasSites), errors.Is(err, tenant.ErrSiteIncomplete):
-		writeError(w, http.StatusConflict, err.Error())
+		return http.StatusServiceUnavailable
 	case errors.Is(err, tenant.ErrInvalidSlug), errors.Is(err, tenant.ErrUnknownSite), errors.Is(err, tenant.ErrNoPlacementTarget):
-		writeError(w, http.StatusBadRequest, err.Error())
-	default:
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
+}
+
+// fail answers a service or store error with TenantStatus. Messages come
+// from the errors themselves, which never carry secrets.
+func (h *handler) fail(w http.ResponseWriter, err error) {
+	status := TenantStatus(err)
+	var ne *tenant.NotEmptyError
+	switch {
+	case status == http.StatusNotFound:
+		writeError(w, status, "tenant not found")
+	case errors.As(err, &ne):
+		writeJSON(w, status, map[string]any{"error": err.Error(), "counts": ne.Contents.Counts})
+	case status == http.StatusInternalServerError:
 		h.log.Error("api request failed", "err", err.Error())
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, status, err.Error())
+	default:
+		writeError(w, status, err.Error())
 	}
 }
 
