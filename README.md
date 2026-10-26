@@ -260,7 +260,9 @@ Step 1 ended with 0.1.0: the appliance image (Rocky Linux 9, CIS
 Level 1, console wizard, `cloudflared` option), sites and an install
 guide. Next, from the known limits: the container images inside the
 qcow2, so a first boot needs no Internet, and a backup of Keycloak's
-database with the store. Step 2, in no fixed order: a setup page that lists connected services
+database with the store.
+
+Step 2, in no fixed order: a setup page that lists connected services
 (several Prism Central, later NKP and Nutanix Enterprise AI), tenant API
 keys bound to federated identities, brokering each tenant to its own
 directory (AD, Entra ID, LDAP), brownfield inventory with an exclusion
