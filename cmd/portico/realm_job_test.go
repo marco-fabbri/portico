@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/marco-fabbri/portico/internal/api"
 	"github.com/marco-fabbri/portico/internal/settings"
+	"github.com/marco-fabbri/portico/internal/settings/settingstest"
 )
 
 // The first boot: Keycloak is still pulling its image when the names are
@@ -95,17 +97,17 @@ func TestRealmAttemptPhases(t *testing.T) {
 	file := settings.Defaults()
 	opts := &api.SettingsOptions{File: &file, Bootstrapper: settings.NewBootstrapper(nil, nil)}
 	j := newRealmJob(nil)
-	if p, _ := realmAttempt(opts, "http://127.0.0.1:1", "")(context.Background(), j); p != phaseWaitingNames {
+	if p, _ := realmAttempt(opts, "http://127.0.0.1:1", "", nil)(context.Background(), j); p != phaseWaitingNames {
 		t.Fatalf("no names: %s", p)
 	}
 	file.PortalHost, file.IDHost = "prism.example.test", "id.example.test"
-	if p, msg := realmAttempt(opts, "http://127.0.0.1:1", "")(context.Background(), j); p != phaseWaitingKeycloak || !strings.Contains(msg, "Keycloak") {
+	if p, msg := realmAttempt(opts, "http://127.0.0.1:1", "", nil)(context.Background(), j); p != phaseWaitingKeycloak || !strings.Contains(msg, "Keycloak") {
 		t.Fatalf("Keycloak down: %s %q", p, msg)
 	}
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
 	defer up.Close()
 	// Keycloak answers, but there is no temporary administrator and no realm.
-	if p, msg := realmAttempt(opts, up.URL, "")(context.Background(), j); p != phaseFailed || !strings.Contains(msg, "existing realm") {
+	if p, msg := realmAttempt(opts, up.URL, "", nil)(context.Background(), j); p != phaseFailed || !strings.Contains(msg, "existing realm") {
 		t.Fatalf("no administrator: %s %q", p, msg)
 	}
 }
@@ -123,5 +125,29 @@ func TestRealmJobKickLeavesTheFailure(t *testing.T) {
 	j.Kick()
 	if phase, _ := j.State(); phase != phaseReady {
 		t.Fatalf("Kick on a ready job changed it to %s", phase)
+	}
+}
+
+// In service the names saved since the start take effect at Apply: the
+// job keeps Keycloak on the names the process runs with, whatever the
+// store holds now.
+func TestRealmAttemptInServiceUsesTheRunningNames(t *testing.T) {
+	kc := settingstest.NewKC(t)
+	kc.Realms["portico"] = map[string]any{"realm": "portico"}
+	saved := settings.Defaults()
+	saved.PortalHost, saved.IDHost = "portal.new.test", "id.new.test"
+	saved.Keycloak.Realm, saved.Keycloak.AdminClientID, saved.Keycloak.AdminClientSecret = "portico", "portico-admin", settings.Secret(kc.RealmSecret)
+	saved.OIDC.ClientID, saved.OIDC.ClientSecret, saved.OIDC.Issuer = "portico", "oidc-secret-1", "https://id.example.test/realms/portico"
+	run := saved
+	run.PortalHost, run.IDHost = "prism.example.test", "id.example.test"
+	opts := &api.SettingsOptions{File: &saved, Bootstrapper: settings.NewBootstrapper(nil, nil)}
+	phase, msg := realmAttempt(opts, kc.Srv.URL, filepath.Join(t.TempDir(), "absent.env"), &run)(context.Background(), newRealmJob(nil))
+	if phase != phaseReady || !strings.Contains(msg, "prism.example.test") {
+		t.Fatalf("%s %q", phase, msg)
+	}
+	for _, c := range kc.Clients {
+		if c["clientId"] == "portico" && c["redirectUris"].([]any)[0] != "https://prism.example.test/.portico/callback" {
+			t.Fatalf("OIDC client moved to the saved names: %v", c["redirectUris"])
+		}
 	}
 }
