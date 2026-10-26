@@ -6,6 +6,8 @@ they concern. They are grouped by area, not by milestone (several were
 raised more than once). An item leaves this file when a milestone closes
 it; the Milestone 2f sweep closed the 2d and 2e items listed at the end,
 and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
+The known limits of v0.1.0 (`docs/releases/v0.1.0.md`) are drawn from
+this file.
 
 ## Public path, sessions, proxy
 
@@ -149,6 +151,14 @@ and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
   slow link it takes a minute after the network. Ship the two images in
   the qcow2 (`podman pull` at build, about 700 MB more) or document the
   mirror variables (`image/`, `deploy/quadlets`). Known limit of v0.1.0.
+- No application-level backup: Keycloak's database (realm, clients,
+  tenant users) lives in the podman volume `postgres-data`, outside
+  `/var/lib/portico`, so copying that directory onto a new image loses
+  them. v0.1.0 documents a snapshot of the VM as the backup (Milestone 6
+  plan, decision 1). An export of Keycloak's database with the store,
+  and its restore on a new image, would let a new image take over an
+  appliance's state; the master key must still not leave the appliance
+  in clear (`deploy/install.sh`).
 - `lab/appliance/deploy.sh` reports "appliance ready" on `healthz` 200,
   which is the Go binary only: wait for Keycloak too (the setup status
   card) before saying so.
