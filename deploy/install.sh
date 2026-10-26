@@ -146,6 +146,24 @@ putdir 0755 portico portico /var/lib/portico/keycloak-theme
 # from the start, the quadlet loads it unconditionally.
 if [ ! -e "$ROOT/var/lib/portico/keycloak.hostname.env" ]; then e=$(mktemp); put 0644 portico portico "$e" /var/lib/portico/keycloak.hostname.env; rm -f "$e"; fi
 
+# Before an upgrade replaces the binary: Portico stopped (SQLite's WAL is
+# consistent only with its writer stopped), the store and the master key
+# copied beside them, so a migration that goes wrong is undone by copying
+# them back. The copy stays on the appliance, like the key.
+backup_state() {
+  local lib="$ROOT/var/lib/portico" ver dir f
+  [ -x "$ROOT/usr/local/bin/portico" ] && [ -e "$lib/portico.db" ] || return 0
+  ver=$("$ROOT/usr/local/bin/portico" version 2>/dev/null | awk '{print $2}') || true
+  dir="$lib/backup-${ver:-unknown}-$(date +%Y%m%d-%H%M%S)"
+  if [ $RENDER -eq 1 ]; then log "would stop: portico"; else systemctl stop portico.service; fi
+  install -d -m 0700 "$dir"
+  for f in portico.db portico.db-wal portico.db-shm master.key; do
+    if [ -e "$lib/$f" ]; then cp -p "$lib/$f" "$dir/"; fi
+  done
+  log "backup of the store and the master key in ${dir#"$ROOT"}"
+}
+backup_state
+
 # 3. The binary.
 if [ -n "$BINARY" ]; then
   put 0755 root root "$BINARY" /usr/local/bin/portico
