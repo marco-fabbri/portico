@@ -1,8 +1,9 @@
 # Operating the binary
 
-What runs on the appliance today, before the image and the installer of
-Milestones 3 and 4 wrap it. One static binary, one systemd unit, one
-configuration file, one directory of state.
+What runs on the appliance: one static binary, one systemd unit, one
+configuration file, one directory of state, beside the Keycloak and
+PostgreSQL containers. The install guide (docs/install.md) puts them
+there.
 
 ## Commands
 
@@ -32,7 +33,7 @@ flag is cleared by the password page and by `portico admin set-password`.
 |---|---|---|
 | `/etc/portico/portico.yaml` | root:portico 0640 | Process settings: listeners, TLS files, logging. See `deploy/portico.yaml.example`; the runtime sections are read from here only until they are stored |
 | `/var/lib/portico/portico.db` | portico | SQLite store: settings, sealed secrets, tenants, provisioning steps, sessions, branding |
-| `/var/lib/portico/master.key` | portico 0600 | Created by the binary at first start; seals the secrets in the store. It never leaves the appliance. Without it the store's secrets are unreadable: back it up with the store, separately from any copy you hand around |
+| `/var/lib/portico/master.key` | portico 0600 | Created by the binary at first start; seals the secrets in the store. It never leaves the appliance. Without it the store's secrets are unreadable: it is saved with the store by the snapshot of the VM (see Backup) |
 | `/var/lib/portico/keycloak-theme/` | portico | The Keycloak login theme, written at every start and on every save from the branding (the default one when none is saved), with the logo as `img/logo.<ext>` and the tab icon as `img/favicon.ico`; mounted into the Keycloak container as `/opt/keycloak/themes/portico`. After a change of tab icon, Safari keeps the old one on the login page until its caches are emptied (Develop > Empty Caches); Portico's own pages update at once (write-up 22) |
 | `deploy/portico.service` | | The unit: user `portico`, `CAP_NET_BIND_SERVICE` for port 443, hardened, `Restart=always`, no start limit |
 
@@ -63,10 +64,13 @@ chown portico:portico /var/lib/portico/portico.db* /var/lib/portico/master.key
 restorecon /var/lib/portico/portico.db* /var/lib/portico/master.key
 ```
 
-then, from the unpacked `install-<version>.tar.gz` of the version the
-copy was taken from, `./deploy/install.sh --release <version>`: it puts
-that binary back and starts Portico on the restored store. Starting the
-newer binary instead would migrate the store again.
+then put back the binary of the version the copy was taken from: from
+the unpacked `install-<version>.tar.gz` of that release,
+`./deploy/install.sh --release <version>`, or `--binary <path>` for a
+build of your own. The installer takes one more copy (of the restored
+store) and starts Portico on it. Starting the newer binary instead
+would migrate the store again. A copy taken from a development build
+has no release to go back to: restore the snapshot instead.
 
 ## First start of a fresh appliance
 
@@ -76,7 +80,7 @@ the setup page, and the journal lists what is missing. The setup page (or
 the JSON API) configures the appliance card by card and can create
 Portico's service account in Prism Central, the Keycloak realm and
 clients and the SAML trust from one-time credentials; "Apply and restart"
-opens the public path. Measured on the lab: 41 s from empty store to
+opens the public path. Measured: 41 s from empty store to
 running (write-up 15). Filling the file by hand with pre-created accounts
 remains possible (`deploy/portico.yaml.example`, then `settings import`).
 

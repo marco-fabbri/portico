@@ -15,6 +15,9 @@ the appliance in front of customers.
   Prism Central reachable from the appliance's address and from your
   management network only, never from the Internet. DNS and NTP for
   the appliance.
+- **An SSH key** for the appliance's `admin` user, given when the VM is
+  created (cloud-init, or `ssh_public_key` of the OpenTofu module): it
+  is how the certificate files reach the appliance.
 - **Internet access at the first boot**: the appliance pulls PostgreSQL
   from `docker.io` and Keycloak from `quay.io` when it first starts.
   Without that egress it never gets its identity provider. On a host of
@@ -29,9 +32,9 @@ the appliance in front of customers.
   [Certificates](#certificates)), or a Cloudflare tunnel with its
   connector token (tunnel mode).
 - **An account used once per site**: a Prism Central administrator
-  that can create users and authorization policies. Portico creates its
-  own `portico` service account and the SAML trust with it, and does
-  not keep it.
+  that can create users and authorization policies. With it Portico
+  creates its own `portico` service account and the SAML trust; Portico
+  never stores a human administrator's credentials.
 
 ## Certificates
 
@@ -71,7 +74,8 @@ openssl x509 -req -in portal.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
 cat portal.crt ca.crt > portal-chain.crt
 ```
 
-The console takes `portal-chain.crt` and `portal.key` (step 3 below).
+Copy the two files to the appliance (`scp portal-chain.crt portal.key
+admin@<address>:`); the console asks for their paths (step 3 below).
 
 ## What listens where
 
@@ -108,9 +112,15 @@ log in soon after the first boot to replace the factory password.
      interface; skip it when cloud-init already set them.
    - *4) Keycloak administrator credentials (show once)*: write them
      down for the Identity card of the setup page.
-   - *3) Exposure (direct certificate or Cloudflare tunnel)*: the
-     certificate chain and key of [Certificates](#certificates), a
-     self-signed pair for a first try, or the tunnel token.
+   - *3) Exposure (direct certificate or Cloudflare tunnel)*:
+     *1) Direct: install a certificate and key for the public names*
+     asks for the "Certificate file (PEM, full chain)" and the "Private
+     key file (PEM)": give the paths of the files copied in
+     [Certificates](#certificates), such as
+     `/home/admin/portal-chain.crt`. Pressing Enter at a path pastes the
+     PEM instead, which works over SSH (`sudo portico console`) but not
+     in Prism Central's console window. *2)* makes a self-signed pair
+     for a first try; *3)* takes the Cloudflare tunnel token.
    - *2) Admin password*: optional here; the web asks at the first
      login.
 
@@ -136,7 +146,8 @@ log in soon after the first boot to replace the factory password.
      and Name are what tenants see. *2. The administrator*: Username and
      Password of the one-time account. "Add the site" creates the
      service account, its API key and the SAML trust in one step, and
-     lists each step with its result. The account is not stored.
+     lists each step with its result. Portico never stores a human
+     administrator's credentials.
    - *Tenants*: the project and group prefixes, the role in the
      project, the operation timeout; the defaults fit a first install.
    - "Apply and restart": the appliance leaves setup mode and the
