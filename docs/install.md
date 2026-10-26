@@ -1,29 +1,77 @@
 # Installing Portico
 
-Pre-release: the paths below are what the lab exercises today. Nothing
-here is supported yet; the first release (Milestone 6, `v0.1.0`) will say
-what is.
+This guide installs Portico 0.1.0. What the release contains, what it
+was measured on and its known limits are in the
+[release notes](releases/v0.1.0.md): read the limits before you put
+the appliance in front of customers.
 
 ## What you need
 
 - **One or more Prism Centrals, pc.7.6 or later**, with Projects 2.0:
   each becomes a site, shown to tenants by a code such as `AZ-IT-MI1`.
-  An AHV cluster for the appliance (any hypervisor or cloud for the
-  second form).
+  An AHV cluster for the appliance (any hypervisor or cloud for a Rocky
+  Linux 9 host of your own).
 - **Network**: one subnet for the appliance; port 9440 of every site's
   Prism Central reachable from the appliance's address and from your
-  management network only, never from the Internet. Two public names for
-  the tenants (`prism.<msp>.example`, `id.<msp>.example`) resolving to
-  the appliance, or to a Cloudflare tunnel: every site shares them, a
-  new site needs no DNS or certificate change.
-- **A certificate** for the two public names (direct mode), or a
-  Cloudflare tunnel with its connector token (tunnel mode). A
-  self-signed pair is available for a trial.
-- **Accounts used once per site**: a Prism Central account that can
-  create users and edit authorization policies, and administrator
-  credentials for the SAML trust (the service account's role cannot
-  create an identity provider on pc.7.6, write-up 15). Portico stores
-  neither.
+  management network only, never from the Internet. DNS and NTP for
+  the appliance.
+- **Internet access at the first boot**: the appliance pulls PostgreSQL
+  from `docker.io` and Keycloak from `quay.io` when it first starts.
+  Without that egress it never gets its identity provider. On a host of
+  your own the installer also needs the Rocky Linux repositories and,
+  for tunnel mode, `pkg.cloudflare.com`.
+- **Two public names** for the tenants, the portal and the identity
+  provider (`portal.msp.example` and `id.msp.example` below), resolving
+  to the appliance or to a Cloudflare tunnel. Every site shares them: a
+  new site needs no DNS or certificate change. They cannot be changed
+  after the setup.
+- **A certificate** for both names (direct mode, see
+  [Certificates](#certificates)), or a Cloudflare tunnel with its
+  connector token (tunnel mode).
+- **An account used once per site**: a Prism Central administrator
+  that can create users and authorization policies. Portico creates its
+  own `portico` service account and the SAML trust with it, and does
+  not keep it.
+
+## Certificates
+
+In direct mode the appliance serves one certificate for both public
+names on port 443. It must:
+
+- name both hosts in its Subject Alternative Name;
+- carry `extendedKeyUsage = serverAuth`;
+- be given with its chain: the certificate first, then each
+  intermediate, in one PEM file.
+
+A certificate from a public CA works in every browser. With a CA of
+your own, every browser that opens the portal must trust that CA: on
+macOS, open it in Keychain Access, System keychain, and set "Always
+Trust". A bare self-signed certificate, without a CA above it, is
+refused by Chrome and Safari even when it is installed (measured,
+write-up 29). The console's self-signed pair is for a first try only.
+
+A CA of your own and a certificate for the two names, with `openssl`:
+
+```
+# the CA, once (keep ca.key offline)
+openssl req -x509 -newkey rsa:3072 -nodes -days 3650 \
+  -keyout ca.key -out ca.crt -subj "/CN=MSP portal CA" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign"
+
+# the certificate of the two public names (397 days at most)
+openssl req -newkey rsa:3072 -nodes -keyout portal.key -out portal.csr \
+  -subj "/CN=portal.msp.example"
+openssl x509 -req -in portal.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -days 397 -out portal.crt -extfile <(printf '%s\n' \
+  "subjectAltName=DNS:portal.msp.example,DNS:id.msp.example" \
+  "extendedKeyUsage=serverAuth" "keyUsage=critical,digitalSignature,keyEncipherment")
+
+# the file the console asks for: the certificate, then the CA
+cat portal.crt ca.crt > portal-chain.crt
+```
+
+The console takes `portal-chain.crt` and `portal.key` (step 3 below).
 
 ## What listens where
 
@@ -43,72 +91,107 @@ log in soon after the first boot to replace the factory password.
 
 ## The appliance image
 
-1. Download `portico-<version>.qcow2` and its `.sha256` from the
-   [release](https://github.com/marco-fabbri/portico/releases); check
-   the checksum. The OpenSCAP report of that build is next to them.
-2. Create the VM: with OpenTofu, `deploy/tofu/nutanix` uploads the image
-   from the release URL and creates the VM (2 vCPU, 6 GiB, 40 GiB, legacy
-   BIOS), with an optional static network and SSH key through cloud-init
-   (see its README). By hand: import the qcow2 into the image service,
-   create a VM with those sizes and one NIC, power it on.
-3. **The console** (Prism Central, Launch console): the wizard is on
-   tty1.
-   - *Network*: hostname, address, prefix, gateway, DNS for each
+1. **Download** `portico-0.1.0.qcow2` and `portico-0.1.0.qcow2.sha256`
+   from the [release](https://github.com/marco-fabbri/portico/releases/tag/v0.1.0)
+   into one directory and check them with
+   `sha256sum -c portico-0.1.0.qcow2.sha256`. The OpenSCAP report of
+   that build is next to them.
+2. **Create the VM**: with OpenTofu, `deploy/tofu/nutanix` uploads the
+   image from the release and creates the VM (2 vCPU, 6 GiB, 40 GiB,
+   legacy BIOS), with an optional static network and SSH key through
+   cloud-init (see its README). By hand: import the qcow2 into the image
+   service, create a VM with those sizes and one NIC, power it on.
+3. **The console** (Prism Central, Launch console): the menu is on tty1
+   and shows the state of `portico`, `keycloak`, `postgres` and
+   `cloudflared` on its second line.
+   - *1) Network*: hostname, address, prefix, gateway, DNS for each
      interface; skip it when cloud-init already set them.
-   - *Keycloak administrator credentials*: shown once, for the Keycloak
-     card of the setup page.
-   - *Exposure*: a certificate and key for the public names, a
-     self-signed pair, or the Cloudflare tunnel token.
-   - *Admin password*: optional here; the web does it at the first login.
+   - *4) Keycloak administrator credentials (show once)*: write them
+     down for the Identity card of the setup page.
+   - *3) Exposure (direct certificate or Cloudflare tunnel)*: the
+     certificate chain and key of [Certificates](#certificates), a
+     self-signed pair for a first try, or the tunnel token.
+   - *2) Admin password*: optional here; the web asks at the first
+     login.
+
+   The first boot pulls the container images: Keycloak is ready about
+   a minute after the network is up on a slow link, a little after the
+   status line shows `keycloak: active` (*5) Refresh*).
 4. **The first login**, `https://<address>:8443/` (self-signed internal
    certificate): `admin` with the factory password `portico/4u`; the
    appliance asks for a new password (at least 12 characters) before
    showing anything else. Do it soon after the first boot: until then
    anyone reaching 8443 on your internal network could do it instead.
-5. **The setup page**: public names; Identity (the Keycloak credentials
-   from the console, "Let Portico create the realm and clients"); Sites,
-   "Add site" for each Prism Central (code, name, URL), then on the
-   site's page "Let Portico create the service account" with the
-   one-time account, the default cluster and container for new tenants,
-   and "Let Portico create the SAML trust"; Tenants (prefixes, role);
-   then Apply and restart. The appliance leaves setup mode and the
-   public path opens.
+5. **The setup page**, card by card, in this order (a site needs the
+   public names and the Keycloak realm first):
+   - *Public names*: Portal public host and Identity public host, then
+     Save.
+   - *Identity*: open "Let Portico create the realm and clients" and
+     give the Keycloak administrator from step 3. Portico creates the
+     realm, its clients and their secrets and stores the secrets.
+   - *Sites*: "Add site" for each Prism Central. *1. The address*:
+     the Prism Central address, then "Read the certificate" and compare
+     the SHA-256 fingerprint it shows with the one your browser shows
+     for that Prism Central. Code
+     and Name are what tenants see. *2. The administrator*: Username and
+     Password of the one-time account. "Add the site" creates the
+     service account, its API key and the SAML trust in one step, and
+     lists each step with its result. The account is not stored.
+   - *Tenants*: the project and group prefixes, the role in the
+     project, the operation timeout; the defaults fit a first install.
+   - "Apply and restart": the appliance leaves setup mode and the
+     public path opens.
 6. **Branding** and the first **tenant** from the admin UI, placed on
-   the sites where it gets resources; the tenant's user signs in at
-   `https://prism.<msp>.example/` and, with several sites, chooses one.
+   the sites where it gets resources. The tenant's user signs in at
+   `https://portal.msp.example/` and, with several sites, chooses one.
 
 The appliance has no root password and no SSH user unless cloud-init
-added one: the console is the way in. Everything Portico keeps lives in
-`/var/lib/portico` (the store and the master key; back them up together,
-docs/operating.md).
+added one: the console is the way in.
 
 ## An existing Rocky Linux 9 host
 
 The same components on a Rocky Linux 9 host of yours (a VM on any
-hypervisor, a cloud instance): as root,
+hypervisor, a cloud instance). As root:
 
 ```
-curl -fsSLO https://github.com/marco-fabbri/portico/releases/download/v<version>/install-<version>.tar.gz
-tar -xzf install-<version>.tar.gz
-./deploy/install.sh --release <version>
+curl -fsSLO https://github.com/marco-fabbri/portico/releases/download/v0.1.0/install-0.1.0.tar.gz
+curl -fsSLO https://github.com/marco-fabbri/portico/releases/download/v0.1.0/install-0.1.0.tar.gz.sha256
+sha256sum -c install-0.1.0.tar.gz.sha256
+tar -xzf install-0.1.0.tar.gz
+./deploy/install.sh --release 0.1.0
 ```
 
-The installer (deploy/README.md) installs the packages, the service, the
-Keycloak and PostgreSQL containers, the console on tty1, the firewalld
-service (443, 8443) and the SSH policy (keys only, no root, members of
-`wheel` only; installed only when a `wheel` user already has a key, so
-the session you install from is not locked out); it
-generates the Keycloak secrets and the internal certificate once and
-starts in setup mode with the factory password. Then run the console
-(`portico console` as root on tty1, or over SSH in a terminal) for the
-exposure, and continue at step 4 above. The host's own hardening is yours: the image's
-CIS baseline (image/oscap) is applied only by the image build.
-
-Re-running `install.sh --release <new version>` upgrades.
+The installer ([deploy/README.md](../deploy/README.md)) installs the
+packages, the service, the Keycloak and PostgreSQL containers, the
+console on tty1, the firewalld service (443, 8443) and the SSH policy
+(keys only, no root, members of `wheel` only). The SSH policy is
+installed only when a `wheel` user already has a key, so the session
+you install from is not locked out. The installer generates the
+Keycloak secrets and the internal certificate once, downloads the
+binary of the release and checks its checksum, and starts in setup
+mode with the factory password. Then run the console (`portico
+console` as root on tty1, or over SSH in a terminal) for the exposure,
+and continue at step 4 above. The host's own hardening is yours: the
+image's CIS baseline (`image/oscap`) is applied only by the image
+build.
 
 ## Updating
 
-A new image is the clean path: back up `/var/lib/portico`, create the
-new VM, restore the directory, set the network on the console. On an
-existing host, `install.sh --release` replaces the binary and the files
-and keeps the store.
+The upgrade is in place; a new image does not take over an existing
+appliance's state in 0.1.0.
+
+1. **Take a snapshot of the VM** in Prism Central, or check that its
+   protection policy has a recent one. The snapshot is the backup: it
+   holds Portico's store and master key and Keycloak's database (the
+   realm and every tenant user), which lives outside `/var/lib/portico`.
+2. On the appliance, as root, download and check
+   `install-<version>.tar.gz` as above, unpack it and run
+   `./deploy/install.sh --release <version>`.
+3. The installer stops Portico, copies the store and the master key to
+   `/var/lib/portico/backup-<old version>-<time>/`, replaces the binary
+   and its files, restarts PostgreSQL and Keycloak only when their units
+   changed, and starts Portico again. Open sessions end; tenants sign in
+   again. The installer also updates the packages it installs.
+
+To go back, restore the snapshot. The backup directory undoes a store
+migration alone ([operating guide](operating.md#backup)).
