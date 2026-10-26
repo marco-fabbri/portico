@@ -38,7 +38,7 @@ var sleep = time.Sleep
 // and the readiness fragment the restart page polls (sessions do not
 // survive a restart).
 func publicUIPath(p string) bool {
-	return p == "/login" || p == "/setup/ready" || strings.HasPrefix(p, "/static/")
+	return p == "/login" || p == "/setup/ready" || p == "/exposure/ready" || strings.HasPrefix(p, "/static/")
 }
 
 func isAPIPath(p string) bool {
