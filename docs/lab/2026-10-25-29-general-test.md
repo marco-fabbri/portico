@@ -145,7 +145,18 @@ Central over HTTP). Passwords from the secrets files only.
   `unreachable` by the monitor for a while), as in write-ups 25 and
   28. Portico showed it as such and recovered by itself.
 - MEASURED: carol created again (201); `carol@acme.example` and the
-  probe user `portico-probe-acme@portico.test` are acme's users.
+  probe user `portico-probe-acme@portico.test` are acme's users. Marco
+  logged in as carol from Chrome and reached the site page with both
+  sites available.
+- MEASURED: the bare self-signed certificate of the portal names is
+  refused by Chrome and Safari even once in the System keychain (Safari:
+  "portico-lab is not authorized"): a certificate imported through
+  Chrome carries no trust setting, and a self-signed server certificate
+  without `extendedKeyUsage` is not what Apple's policy accepts. The
+  appliance now presents a leaf for the two names (EKU serverAuth, 397
+  days) signed by that certificate, with the chain; marking the CA
+  "Always Trust" by hand made both browsers show the lock. The install
+  guide should say so for an MSP's own CA.
 
 ## Implications for the design
 
