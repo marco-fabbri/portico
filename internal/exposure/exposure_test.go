@@ -167,6 +167,7 @@ func TestValidateTokenRefusesAnythingButAConnectorToken(t *testing.T) {
 // fakeHost is the appliance as Apply sees it.
 type fakeHost struct {
 	files   map[string][]byte
+	links   map[string]bool // request-directory entries that are not regular files
 	modes   map[string]os.FileMode
 	execs   []string
 	execErr map[string]error
@@ -174,8 +175,17 @@ type fakeHost struct {
 }
 
 func newFakeHost() *fakeHost {
-	return &fakeHost{files: map[string][]byte{}, modes: map[string]os.FileMode{}, execErr: map[string]error{}, execOut: map[string]string{}}
+	return &fakeHost{files: map[string][]byte{}, links: map[string]bool{}, modes: map[string]os.FileMode{}, execErr: map[string]error{}, execOut: map[string]string{}}
 }
+
+func (h *fakeHost) ReadRequestFile(p string) ([]byte, error) {
+	if h.links[p] {
+		return nil, errors.New("not a regular file")
+	}
+	return h.ReadFile(p)
+}
+
+func (h *fakeHost) WriteResult(p string, b []byte) error { return h.WriteFile(p, b, 0o644) }
 
 func (h *fakeHost) ReadFile(p string) ([]byte, error) {
 	b, ok := h.files[p]
@@ -371,3 +381,19 @@ func TestSetModeEditsTheYAML(t *testing.T) {
 }
 
 func init() { sleep = func(time.Duration) {} }
+
+// The request directory belongs to the unprivileged portico user: Apply,
+// as root, reads only regular files there (never through a link).
+func TestApplyReadsOnlyRegularRequestFiles(t *testing.T) {
+	h := newFakeHost()
+	h.files[cfgPath] = []byte(directYAML)
+	directRequest(t, h)
+	h.links[dir+"/public.key"] = true
+	r := Apply(h, dir, cfgPath)
+	if r.OK || !strings.Contains(r.Message, "key") {
+		t.Fatalf("result %+v", r)
+	}
+	if _, ok := h.files[KeyPath]; ok {
+		t.Fatal("installed through a link")
+	}
+}
