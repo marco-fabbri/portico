@@ -202,6 +202,7 @@ func TestValidateRefusesWhatBrowsersRefuse(t *testing.T) {
 		{"Ed25519", leafWith(ed), []issued{ca}, "browsers do not accept Ed25519 certificates"},
 		{"SHA-1 leaf", sha1Leaf, []issued{rsaCA}, "certificate 1 (prism.msp.example) is signed with SHA1-RSA"},
 		{"SHA-1 intermediate", underSha1, []issued{sha1Inter, rsaCA}, "certificate 2 (SHA-1 intermediate) is signed with SHA1-RSA"},
+		{"SHA-1 self-signed leaf", sha1Issue(t, hosts, false, nil), nil, "certificate 1 (prism.msp.example) is signed with SHA1-RSA"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			key, err := x509.MarshalPKCS8PrivateKey(c.leaf.key)
