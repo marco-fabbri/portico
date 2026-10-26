@@ -14,8 +14,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -203,8 +201,8 @@ func TestUpstreamUsesHTTP11(t *testing.T) {
 	}
 }
 
-func TestPrismTLS(t *testing.T) {
-	c, err := PrismTLS("10.23.210.175", "", false)
+func TestPrismTLSFor(t *testing.T) {
+	c, err := PrismTLSFor("10.23.210.175", SiteTrust{})
 	if err != nil || !c.InsecureSkipVerify || c.ServerName != "10.23.210.175" {
 		t.Errorf("verify=false: %+v %v", c, err)
 	}
@@ -213,14 +211,20 @@ func TestPrismTLS(t *testing.T) {
 	if _, err := x509.ParseCertificate(der); err != nil {
 		t.Fatal(err)
 	}
-	caFile := filepath.Join(t.TempDir(), "ca.pem")
-	os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600)
-	c, err = PrismTLS("pc.test", caFile, true)
+	c, err = PrismTLSFor("pc.test", SiteTrust{CAPEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), Verify: true})
 	if err != nil || c.InsecureSkipVerify || c.RootCAs == nil {
 		t.Errorf("with ca: %+v %v", c, err)
 	}
-	if _, err := PrismTLS("pc.test", filepath.Join(t.TempDir(), "missing.pem"), true); err == nil {
-		t.Error("missing ca file should be an error")
+}
+
+// One site is one host: every tenant on it shares the pool, so the idle
+// connections per host must not stay at net/http's default of 2 (backlog,
+// final review of Milestone 6), or most requests pay a new TLS handshake.
+func TestUpstreamKeepsIdleConnectionsPerHost(t *testing.T) {
+	u, _ := url.Parse("https://pc.test:9440")
+	tr, ok := NewUpstream(UpstreamOptions{Target: u}).Transport.(*http.Transport)
+	if !ok || tr.MaxIdleConnsPerHost != tr.MaxIdleConns || tr.MaxIdleConns < 100 {
+		t.Errorf("transport idle pool: per host %d, total %d", tr.MaxIdleConnsPerHost, tr.MaxIdleConns)
 	}
 }
 
