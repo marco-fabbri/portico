@@ -240,20 +240,24 @@ func (h *Handler) exposureSubmit(w http.ResponseWriter, r *http.Request) {
 		h.renderExposure(w, r, http.StatusBadRequest, "choose how the public names are published")
 		return
 	}
-	for _, name := range []string{exposure.KeyFile, exposure.CertFile, exposure.TokenFile} {
-		if b, ok := files[name]; ok {
-			if err := writePrivate(filepath.Join(dir, name), b); err != nil {
-				h.log.Error("exposure request not written", "file", name, "err", err.Error())
-				h.renderExposure(w, r, http.StatusInternalServerError, "the request cannot be written: "+err.Error())
-				return
-			}
+	files[exposure.RequestFile], _ = json.Marshal(req)
+	// request.json last: the path unit fires on it. A write that fails
+	// takes the files already written with it.
+	var written []string
+	for _, name := range []string{exposure.KeyFile, exposure.CertFile, exposure.TokenFile, exposure.RequestFile} {
+		b, ok := files[name]
+		if !ok {
+			continue
 		}
-	}
-	b, _ := json.Marshal(req)
-	if err := writePrivate(filepath.Join(dir, exposure.RequestFile), b); err != nil {
-		h.log.Error("exposure request not written", "file", exposure.RequestFile, "err", err.Error())
-		h.renderExposure(w, r, http.StatusInternalServerError, "the request cannot be written: "+err.Error())
-		return
+		if err := writeRequestFile(filepath.Join(dir, name), b); err != nil {
+			for _, f := range written {
+				os.Remove(filepath.Join(dir, f))
+			}
+			h.log.Error("exposure request not written", "file", name, "err", err.Error())
+			h.renderExposure(w, r, http.StatusInternalServerError, "the request cannot be written: "+err.Error())
+			return
+		}
+		written = append(written, name)
 	}
 	h.log.Info("exposure requested", "via", "ui", "id", req.ID, "mode", req.Mode, "self_signed", req.SelfSigned)
 	h.renderExposure(w, r, http.StatusOK, "")
@@ -277,11 +281,28 @@ func uploadedFile(r *http.Request, name string) ([]byte, int, string) {
 	return b, 0, ""
 }
 
+var writeRequestFile = writePrivate
+
+// writePrivate writes a 0600 file aside and renames it into place: the
+// path unit never reads a half-written file, and a link left at path is
+// replaced, not followed.
 func writePrivate(path string, b []byte) error {
-	if err := os.WriteFile(path, b, 0o600); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), ".request-*")
+	if err != nil {
 		return err
 	}
-	return os.Chmod(path, 0o600)
+	tmp := f.Name()
+	_, err = f.Write(b)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		os.Remove(tmp)
+	}
+	return err
 }
 
 func newRequestID() string {

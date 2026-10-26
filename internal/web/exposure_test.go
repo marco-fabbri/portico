@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http/httptest"
 	"os"
@@ -303,5 +304,54 @@ func TestExposureStaleRequestUnlocksTheForm(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "token")); err == nil {
 		t.Fatal("the stale request's token was kept")
+	}
+}
+
+// Each request file is written aside and renamed into place: the path
+// unit never sees a half-written request.json, and a link left in the
+// directory is replaced, not followed.
+func TestExposureRequestFilesAreRenamedIntoPlace(t *testing.T) {
+	e, dir, _ := exposureEnv(t, true)
+	outside := filepath.Join(t.TempDir(), "elsewhere")
+	os.WriteFile(outside, []byte("untouched"), 0o600)
+	os.Symlink(outside, filepath.Join(dir, exposure.CertFile))
+	if rec := e.upload(t, map[string]string{"mode": "selfsigned"}, nil); rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if b, _ := os.ReadFile(outside); string(b) != "untouched" {
+		t.Fatal("the write followed the link")
+	}
+	entries, _ := os.ReadDir(dir)
+	var names []string
+	for _, en := range entries {
+		names = append(names, en.Name())
+		fi, _ := os.Lstat(filepath.Join(dir, en.Name()))
+		if !fi.Mode().IsRegular() || fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s: %v", en.Name(), fi.Mode())
+		}
+	}
+	if strings.Join(names, " ") != "public.crt public.key request.json" {
+		t.Fatalf("directory: %v", names)
+	}
+}
+
+// A request that cannot be written whole leaves nothing behind: the
+// files already written go, so the next submit starts clean.
+func TestExposureFailedWriteRemovesWhatItWrote(t *testing.T) {
+	e, dir, _ := exposureEnv(t, true)
+	write := writeRequestFile
+	t.Cleanup(func() { writeRequestFile = write })
+	writeRequestFile = func(path string, b []byte) error {
+		if filepath.Base(path) == exposure.RequestFile {
+			return errors.New("no space left on device")
+		}
+		return write(path, b)
+	}
+	rec := e.upload(t, map[string]string{"mode": "selfsigned"}, nil)
+	if rec.Code != 500 || !strings.Contains(rec.Body.String(), "no space left on device") {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("left behind: %v", entries)
 	}
 }
