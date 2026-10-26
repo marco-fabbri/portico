@@ -1,0 +1,6 @@
+[Unit]
+Description=Apply the exposure request written by Portico
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/portico exposure apply -config /etc/portico/portico.yaml

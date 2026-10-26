@@ -1,0 +1,13 @@
+# Apply the exposure the admin UI asks for (certificate, self-signed pair
+# or Cloudflare tunnel): Portico runs unprivileged and cannot write
+# /etc/portico/tls, the tunnel token or restart a unit, so the request it
+# writes last triggers `portico exposure apply` as root through systemd.
+[Unit]
+Description=Watch the exposure requests written by Portico
+
+[Path]
+PathChanged=/var/lib/portico/exposure/request.json
+Unit=portico-exposure.service
+
+[Install]
+WantedBy=multi-user.target

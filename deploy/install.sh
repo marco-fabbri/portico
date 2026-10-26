@@ -4,7 +4,7 @@
 # --no-start, an MSP runs it on a Rocky 9 host it already has with
 # --release. It installs the packages, the portico user and directories,
 # the binary, the PostgreSQL and Keycloak quadlets, the units (portico,
-# the console on tty1, cloudflared, the Keycloak hostname watcher), the
+# the console on tty1, cloudflared, the Keycloak hostname and exposure watchers), the
 # firewalld service, the sshd and sysctl drop-ins; it generates the
 # Keycloak secrets and the internal TLS pair once. Re-running it upgrades
 # the binary and the files and keeps every secret and the store.
@@ -68,7 +68,7 @@ log() { echo "install.sh: $*"; }
 
 # Secrets and TLS pairs: generated once per appliance, never at image build.
 generate_secrets() {
-  # Keycloak administrator and database passwords; shown by the console wizard only.
+  # Keycloak's temporary administrator and the database passwords.
   if [ ! -e "$ROOT/etc/portico/keycloak.env" ]; then
     umask 077
     kcpw=$(openssl rand -base64 24 | tr -d '/+=')
@@ -76,6 +76,11 @@ generate_secrets() {
     env=$(mktemp)
     printf 'KC_BOOTSTRAP_ADMIN_USERNAME=kcadmin\nKC_BOOTSTRAP_ADMIN_PASSWORD=%s\nKC_DB_PASSWORD=%s\nPOSTGRES_PASSWORD=%s\n' "$kcpw" "$dbpw" "$dbpw" > "$env"
     put 0600 root root "$env" /etc/portico/keycloak.env
+    # The temporary administrator alone, for Portico to create the realm
+    # with: Portico deletes the administrator in Keycloak and this copy
+    # once the realm exists. Written with keycloak.env, so never again.
+    printf 'KC_BOOTSTRAP_ADMIN_USERNAME=kcadmin\nKC_BOOTSTRAP_ADMIN_PASSWORD=%s\n' "$kcpw" > "$env"
+    put 0600 portico portico "$env" /var/lib/portico/keycloak-bootstrap.env
     rm -f "$env"; unset kcpw dbpw
     umask 022
   fi
@@ -143,6 +148,9 @@ putdir 0750 root portico /etc/portico/tls
 putdir 0700 root root /etc/cloudflared
 putdir 0755 portico portico /var/lib/portico
 putdir 0755 portico portico /var/lib/portico/keycloak-theme
+# The admin UI's exposure requests: the pair or the token, then
+# request.json, which portico-exposure.path watches.
+putdir 0700 portico portico /var/lib/portico/exposure
 # The Keycloak hostname file Portico writes on Apply: present and empty
 # from the start, the quadlet loads it unconditionally.
 if [ ! -e "$ROOT/var/lib/portico/keycloak.hostname.env" ]; then e=$(mktemp); put 0644 portico portico "$e" /var/lib/portico/keycloak.hostname.env; rm -f "$e"; fi
@@ -206,6 +214,8 @@ put 0644 root root "$HERE/portico-console.service" /etc/systemd/system/getty@tty
 put 0644 root root "$HERE/cloudflared.service" /etc/systemd/system/cloudflared.service
 put 0644 root root "$HERE/keycloak-hostname.path" /etc/systemd/system/keycloak-hostname.path
 put 0644 root root "$HERE/keycloak-hostname.service" /etc/systemd/system/keycloak-hostname.service
+put 0644 root root "$HERE/portico-exposure.path" /etc/systemd/system/portico-exposure.path
+put 0644 root root "$HERE/portico-exposure.service" /etc/systemd/system/portico-exposure.service
 put 0644 root root "$HERE/firewalld/portico.xml" /etc/firewalld/services/portico.xml
 # SSH: keys only, wheel only. On a host of your own the policy would lock
 # out a session that came in with a password or as a user outside wheel:
@@ -246,7 +256,7 @@ fi
 restorecon -R /etc/portico /usr/local/bin/portico /usr/local/sbin/portico-install /etc/containers/systemd /etc/systemd/system /var/lib/portico
 sysctl -q --system >/dev/null
 systemctl daemon-reload
-systemctl enable firewalld portico keycloak-hostname.path portico-firstboot >/dev/null 2>&1 || true
+systemctl enable firewalld portico keycloak-hostname.path portico-exposure.path portico-firstboot >/dev/null 2>&1 || true
 if sshd -t 2>/dev/null; then systemctl reload sshd 2>/dev/null || true; fi
 if [ $START -eq 1 ]; then
   systemctl start firewalld
@@ -256,7 +266,7 @@ if [ $START -eq 1 ]; then
     systemctl restart postgres.service keycloak.service
   fi
   log "starting the services"
-  systemctl start postgres.service keycloak.service keycloak-hostname.path
+  systemctl start postgres.service keycloak.service keycloak-hostname.path portico-exposure.path
   systemctl restart portico.service
   systemctl restart getty@tty1.service 2>/dev/null || true
   for _ in $(seq 1 30); do

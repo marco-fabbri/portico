@@ -4,6 +4,7 @@
 //	portico admin set-password -config /etc/portico/portico.yaml   (password on stdin)
 //	portico settings import -config /etc/portico/portico.yaml [-force]
 //	portico settings show -config /etc/portico/portico.yaml
+//	portico exposure apply -config /etc/portico/portico.yaml   (root, from portico-exposure.service)
 //	portico version
 package main
 
@@ -22,6 +23,7 @@ import (
 
 	"github.com/marco-fabbri/portico/internal/api"
 	"github.com/marco-fabbri/portico/internal/config"
+	"github.com/marco-fabbri/portico/internal/exposure"
 	"github.com/marco-fabbri/portico/internal/store"
 )
 
@@ -70,6 +72,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return configExit(cfg)
 		}
 		return runConsole(cfg, stdin, stdout)
+	case "exposure":
+		if len(args) < 2 || args[1] != "apply" {
+			usage(stderr)
+			return 2
+		}
+		return exposureApply(args[2:], stdout, stderr)
 	case "admin":
 		if len(args) < 2 || args[1] != "set-password" {
 			usage(stderr)
@@ -141,8 +149,32 @@ func setAdminPassword(cfg *config.Config, stdin io.Reader, stdout, stderr io.Wri
 	return 0
 }
 
+// exposureApply runs as root from portico-exposure.service when the admin
+// UI writes a request: it installs the certificate or the tunnel token
+// and switches the exposure mode (internal/exposure). The process
+// settings are edited as text, comments kept, so the file is not loaded.
+func exposureApply(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("exposure apply", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	path := fs.String("config", "/etc/portico/portico.yaml", "path to the settings file")
+	dir := fs.String("dir", "/var/lib/portico/exposure", "directory of the admin UI's requests")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	r := exposure.Apply(&hostSystem{}, *dir, *path)
+	if r.ID == "" && r.Message == "" {
+		fmt.Fprintln(stdout, "no exposure request")
+		return 0
+	}
+	fmt.Fprintf(stdout, "exposure request %s (%s): %s\n", r.ID, r.Mode, r.Message)
+	if !r.OK {
+		return 1
+	}
+	return 0
+}
+
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "usage: portico serve -config PATH | portico console -config PATH | portico admin set-password -config PATH | portico settings import|show -config PATH | portico version")
+	fmt.Fprintln(w, "usage: portico serve -config PATH | portico console -config PATH | portico admin set-password -config PATH | portico settings import|show -config PATH | portico exposure apply -config PATH | portico version")
 }
 
 // newLogger returns a JSON logger on w at the configured level.

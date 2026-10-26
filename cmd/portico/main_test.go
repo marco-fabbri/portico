@@ -193,3 +193,13 @@ func TestSettingsImportRefusesRoot(t *testing.T) {
 		t.Fatal("import as root created the master key")
 	}
 }
+
+func TestExposureApplyUsage(t *testing.T) {
+	var out, errOut strings.Builder
+	if code := run([]string{"exposure"}, strings.NewReader(""), &out, &errOut); code != 2 || !strings.Contains(errOut.String(), "portico exposure apply") {
+		t.Fatalf("exit %d, stderr %q", code, errOut.String())
+	}
+	if code := run([]string{"exposure", "remove"}, strings.NewReader(""), &out, &errOut); code != 2 {
+		t.Fatalf("exit %d", code)
+	}
+}
