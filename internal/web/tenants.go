@@ -1,11 +1,11 @@
 package web
 
 import (
-	"errors"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/marco-fabbri/portico/internal/api"
 	"github.com/marco-fabbri/portico/internal/store"
 	"github.com/marco-fabbri/portico/internal/tenant"
 )
@@ -366,19 +366,5 @@ func (h *Handler) fragment(w http.ResponseWriter, r *http.Request, pageName, blo
 	}
 }
 
-// statusOf maps service and store errors to HTTP statuses like the API.
-func statusOf(err error) int {
-	switch {
-	case errors.Is(err, store.ErrNotFound):
-		return http.StatusNotFound
-	case errors.Is(err, store.ErrExists), errors.Is(err, tenant.ErrExists), errors.Is(err, tenant.ErrBusy), errors.Is(err, tenant.ErrState),
-		errors.Is(err, tenant.ErrPlacementExists), errors.Is(err, tenant.ErrHasSites), errors.As(err, new(*tenant.NotEmptyError)):
-		return http.StatusConflict
-	case errors.Is(err, tenant.ErrCount):
-		return http.StatusServiceUnavailable
-	case errors.Is(err, tenant.ErrInvalidSlug), errors.Is(err, tenant.ErrUnknownSite), errors.Is(err, tenant.ErrNoPlacementTarget):
-		return http.StatusBadRequest
-	default:
-		return http.StatusInternalServerError
-	}
-}
+// statusOf answers a tenant error with the API's status.
+func statusOf(err error) int { return api.TenantStatus(err) }
