@@ -258,9 +258,16 @@ restorecon -R /etc/portico /usr/local/bin/portico /usr/local/sbin/portico-instal
 sysctl -q --system >/dev/null
 systemctl daemon-reload
 systemctl enable firewalld portico keycloak-hostname.path portico-exposure.path portico-firstboot >/dev/null 2>&1 || true
+# A firewalld reload drops the rules netavark set for the containers'
+# network: inside keycloak "postgres" stops resolving and new database
+# connections fail until the next container restart (measured). This
+# unit, shipped with netavark and disabled, puts them back after every
+# reload; on its own line, as an older netavark may not ship it.
+systemctl enable netavark-firewalld-reload.service >/dev/null 2>&1 || true
 if sshd -t 2>/dev/null; then systemctl reload sshd 2>/dev/null || true; fi
 if [ $START -eq 1 ]; then
   systemctl start firewalld
+  systemctl start netavark-firewalld-reload.service 2>/dev/null || true
   configure_firewall
   if containers_changed; then
     log "a quadlet changed: restarting PostgreSQL and Keycloak"
