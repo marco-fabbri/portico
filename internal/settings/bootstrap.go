@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"regexp"
+	"sync"
 	"time"
 )
 
@@ -16,6 +17,10 @@ import (
 type Bootstrapper struct {
 	log *slog.Logger
 	svc *Service
+	// kcMu puts the realm job and "Use an existing realm" one after the
+	// other: the second finds what the first made instead of both
+	// creating the same clients at once.
+	kcMu sync.Mutex
 }
 
 // NewBootstrapper returns a bootstrapper that stores what a step sets
