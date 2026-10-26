@@ -39,6 +39,7 @@ type Options struct {
 	Sessions *auth.MemoryStore    // admin sessions: 8 h absolute, 15 min idle
 	Limiter  *api.Limiter         // shared with the API's Basic check
 	Setup    *api.SettingsOptions // settings document, checks and restart; nil disables /setup
+	Exposure ExposureOptions      // the exposure requests; zero hides the form
 	Secure   bool                 // the listener has TLS: Secure cookie
 	Version  string
 	Log      *slog.Logger
@@ -53,6 +54,7 @@ type Handler struct {
 	sessions *auth.MemoryStore
 	limiter  *api.Limiter
 	setup    *api.SettingsOptions
+	exposure ExposureOptions
 	secure   bool
 	version  string
 	log      *slog.Logger
@@ -75,7 +77,7 @@ func New(o Options) *Handler {
 	if o.Branding == nil {
 		o.Branding = branding.NewService(o.Store, o.Log)
 	}
-	h := &Handler{st: o.Store, svc: o.Service, brand: o.Branding, sessions: o.Sessions, limiter: o.Limiter, setup: o.Setup, secure: o.Secure, version: o.Version, log: o.Log}
+	h := &Handler{st: o.Store, svc: o.Service, brand: o.Branding, sessions: o.Sessions, limiter: o.Limiter, setup: o.Setup, exposure: o.Exposure, secure: o.Secure, version: o.Version, log: o.Log}
 	h.pages = parsePages()
 	h.icons = branding.AdminIcons()
 	mux := http.NewServeMux()
@@ -91,6 +93,7 @@ func New(o Options) *Handler {
 	h.routes(mux)
 	h.connectionRoutes(mux)
 	h.setupRoutes(mux)
+	h.exposureRoutes(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		h.render(w, r, http.StatusNotFound, "notfound", "Not found", nil, "")
 	})

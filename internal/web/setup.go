@@ -35,6 +35,9 @@ type setupData struct {
 	// Done says, per card, whether its required fields and secrets are
 	// all there: the card states it and folds its bootstrap form away.
 	Done map[string]bool
+	// Exposure is the exposure card's state, read from the request
+	// directory and the certificate in service.
+	Exposure exposureData
 }
 
 func (h *Handler) setupRoutes(mux *http.ServeMux) {
@@ -91,6 +94,7 @@ func toSetupData(s settings.Settings, source, mode string) setupData {
 
 func (h *Handler) renderSetup(w http.ResponseWriter, r *http.Request, status int, s settings.Settings, source, errMsg string) {
 	d := toSetupData(s, source, h.setup.Mode)
+	d.Exposure = h.exposureState(r)
 	for i := range d.Sites {
 		d.Sites[i].Tenants = h.siteTenants(r, d.Sites[i].S.ID)
 		if h.setup.Runtime != nil {
