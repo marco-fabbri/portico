@@ -253,6 +253,12 @@ then `ssh -L 8080:127.0.0.1:8080 admin@<address>` and
 in the admin console when you are done. `--http-management-port` keeps
 the command off the port the running Keycloak holds.
 
+An appliance installed before Portico created the realm by itself has
+no temporary administrator, and the Identity card says so in a warning,
+not an error. Create an administrator with the command above, enter it
+in "Use an existing realm" with the realm name `portico`, and Portico
+creates the realm and its clients with it; then delete the account.
+
 Whenever the settings are saved with an identity host (the first card,
 and Apply), Portico writes `KC_HOSTNAME` for it into
 `/var/lib/portico/keycloak.hostname.env`; the unit

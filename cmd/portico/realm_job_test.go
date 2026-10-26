@@ -106,8 +106,10 @@ func TestRealmAttemptPhases(t *testing.T) {
 	}
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
 	defer up.Close()
-	// Keycloak answers, but there is no temporary administrator and no realm.
-	if p, msg := realmAttempt(opts, up.URL, "", nil)(context.Background(), j); p != phaseFailed || !strings.Contains(msg, "existing realm") {
+	// Keycloak answers, but there is no temporary administrator and no
+	// realm (an appliance installed before the job existed): something
+	// for the operator to do, not a failure.
+	if p, msg := realmAttempt(opts, up.URL, "", nil)(context.Background(), j); p != phaseNeedsAdmin || !strings.Contains(msg, "Use an existing realm") || !strings.Contains(msg, "docs/operating.md") {
 		t.Fatalf("no administrator: %s %q", p, msg)
 	}
 }
@@ -149,5 +151,31 @@ func TestRealmAttemptInServiceUsesTheRunningNames(t *testing.T) {
 		if c["clientId"] == "portico" && c["redirectUris"].([]any)[0] != "https://prism.example.test/.portico/callback" {
 			t.Fatalf("OIDC client moved to the saved names: %v", c["redirectUris"])
 		}
+	}
+}
+
+// Without a temporary administrator nothing changes by itself: the job
+// waits for a kick (a names save, Retry) instead of retrying.
+func TestRealmJobNeedsAdminWaitsForAKick(t *testing.T) {
+	var calls atomic.Int32
+	j := newRealmJob(func(ctx context.Context, j *realmJob) (string, string) {
+		calls.Add(1)
+		return phaseNeedsAdmin, "enter an administrator"
+	})
+	j.waitRetry, j.failRetry = time.Millisecond, time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go j.Start(ctx)
+	time.Sleep(30 * time.Millisecond)
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("attempts without a kick: %d", n)
+	}
+	j.Kick()
+	deadline := time.Now().Add(time.Second)
+	for calls.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if calls.Load() != 2 {
+		t.Fatal("a kick did not run an attempt")
 	}
 }

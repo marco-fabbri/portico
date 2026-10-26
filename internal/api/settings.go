@@ -46,7 +46,7 @@ type SettingsOptions struct {
 }
 
 // RealmJob is the realm creation as the setup page sees it: the phase
-// (waiting-names, waiting-keycloak, creating, ready, failed) with its
+// (waiting-names, waiting-keycloak, creating, ready, failed, needs-admin) with its
 // message, and Kick to run it now.
 type RealmJob interface {
 	State() (phase, msg string)
