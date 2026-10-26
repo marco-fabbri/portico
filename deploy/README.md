@@ -9,10 +9,11 @@ installer that puts it there (design 4.9).
 | `portico.appliance.yaml` | `/etc/portico/portico.yaml` (only when absent) | Process settings of the appliance: listeners, TLS files, store; no runtime section, so a fresh host starts in setup mode |
 | `portico.yaml.example` | | The full settings file with every runtime section, for the pre-created path (`portico settings import`) |
 | `portico.service` | `/etc/systemd/system/portico.service` | The service, unprivileged, `Restart=always` |
-| `portico-console.service` | `/etc/systemd/system/getty@tty1.service.d/override.conf` | The console wizard on tty1 |
+| `portico-console.service` | `/etc/systemd/system/getty@tty1.service.d/override.conf` | The console wizard on tty1: network, break-glass password, status |
 | `quadlets/*.container`, `quadlets/portico.network` | `/etc/containers/systemd/` | PostgreSQL and Keycloak as podman quadlets |
 | `keycloak-hostname.path`, `.service` | `/etc/systemd/system/` | Restart Keycloak when Portico writes its public hostname on Apply |
-| `cloudflared.service` | `/etc/systemd/system/cloudflared.service` | The tunnel connector, enabled by the wizard in tunnel mode |
+| `portico-exposure.path`, `.service` | `/etc/systemd/system/` | Run `portico exposure apply` as root when the admin UI asks for a certificate, a self-signed pair or the tunnel |
+| `cloudflared.service` | `/etc/systemd/system/cloudflared.service` | The tunnel connector, enabled by `portico exposure apply` in tunnel mode |
 | `firewalld/portico.xml` | `/etc/firewalld/services/portico.xml` | Ports 443 and 8443 |
 | `sshd/00-portico.conf`, `sysctl/60-portico.conf` | drop-ins | Keys only, no root; CIS network parameters |
 | `tofu/nutanix/` | | OpenTofu module: the image and the VM on Prism Central |
@@ -22,7 +23,7 @@ installer that puts it there (design 4.9).
 **The appliance image** (`portico-<version>.qcow2` on the GitHub release)
 is a Rocky Linux 9 built from `image/` with this installer already run:
 import it into Prism Central, create the VM (2 vCPU, 6 GiB, 40 GiB), boot,
-and the console wizard takes over.
+set the network on the console and continue in the browser.
 
 **An existing Rocky Linux 9 host** (a VM on any hypervisor, a cloud
 instance): as root,
@@ -37,9 +38,9 @@ tar -xzf install-<version>.tar.gz && cd deploy && ./install.sh --release <versio
 The installer verifies the binary's checksum, installs everything above,
 generates the Keycloak secrets and the internal TLS pair once, starts the
 services and leaves the host in setup mode with the factory password
-(`admin` / `portico/4u`, changed at the first login). Then either open the
-console (`portico console` on tty1, or run it over SSH as root) for the
-exposure, or do the same by hand and open `https://<address>:8443/`.
+(`admin` / `portico/4u`, changed at the first login). Then open
+`https://<address>:8443/`: the setup page does the exposure and the
+Keycloak realm.
 
 Re-running the installer upgrades the binary and the files and keeps
 every secret, the store and the settings. Before it replaces an

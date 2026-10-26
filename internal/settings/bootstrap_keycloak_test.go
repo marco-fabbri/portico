@@ -338,7 +338,7 @@ func TestKeycloakBootstrapSetsAPasswordPolicy(t *testing.T) {
 }
 
 // Review of Milestone 3: saving the public names restarts Keycloak (the
-// hostname file), and the Keycloak card is the next thing an administrator
+// hostname file), and the Identity card is the next thing an administrator
 // does. The bootstrap waits for Keycloak to answer (bounded) instead of
 // failing on the restart.
 func TestKeycloakBootstrapWaitsForARestartingKeycloak(t *testing.T) {
