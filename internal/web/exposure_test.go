@@ -240,3 +240,66 @@ func TestExposureStatusShowsTheResult(t *testing.T) {
 		t.Fatalf("setup page lacks the exposure card")
 	}
 }
+
+// The result is written before the request is deleted: a result with the
+// request's id ends the wait even while request.json is still there.
+func TestExposureWaitEndsOnTheMatchingResult(t *testing.T) {
+	e, dir, _ := exposureEnv(t, true)
+	os.WriteFile(filepath.Join(dir, "request.json"), []byte(`{"id":"r2","mode":"direct"}`), 0o600)
+	os.WriteFile(filepath.Join(dir, "result.json"), []byte(`{"id":"r1","ok":true,"message":"older change","mode":"direct"}`), 0o644)
+	if body := e.do("GET", "/exposure/status", nil, true).Body.String(); !strings.Contains(body, "every 2s") {
+		t.Fatalf("an older result ended the wait: %s", body)
+	}
+	os.WriteFile(filepath.Join(dir, "result.json"), []byte(`{"id":"r2","ok":true,"message":"certificate installed","mode":"direct"}`), 0o644)
+	if body := e.do("GET", "/exposure/status", nil, true).Body.String(); strings.Contains(body, "every 2s") || !strings.Contains(body, "certificate installed") {
+		t.Fatalf("still waiting with the result in: %s", body)
+	}
+}
+
+// A mode change restarts Portico, which ends the session (they live in
+// memory): the banner polls /exposure/ready, which needs no session and
+// says only whether the change is still being applied.
+func TestExposureRestartBannerWaitsWithoutTheSession(t *testing.T) {
+	e, dir, _ := exposureEnv(t, true)
+	os.WriteFile(filepath.Join(dir, "request.json"), []byte(`{"id":"r3","mode":"tunnel"}`), 0o600)
+	if body := e.do("GET", "/exposure/status", nil, true).Body.String(); !strings.Contains(body, `hx-get="/exposure/ready"`) {
+		t.Fatalf("the restart banner does not poll: %s", body)
+	}
+	rec := e.do("GET", "/exposure/ready", nil, false)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Applying") || strings.Contains(rec.Body.String(), "tunnel") {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	os.WriteFile(filepath.Join(dir, "result.json"), []byte(`{"id":"r3","ok":false,"message":"cloudflared stopped right after its start","mode":"tunnel"}`), 0o644)
+	os.Remove(filepath.Join(dir, "request.json"))
+	body := e.do("GET", "/exposure/ready", nil, false).Body.String()
+	if !strings.Contains(body, `href="/login?next=/setup"`) || strings.Contains(body, "cloudflared") || strings.Contains(body, "every 2s") {
+		t.Fatalf("done: %s", body)
+	}
+}
+
+// A request nobody applied (the path unit stopped) must not lock the
+// form: after two minutes it is reported and a new one replaces it.
+func TestExposureStaleRequestUnlocksTheForm(t *testing.T) {
+	e, dir, _ := exposureEnv(t, true)
+	req := filepath.Join(dir, "request.json")
+	os.WriteFile(req, []byte(`{"id":"old","mode":"direct"}`), 0o600)
+	os.WriteFile(filepath.Join(dir, "token"), []byte("stale\n"), 0o600)
+	old := time.Now().Add(-3 * time.Minute)
+	os.Chtimes(req, old, old)
+	body := e.do("GET", "/exposure/status", nil, true).Body.String()
+	if strings.Contains(body, "every 2s") || !strings.Contains(body, "portico-exposure.path") {
+		t.Fatalf("a stale request still waits: %s", body)
+	}
+	c, k := pairFor(t, "prism.example.test", "id.example.test")
+	rec := e.upload(t, map[string]string{"mode": "certificate"}, map[string][]byte{"cert": c, "key": k})
+	if rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	b, _ := os.ReadFile(req)
+	if strings.Contains(string(b), `"old"`) {
+		t.Fatalf("the stale request was kept: %s", b)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "token")); err == nil {
+		t.Fatal("the stale request's token was kept")
+	}
+}

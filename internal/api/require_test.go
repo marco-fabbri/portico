@@ -184,3 +184,17 @@ func TestRequireAdminRefusesTheFactoryPasswordOnTheAPI(t *testing.T) {
 		t.Fatalf("new password on the API: %d", rec.Code)
 	}
 }
+
+// The restart pages poll across a restart, which ends the session: they
+// pass without one; the exposure state itself does not.
+func TestRequireAdminLetsTheRestartPollsThrough(t *testing.T) {
+	h, _, _ := requireEnv(t, true)
+	for _, p := range []string{"/setup/ready", "/exposure/ready"} {
+		if rec := call(h, p, "", "", "", ""); rec.Code != http.StatusTeapot {
+			t.Fatalf("%s without a session: %d", p, rec.Code)
+		}
+	}
+	if rec := call(h, "/exposure/status", "", "", "", ""); rec.Code != http.StatusSeeOther {
+		t.Fatalf("/exposure/status without a session: %d", rec.Code)
+	}
+}

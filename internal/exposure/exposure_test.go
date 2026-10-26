@@ -397,3 +397,30 @@ func TestApplyReadsOnlyRegularRequestFiles(t *testing.T) {
 		t.Fatal("installed through a link")
 	}
 }
+
+// orderHost checks, when the request is deleted, that its result is
+// already written: the admin UI stops waiting on either sign.
+type orderHost struct {
+	*fakeHost
+	t *testing.T
+}
+
+func (h orderHost) Remove(p string) error {
+	if strings.HasSuffix(p, "/request.json") {
+		var res Result
+		if err := json.Unmarshal(h.files[dir+"/result.json"], &res); err != nil || res.ID != "r9" {
+			h.t.Fatalf("request deleted before its result: %q", h.files[dir+"/result.json"])
+		}
+	}
+	return h.fakeHost.Remove(p)
+}
+
+func TestApplyWritesTheResultBeforeDeletingTheRequest(t *testing.T) {
+	h := newFakeHost()
+	h.files[cfgPath] = []byte(directYAML)
+	request(h, Request{ID: "r9", Mode: "direct"})
+	Apply(orderHost{h, t}, dir, cfgPath)
+	if _, ok := h.files[dir+"/request.json"]; ok {
+		t.Fatal("request left behind")
+	}
+}

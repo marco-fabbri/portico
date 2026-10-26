@@ -46,6 +46,35 @@ type exposureData struct {
 func (h *Handler) exposureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /exposure", h.exposureSubmit)
 	mux.HandleFunc("GET /exposure/status", h.exposureStatus)
+	mux.HandleFunc("GET /exposure/ready", h.exposureReady)
+}
+
+// staleRequest is how long a request may wait for the path unit: Apply
+// takes seconds (the tunnel check waits five), so a request still there
+// after two minutes was never applied, and must not lock the form.
+const staleRequest = 2 * time.Minute
+
+// pendingRequest reports the request waiting in dir: pending while it is
+// there without a result carrying its id, stale once it has waited
+// longer than staleRequest.
+func pendingRequest(dir string) (req exposure.Request, pending, stale bool) {
+	path := filepath.Join(dir, exposure.RequestFile)
+	fi, err := os.Stat(path)
+	if err != nil {
+		return req, false, false
+	}
+	b, _ := os.ReadFile(path)
+	json.Unmarshal(b, &req)
+	if b, err := os.ReadFile(filepath.Join(dir, exposure.ResultFile)); err == nil {
+		var res exposure.Result
+		if json.Unmarshal(b, &res) == nil && req.ID != "" && res.ID == req.ID {
+			return req, false, false
+		}
+	}
+	if time.Since(fi.ModTime()) > staleRequest {
+		return req, false, true
+	}
+	return req, true, false
 }
 
 func (h *Handler) exposureState(r *http.Request) exposureData {
@@ -70,19 +99,22 @@ func (h *Handler) exposureState(r *http.Request) exposureData {
 			d.Last = &res
 		}
 	}
-	if b, err := os.ReadFile(filepath.Join(o.Dir, exposure.RequestFile)); err == nil {
+	req, pending, stale := pendingRequest(o.Dir)
+	switch {
+	case pending:
 		d.Pending = true
-		var req exposure.Request
-		if json.Unmarshal(b, &req) == nil {
-			d.Restart = (req.Mode == "tunnel") != o.Tunnel
-		}
+		d.Restart = (req.Mode == "tunnel") != o.Tunnel
+	case stale:
+		d.Error = "the last change was not applied within two minutes: check systemctl status portico-exposure.path on the appliance, then send it again"
 	}
 	return d
 }
 
 func (h *Handler) renderExposure(w http.ResponseWriter, r *http.Request, status int, errMsg string) {
 	d := h.exposureState(r)
-	d.Error = errMsg
+	if errMsg != "" {
+		d.Error = errMsg
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(swapStatus(r, status))
 	if err := h.pages["setup"].ExecuteTemplate(w, "exposure-status", d); err != nil {
@@ -102,6 +134,22 @@ func swapStatus(r *http.Request, status int) int {
 
 func (h *Handler) exposureStatus(w http.ResponseWriter, r *http.Request) {
 	h.renderExposure(w, r, http.StatusOK, "")
+}
+
+// exposureReady is what the restart banner polls: a mode change restarts
+// Portico and the session with it, so this answer needs no session and
+// says only whether a change is still being applied, nothing of it.
+func (h *Handler) exposureReady(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if h.exposure.Dir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if _, pending, _ := pendingRequest(h.exposure.Dir); pending {
+		w.Write([]byte(`<div class="banner warning" hx-get="/exposure/ready" hx-trigger="every 2s" hx-swap="outerHTML">Applying: Portico restarts to change the mode, which ends this session.</div>`))
+		return
+	}
+	w.Write([]byte(`<div class="banner notice">The change is applied. <a href="/login?next=/setup">Log in again</a> to see its result.</div>`))
 }
 
 // exposureSubmit checks what the form carries and writes a request: the
@@ -127,9 +175,18 @@ func (h *Handler) exposureSubmit(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if _, err := os.Stat(filepath.Join(dir, exposure.RequestFile)); err == nil {
+	if old, pending, stale := pendingRequest(dir); pending {
 		h.renderExposure(w, r, http.StatusConflict, "a change is being applied: wait for its result")
 		return
+	} else if stale {
+		// Nobody applied it: its files go before the new ones are written.
+		for _, f := range []string{exposure.RequestFile, exposure.CertFile, exposure.KeyFile, exposure.TokenFile} {
+			if err := os.Remove(filepath.Join(dir, f)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				h.renderExposure(w, r, http.StatusInternalServerError, "the unapplied request cannot be removed: "+err.Error())
+				return
+			}
+		}
+		h.log.Warn("exposure request never applied, replaced", "id", old.ID)
 	}
 	cur, _, ok := h.current(w, r)
 	if !ok {

@@ -156,7 +156,7 @@
 {{define "exposure-status"}}
 {{if .Error}}<div class="banner error">{{.Error}}</div>{{end}}
 {{if .Pending}}
-{{if .Restart}}<div class="banner warning">Applying: Portico restarts to change the mode, which ends this session. Log in again in a minute.</div>
+{{if .Restart}}<div class="banner warning" hx-get="/exposure/ready" hx-trigger="every 2s" hx-swap="outerHTML">Applying: Portico restarts to change the mode, which ends this session.</div>
 {{else}}<div class="banner notice" hx-get="/exposure/status" hx-trigger="every 2s" hx-target="#exposure-status">Applying the change…</div>{{end}}
 {{else if .Last}}<div class="banner {{if .Last.OK}}notice{{else}}error{{end}}">Last change: {{.Last.Message}}</div>{{end}}
 {{if .Tunnel}}<p class="state done">Cloudflare tunnel: Portico listens on the loopback for cloudflared.</p>
