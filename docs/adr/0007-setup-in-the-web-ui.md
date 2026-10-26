@@ -26,11 +26,14 @@ came next, under a name the page did not use.
    names and exposure"): upload a certificate and key, a self-signed pair
    for a first try, or the tunnel token. The page checks a pair before
    anything is written (names, chain order, key match, passphrase,
-   validity, 64 KiB per file) and never echoes or logs a key or a token.
+   validity, keys and signatures browsers accept, 64 KiB per file) and
+   never echoes or logs a key or a token.
 3. **Root acts through a path unit.** The service is unprivileged and
    cannot write `/etc/portico/tls`, the tunnel token or restart a unit.
    The page writes the files and then `request.json` into
-   `/var/lib/portico/exposure/` (0700, `portico`); `portico-exposure.path`
+   `/var/lib/portico/exposure/` (0700, `portico`), each aside and renamed
+   into place (`PathChanged=` fires on the rename, measured on systemd
+   252), and removes what it wrote when a write fails; `portico-exposure.path`
    runs `portico exposure apply` as root, which checks the pair again,
    installs it, switches the mode and deletes the request. It is the
    pattern of `keycloak-hostname.path`.
