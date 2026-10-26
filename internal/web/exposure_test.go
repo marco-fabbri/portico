@@ -266,13 +266,15 @@ func TestExposureRestartBannerWaitsWithoutTheSession(t *testing.T) {
 		t.Fatalf("the restart banner does not poll: %s", body)
 	}
 	rec := e.do("GET", "/exposure/ready", nil, false)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Applying") || strings.Contains(rec.Body.String(), "tunnel") {
+	// The token may be refused, and then nothing restarts: the banner
+	// says what happens if the mode changes, not that it does.
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Applying: if the mode changes, Portico restarts and this session ends.") || strings.Contains(rec.Body.String(), "tunnel") {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
 	os.WriteFile(filepath.Join(dir, "result.json"), []byte(`{"id":"r3","ok":false,"message":"cloudflared stopped right after its start","mode":"tunnel"}`), 0o644)
 	os.Remove(filepath.Join(dir, "request.json"))
 	body := e.do("GET", "/exposure/ready", nil, false).Body.String()
-	if !strings.Contains(body, `href="/login?next=/setup"`) || strings.Contains(body, "cloudflared") || strings.Contains(body, "every 2s") {
+	if !strings.Contains(body, `<a href="/setup">Open the setup page</a>`) || strings.Contains(body, "applied") || strings.Contains(body, "cloudflared") || strings.Contains(body, "every 2s") {
 		t.Fatalf("done: %s", body)
 	}
 }
