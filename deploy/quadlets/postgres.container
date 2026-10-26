@@ -1,6 +1,10 @@
 # Podman quadlet: PostgreSQL for Keycloak. Installed by deploy/install.sh.
 [Unit]
 Description=PostgreSQL for Keycloak
+# The first boot pulls the image, maybe before the network is up: the
+# default start limit (5 starts in 10 s) gave up in two seconds and left
+# the unit failed for good. With no limit it retries every RestartSec.
+StartLimitIntervalSec=0
 
 [Container]
 Image=docker.io/library/postgres:16
@@ -13,6 +17,7 @@ Volume=postgres-data:/var/lib/postgresql/data:Z
 
 [Service]
 Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
