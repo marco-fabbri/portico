@@ -78,9 +78,6 @@ func svgHasActiveContent(data []byte) bool {
 		strings.Contains(s, "<foreignobject") || reSVGEvent.MatchString(s)
 }
 
-// LogoExt returns the file extension of the logo type ("" without a logo).
-func (b Branding) LogoExt() string { return logoTypes[b.LogoType] }
-
 // HasLogo reports whether a logo is set.
 func (b Branding) HasLogo() bool { return b.LogoType != "" && len(b.LogoData) > 0 }
 
