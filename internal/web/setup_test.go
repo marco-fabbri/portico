@@ -327,9 +327,33 @@ func TestIdentityCardFollowsTheRealmJob(t *testing.T) {
 	if rec := e.do("POST", "/setup/realm/retry", e.form(), true); rec.Code != 200 || realm.kicks != 2 {
 		t.Fatalf("retry: %d kicks %d", rec.Code, realm.kicks)
 	}
+	realm.phase, realm.msg = "needs-admin", "enter a Keycloak administrator in Use an existing realm"
+	if frag := e.do("GET", "/setup/realm", nil, true).Body.String(); !strings.Contains(frag, "banner warning") || strings.Contains(frag, "every 3s") || !strings.Contains(frag, "Use an existing realm") {
+		t.Fatalf("needs-admin fragment: %s", frag)
+	}
 	realm.phase, realm.msg = "ready", "realm portico is ready"
 	if frag := e.do("GET", "/setup/realm", nil, true).Body.String(); strings.Contains(frag, "every 3s") || !strings.Contains(frag, "realm portico is ready") {
 		t.Fatalf("ready fragment: %s", frag)
+	}
+}
+
+// Without a temporary administrator the card points to Use an existing
+// realm, so that form opens.
+func TestIdentityCardOpensTheFormWhenTheJobNeedsAnAdmin(t *testing.T) {
+	e := newEnv(t, true)
+	svc, _, _ := withSetup(t, e, false)
+	s, _ := svc.Get(context.Background())
+	s.Keycloak.Realm, s.Keycloak.AdminClientSecret, s.OIDC.ClientSecret = "", "", ""
+	svc.Set(context.Background(), s)
+	realm := &fakeRealm{phase: "waiting-keycloak", msg: "Keycloak is starting"}
+	e.web.setup.Realm, e.web.setup.Mode = realm, "setup"
+	e.login(t)
+	if body := e.do("GET", "/setup", nil, true).Body.String(); !strings.Contains(body, "<details><summary>Use an existing realm") {
+		t.Fatal("the form is open while the job works")
+	}
+	realm.phase = "needs-admin"
+	if body := e.do("GET", "/setup", nil, true).Body.String(); !strings.Contains(body, "<details open><summary>Use an existing realm") {
+		t.Fatal("the form the banner points to is closed")
 	}
 }
 

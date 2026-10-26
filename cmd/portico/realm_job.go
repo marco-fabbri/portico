@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -18,6 +19,10 @@ const (
 	phaseCreating        = "creating"
 	phaseReady           = "ready"
 	phaseFailed          = "failed"
+	// phaseNeedsAdmin: no temporary administrator and no realm, an
+	// appliance installed before the job existed. The operator enters an
+	// administrator in "Use an existing realm".
+	phaseNeedsAdmin = "needs-admin"
 )
 
 // realmJob creates the Keycloak realm in the background once the public
@@ -80,7 +85,7 @@ func (j *realmJob) Start(ctx context.Context) {
 		j.set(phase, msg)
 		var after <-chan time.Time
 		switch phase {
-		case phaseReady:
+		case phaseReady, phaseNeedsAdmin: // nothing changes by itself: wait for a kick
 		case phaseFailed:
 			after = time.After(j.failRetry)
 		default:
@@ -120,6 +125,9 @@ func realmAttempt(setup *api.SettingsOptions, keycloakURL, bootstrapFile string,
 		j.set(phaseCreating, "Creating the realm and Portico's clients…")
 		res, _, err := setup.Bootstrapper.KeycloakAuto(ctx, keycloakURL, s, bootstrapFile)
 		switch {
+		case errors.Is(err, settings.ErrNoTemporaryAdmin):
+			return phaseNeedsAdmin, "This appliance has no temporary Keycloak administrator: it is deleted once used, and an appliance installed before this version never had one. " +
+				"Enter a Keycloak administrator in Use an existing realm below and Portico creates the realm with it; docs/operating.md, The Keycloak administrator, gives the command that creates one."
 		case err != nil: // a *settings.StateError says what the operator does instead
 			return phaseFailed, err.Error()
 		case !res.OK && (strings.Contains(res.Message, "not answering") || strings.Contains(res.Message, "did not answer")):

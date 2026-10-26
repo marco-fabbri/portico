@@ -193,6 +193,11 @@ const (
 	AutoRealmDisplayName = "Portico MSP"
 )
 
+// ErrNoTemporaryAdmin is KeycloakAuto without the first boot's
+// administrator and without a realm: it is deleted once used, and an
+// appliance installed before Portico created the realm never had one.
+var ErrNoTemporaryAdmin = &StateError{Msg: "Keycloak's temporary administrator is gone (it is used once and deleted): use an existing realm"}
+
 // KeycloakAuto is the Identity card without credentials typed by anyone
 // (design §4.5). On a new appliance the installer leaves a copy of
 // Keycloak's temporary administrator in bootstrapFile, readable by
@@ -212,7 +217,7 @@ func (b *Bootstrapper) KeycloakAuto(ctx context.Context, keycloakURL string, s S
 	}
 	realmDone := s.Keycloak.Realm != "" && s.Keycloak.AdminClientID != "" && s.Keycloak.AdminClientSecret != "" && s.OIDC.ClientSecret != ""
 	if user == "" && !realmDone {
-		return KeycloakResult{}, s, &StateError{Msg: "Keycloak's temporary administrator is gone (it is used once and deleted): use an existing realm"}
+		return KeycloakResult{}, s, ErrNoTemporaryAdmin
 	}
 	res := KeycloakResult{Created: []string{}}
 	if !realmDone {
