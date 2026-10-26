@@ -59,6 +59,12 @@ var adminClientRoles = []string{"manage-users", "view-users", "query-users", "qu
 const RealmPasswordPolicy = "length(12) and notUsername and notEmail"
 
 func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Settings, in KeycloakInput) (KeycloakResult, Settings, error) {
+	b.kcMu.Lock()
+	defer b.kcMu.Unlock()
+	return b.keycloak(ctx, keycloakURL, s, in)
+}
+
+func (b *Bootstrapper) keycloak(ctx context.Context, keycloakURL string, s Settings, in KeycloakInput) (KeycloakResult, Settings, error) {
 	if strings.TrimSpace(s.PortalHost) == "" || strings.TrimSpace(s.IDHost) == "" {
 		return KeycloakResult{}, s, &StateError{Msg: "save the public names first: the clients need them"}
 	}
@@ -208,6 +214,8 @@ var ErrNoTemporaryAdmin = &StateError{Msg: "Keycloak's temporary administrator i
 // set (the public names changed later), Portico's own admin client
 // updates the OIDC client and the issuer follows the identity name.
 func (b *Bootstrapper) KeycloakAuto(ctx context.Context, keycloakURL string, s Settings, bootstrapFile string) (KeycloakResult, Settings, error) {
+	b.kcMu.Lock()
+	defer b.kcMu.Unlock()
 	if strings.TrimSpace(s.PortalHost) == "" || strings.TrimSpace(s.IDHost) == "" {
 		return KeycloakResult{}, s, &StateError{Msg: "save the public names first: the clients need them"}
 	}
@@ -221,7 +229,7 @@ func (b *Bootstrapper) KeycloakAuto(ctx context.Context, keycloakURL string, s S
 	}
 	res := KeycloakResult{Created: []string{}}
 	if !realmDone {
-		res, s, err = b.Keycloak(ctx, keycloakURL, s, KeycloakInput{AdminUsername: user, AdminPassword: pw, Realm: AutoRealm, DisplayName: AutoRealmDisplayName})
+		res, s, err = b.keycloak(ctx, keycloakURL, s, KeycloakInput{AdminUsername: user, AdminPassword: pw, Realm: AutoRealm, DisplayName: AutoRealmDisplayName})
 		if err != nil || !res.OK || (b.svc != nil && !res.Stored) {
 			return res, s, err
 		}

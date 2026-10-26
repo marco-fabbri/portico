@@ -512,3 +512,55 @@ func TestKeycloakAutoDroppedConnectionIsNotAnswering(t *testing.T) {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 }
+
+// The realm job and "Use an existing realm" go one after the other: the
+// second finds the realm and clients the first made, instead of both
+// creating them at once.
+func TestKeycloakManualWaitsForTheJob(t *testing.T) {
+	ctx := context.Background()
+	kc := newFakeKCAdmin(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var gated, during atomic.Int32
+	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && r.URL.Path == "/admin/realms" && gated.Add(1) == 1 {
+			close(entered)
+			<-release
+		} else if gated.Load() == 1 {
+			during.Add(1)
+		}
+		kc.handle(w, r)
+	}))
+	t.Cleanup(gate.Close)
+	svc := newService(t)
+	s := namedSettings(t, svc)
+	b := NewBootstrapper(nil, svc)
+	type out struct {
+		res KeycloakResult
+		err error
+	}
+	job, manual := make(chan out, 1), make(chan out, 1)
+	go func() {
+		res, _, err := b.KeycloakAuto(ctx, gate.URL, s, writeBootstrapFile(t))
+		job <- out{res, err}
+	}()
+	<-entered
+	go func() {
+		res, _, err := b.Keycloak(ctx, gate.URL, s, KeycloakInput{AdminUsername: "kcadmin", AdminPassword: "adm-pw-1", Realm: AutoRealm})
+		manual <- out{res, err}
+	}()
+	time.Sleep(100 * time.Millisecond)
+	n := during.Load()
+	close(release)
+	j, m := <-job, <-manual
+	if n != 0 {
+		t.Fatalf("the manual bootstrap reached Keycloak %d times while the job was creating the realm", n)
+	}
+	if j.err != nil || !j.res.OK {
+		t.Fatalf("job: %+v %v", j.res, j.err)
+	}
+	// The job deleted the temporary administrator: the manual run with
+	// it is refused, and says so, without touching the realm.
+	if m.err != nil || m.res.OK || !strings.Contains(m.res.Message, "refused the administrator credentials") || kc.realms() != 1 {
+		t.Fatalf("manual: %+v %v, realms %d", m.res, m.err, kc.realms())
+	}
+}
