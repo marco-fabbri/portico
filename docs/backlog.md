@@ -154,11 +154,6 @@ this file.
 - The CI's actions run on Node.js 20, which GitHub retires: move
   `actions/checkout`, `setup-go` and the upload actions to their Node 24
   majors.
-- `portico exposure apply` decides that a tunnel token works when
-  `cloudflared` is still active five seconds after its start: a well
-  formed but revoked token keeps it retrying without exiting, and the
-  page says OK. Read `cloudflared`'s metrics endpoint (`/ready`) instead
-  (ADR 0007).
 - `deploy/tofu/nutanix` is validated by `tofu validate` and the CI boot
   test renders its template; a `tofu test` with a mock provider would
   also cover the VM resource's arguments (write-up 19).

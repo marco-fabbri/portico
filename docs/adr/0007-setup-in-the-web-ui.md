@@ -65,7 +65,10 @@ came next, under a name the page did not use.
   session and says only whether a change is still being applied. A
   request nobody applied within two minutes is reported and can be
   replaced.
-- A tunnel token is judged by `cloudflared` staying up for five seconds,
-  which a revoked token passes (`docs/backlog.md`).
+- A tunnel token is judged by Cloudflare registering `cloudflared`'s
+  connection within 30 seconds, read on its readiness endpoint, whose
+  address the unit pins. Staying up is not enough: with a token
+  Cloudflare does not know, `cloudflared` 2026.10.4 keeps retrying
+  without exiting (measured).
 - ACME (design 4.6) is still not built; it would plug into the same
   request.

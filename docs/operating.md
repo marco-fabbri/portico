@@ -215,13 +215,14 @@ deletes the request. Its result is in `result.json` beside it and in
   listener picks the new pair up within a few seconds and the tenants
   keep their sessions. A pair that does not load leaves the old one in
   service, with a warning in Portico's log.
-- **Changing the mode** restarts Portico, and every session ends. In
-  tunnel mode `cloudflared` is started first and checked five seconds
-  later; when it stops (a wrong token), the token is withdrawn and
-  Portico keeps the exposure it had.
-- A tunnel whose token is well formed but revoked keeps `cloudflared`
-  retrying without stopping: check the tunnel's state in the Cloudflare
-  dashboard after a change.
+- **Changing the mode** restarts Portico, and every session ends; the
+  page waits and then asks you to log in again. In tunnel mode
+  `cloudflared` is started first, and Portico waits up to 30 seconds for
+  Cloudflare to register its connection (`cloudflared`'s readiness
+  endpoint on `127.0.0.1:20241/ready`). A token Cloudflare does not
+  accept keeps `cloudflared` retrying without stopping, so without a
+  registered connection the token is withdrawn and Portico keeps the
+  exposure it had.
 
 ## The Keycloak administrator
 
