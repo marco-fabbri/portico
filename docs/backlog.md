@@ -19,8 +19,18 @@ this file.
   textually instead (`internal/proxy`).
 - `/.portico/logo` is `no-store` on an unauthenticated path (`private,
   max-age=60` would do).
-- `MaxIdleConnsPerHost` left at the default 2: set it to avoid repeated
-  TLS handshakes to Prism Central (`internal/proxy`).
+- Keycloak asks "Do you want to log out?" when a tenant signs out after
+  Portico lost the session: sessions live in memory, so any restart
+  (Apply, an upgrade, a new TLS pair) or the 15-minute idle limit leaves
+  a cookie without its ID token, and the logout reaches Keycloak with
+  no `id_token_hint` (observed 2026-10-26: login 05:11 UTC, restart
+  05:17, sign out 05:30). Keycloak's page is not branded. Brand the
+  `logout-confirm` page in the generated theme, or keep the ID token
+  past the session (`internal/auth`, `internal/branding`).
+- The site's reverse proxy, the landing client and the Nutanix client
+  build three transports to the same Prism Central; one would do, but
+  it touches the swap and `CloseIdleConnections` of a site
+  (`cmd/portico/sites_runtime.go`).
 - Prism Central HTTP timeout 60 s hard-coded (`internal/nutanix`).
 - Prism Central's own Sign Out spins forever when `/api/nutanix/v3/logout`
   answers 403 upstream (the user was deleted meanwhile, observed
@@ -173,6 +183,39 @@ this file.
   project is unchanged by diffing two snapshots it then discards: one
   run on 2026-10-18 failed that line with no way to see the field; print
   the diff on failure.
+
+## Simplification after v0.1.0
+
+From the code survey before the release (2026-10-26). The small,
+behaviour-preserving items were done then; these change a documented
+surface or the admin authentication path, so they wait for a decision.
+
+- The file mode of the settings (Milestone 2, before the setup page):
+  `config.ValidateRuntime`'s Prism Central and tenant fields,
+  `settings.FromConfig`, `settings import` and the "pre-created path" of
+  `deploy/portico.yaml.example`. Retiring it also shrinks
+  `settings.Overlay`, which still writes fields nobody reads, and
+  `Runtime` to the two Keycloak secrets (about 250 lines).
+- The two-step site endpoints `POST /api/v1/sites/{id}/bootstrap/prism-central`
+  and `/bootstrap/saml`, superseded by the one-step setup but listed in
+  `docs/api.md`: removing them is an API change (about 850 lines of
+  tests).
+- The `prism_host` aliases (store document, YAML, the settings body of
+  the API): drop them one release after 0.1.0 with a note.
+- The adoption of the single-Prism-Central document of before Milestone
+  4 (`adoptLegacy`, `LegacySiteCode`): no 0.1.0 store goes through it.
+- `api.BasicAuth` and `IdentityFromContext` are used by tests only;
+  the admin login page repeats `checkPassword` and `sourceOf` of the
+  API, without the constant-time dummy hash: share them, with a test on
+  the limiter (`internal/api`, `internal/web/login.go`).
+- Three hand-written cookie expiries (logout, leaving a site, switching
+  site): one helper (`internal/auth`, `internal/proxy`).
+- `nutanix.getRaw` repeats `call` for one request; `listAll` decodes
+  each page twice (`internal/nutanix`).
+- The retired VM of Milestones 0 to 2 still has its scripts and their
+  checks: `lab/vm/`, `lab/portico/deploy.sh`, `undeploy.sh`, the lab
+  `portico.yaml` files, and their lines in `lab/test_scripts.sh` and
+  `lab/README.md`.
 
 ## Closed in Milestone 2f (write-up 16)
 
