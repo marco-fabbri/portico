@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/marco-fabbri/portico/internal/textedit"
 )
 
 // Version is the binary's version, set by cmd/portico.
@@ -129,7 +131,7 @@ func (s *session) internalAdmin(addr string) {
 		fmt.Fprintf(s.out, "  admin listener not moved: %v\n", err)
 		return
 	}
-	text, ok := replaceFirst(adminListenRe, string(y), `${1}"`+addr+":"+AdminPort+`"`)
+	text, ok := textedit.ReplaceFirst(adminListenRe, string(y), `${1}"`+addr+":"+AdminPort+`"`)
 	if !ok {
 		fmt.Fprintf(s.out, "  admin listener not moved: internal.admin_listen not found in %s\n", configPath)
 		return

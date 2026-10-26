@@ -85,7 +85,8 @@ generate_secrets() {
     umask 022
   fi
   # Self-signed pairs: internal (the admin listener, ten years) and public
-  # (a placeholder so the service starts; the wizard installs the real one).
+  # (a placeholder so the service starts; the exposure card of the admin
+  # UI installs the real one).
   local name
   for name in internal public; do
     [ -e "$ROOT/etc/portico/tls/$name.key" ] && continue

@@ -2,7 +2,6 @@ package console
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 )
 
@@ -64,14 +63,4 @@ func (s *session) secret(label string) (string, bool) {
 	s.echo(true)
 	fmt.Fprintln(s.out)
 	return strings.TrimSpace(v), ok
-}
-
-func replaceFirst(re *regexp.Regexp, text, repl string) (string, bool) {
-	loc := re.FindStringSubmatchIndex(text)
-	if loc == nil {
-		return text, false
-	}
-	var dst []byte
-	dst = re.ExpandString(dst, repl, text, loc)
-	return text[:loc[0]] + string(dst) + text[loc[1]:], true
 }

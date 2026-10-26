@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/marco-fabbri/portico/internal/textedit"
 )
 
 const (
@@ -281,19 +283,9 @@ func setMode(y string, tunnel bool) (string, error) {
 		key  string
 	}{{listenRe, `${1}"` + listen + `"`, "public.listen"}, {certRe, "${1}" + cert, "public.tls.cert_file"}, {keyRe, "${1}" + key, "public.tls.key_file"}} {
 		var ok bool
-		if text, ok = replaceFirst(r.re, text, r.repl); !ok {
+		if text, ok = textedit.ReplaceFirst(r.re, text, r.repl); !ok {
 			return y, fmt.Errorf("%s not found in the process settings in the shape Portico edits (a quoted value); edit the file by hand", r.key)
 		}
 	}
 	return text, nil
-}
-
-func replaceFirst(re *regexp.Regexp, text, repl string) (string, bool) {
-	loc := re.FindStringSubmatchIndex(text)
-	if loc == nil {
-		return text, false
-	}
-	var dst []byte
-	dst = re.ExpandString(dst, repl, text, loc)
-	return text[:loc[0]] + string(dst) + text[loc[1]:], true
 }
