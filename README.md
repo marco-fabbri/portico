@@ -5,7 +5,7 @@
 [![Prism Central pc.7.6](https://img.shields.io/badge/Prism%20Central-pc.7.6%2B-024DA1.svg)](#requirements)
 [![Keycloak 26](https://img.shields.io/badge/Keycloak-26-4D4D4D.svg?logo=keycloak&logoColor=white)](#what-it-does)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8.svg?logo=go&logoColor=white)](go.mod)
-[![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange.svg)](#status-and-validation)
+[![Release v0.1.0](https://img.shields.io/badge/release-v0.1.0-green.svg)](https://github.com/marco-fabbri/portico/releases/tag/v0.1.0)
 
 A virtual appliance that runs inside a Nutanix cluster and acts as the
 **single, authenticated entry point** through which a managed service
@@ -26,12 +26,13 @@ and the same tenant model.
 > its public v4 APIs; the Nutanix guides it was built against stay on the
 > Nutanix portal.
 >
-> **Pre-release.** Portico is built in the open, milestone by milestone,
-> and has no installable release yet: the appliance image is the next
-> milestone. Everything below was validated on one lab cluster (see
-> [Status and validation](#status-and-validation)). It is provided "as is",
-> without warranty (see [License](#license)). Do not put it in front of
-> customers yet.
+> **First release, 0.1.0.** It is for trying Portico with real tenants
+> on your own Prism Central. Everything below was measured on two test
+> clusters (see [Status and validation](#status-and-validation)), with
+> no production load. Read the
+> [known limits](docs/releases/v0.1.0.md#known-limits) before you put it
+> in front of customers. It is provided "as is", without warranty (see
+> [License](#license)).
 
 ## What it does
 
@@ -46,7 +47,7 @@ recognises. Portico is the path towards it, not a detour.
 
 | Piece | What it does |
 |---|---|
-| **Public path** | `prism.<msp>.example` and `id.<msp>.example` behind a Cloudflare Tunnel or directly on port 443, same guarantees in both modes. No Portico session, no request to Prism Central: the public path fails closed, also with the identity provider down |
+| **Public path** | `portal.msp.example` and `id.msp.example` behind a Cloudflare Tunnel or directly on port 443, same guarantees in both modes. No Portico session, no request to Prism Central: the public path fails closed, also with the identity provider down |
 | **Identity** | Keycloak (OIDC for Portico, SAML for Prism Central): one login for the tenant user, MFA and brokering to the customer's directory available. Prism Central local accounts, `admin` included, can never log in from outside: every local-login path and every `Authorization` header is refused |
 | **Sites** | Several Prism Centrals behind one Portico, shown to tenants as sites such as `AZ-IT-MI1` and `AZ-US-NYC1` on the one public name: the tenant signs in once and chooses a site; no Prism Central address is ever shown. The MSP puts a site in maintenance, sees who is still connected and disconnects them |
 | **Tenant arrival** | One action places a tenant on the sites where it gets resources: on each, a Projects 2.0 project with its resource group, the SAML group and a project-scoped role membership; one group in Keycloak; then a visibility check per site. Sites can be added and removed later; tenants can be disabled, enabled and deleted; users get a one-time temporary password |
@@ -69,7 +70,7 @@ flowchart LR
     end
     A["MSP administrator<br/>(LAN / VPN)"]
 
-    T -->|"443: prism and id hosts, Portico session required"| P
+    T -->|"443: portal and id hosts, Portico session required"| P
     P -->|"login pages, loopback"| K
     P -->|"9440, service account"| PC
     K -->|"SAML trust"| PC
@@ -79,7 +80,7 @@ flowchart LR
 
 ## How a request flows
 
-1. The browser opens `https://prism.<msp>.example`. Portico looks for
+1. The browser opens `https://portal.msp.example`. Portico looks for
    its session cookie; without one it redirects to Keycloak (OIDC
    authorization code flow) and issues its own cookie after the login.
 2. With a session, the public policy runs: every `Authorization` header
@@ -149,11 +150,22 @@ word with no vendor name in it, and `portico serve` reads well.
 - Appliance footprint target: 2 vCPU, 6 GiB RAM, 40 GiB disk for Portico,
   Keycloak, PostgreSQL and the optional `cloudflared`.
 
+## Install
+
+Download the appliance image of the
+[latest release](https://github.com/marco-fabbri/portico/releases/latest),
+check its checksum, import it into Prism Central and boot it; the
+console on tty1 and the setup page on port 8443 do the rest. The
+[install guide](docs/install.md) has every step, the certificates and
+the upgrade; the [release notes](docs/releases/v0.1.0.md) list what
+0.1.0 does not do yet.
+
 ## Status and validation
 
-Everything was measured on Prism Central pc.7.6.0.6 (AOS 7.6, single-node
-AHV cluster) and Keycloak 26.3 on a Rocky Linux 9 VM, by the scripts in
-`lab/` and by hand in a browser. Each row has a write-up in
+Everything was measured on Prism Central pc.7.6.0.6 (AOS 7.6, two
+single-node AHV clusters) and Keycloak 26.3, first on a Rocky Linux 9 VM
+and from Milestone 3 on the appliance, by the scripts in `lab/` and by
+hand in a browser. Each row has a write-up in
 [`docs/lab/`](docs/lab/) saying what was measured, on which version, and
 how to measure again after an upgrade.
 
@@ -164,7 +176,8 @@ how to measure again after an upgrade.
 | 2 Tenant arrival, 2026-10-18 | Tenant created in 77 s with seven recorded steps, its user signs in once with a forced password change and sees only her project; disable locks her out; deletion leaves `_internal` unchanged. Admin UI and JSON API; MSP branding on the Keycloak login page; settings sealed in the store; a fresh appliance bootstrapped from the setup page in 41 s (write-ups 11 to 18) |
 | 3 Appliance image, 2026-10-19 | Rocky Linux 9 qcow2 (1.36 GB) built by the CI in 20 to 25 min: CIS Level 1 Server with OpenSCAP (271 rules pass, three documented exceptions), console wizard on tty1, factory password changed at the first login, `cloudflared` option, secrets and TLS pairs made at the first boot; boot-tested on the runner with AHV's config drive and a NoCloud seed; imported into Prism Central and booted on NTNX-01 with an OpenTofu module, set up through the API, a tenant active and its user signing in (write-up 19) |
 | 4 Sites, 2026-10-20 | Several Prism Centrals behind one Portico on one public name: site page, routing checked against the tenant's placements on every request, per-site cookies, maintenance with the users still connected, tenants added to and removed from sites. Built and tested against two fake Prism Centrals and accepted on the appliance with one site (write-ups 20 and 21). Then with a second pc.7.6 cluster: a tenant on two sites opens both consoles from the site page with one login, and its connections are added, suspended and disconnected, Disconnect deleting only an empty project Portico created (write-ups 23 to 25) |
-| 5 Backlog sweep, 6 First release `v0.1.0` | Later |
+| 5 Backlog sweep, 2026-10-25 | The findings that must not ship closed with a test each: the public path, Prism Central retries, the appliance's SSH and service hardening, the admin UI, the portal's name (`portal_host`); the scripts moved onto the appliance (write-ups 27 and 28) |
+| 6 First release `v0.1.0` | A fresh appliance from the CI image, both sites, tenants, maintenance, local-login probes and two upgrades in place: two release blockers found and fixed (write-up 29) |
 
 Not verified yet: tenant API keys, brokering to a customer's own
 directory, brownfield projects, any production load. Deferred findings of the reviews are listed in
@@ -192,9 +205,11 @@ password page and nothing else until a new one is set, and the API
 refuses the factory one. Between the first boot and that first login,
 whoever reaches port 8443 on the internal network can claim the
 appliance: never publish 8443, and log in soon after the first boot.
-Lab defaults that must change before any real use: the lab certificate
-authority and `tls_verify: false` towards a Prism Central with a
-self-signed certificate.
+Before real use, replace the self-signed pairs with a certificate of
+your own ([Certificates](docs/install.md#certificates)). Towards each
+Prism Central, Portico verifies the certificate when the system trusts
+it, and otherwise pins the SHA-256 fingerprint the administrator
+confirmed when adding the site.
 
 ## Repository layout
 
@@ -217,11 +232,14 @@ docs/
   superpowers/plans/  the plan each milestone was built from
   adr/                decisions
   lab/                measurements, one write-up per question
+  releases/           the notes of each release
   backlog.md          deferred findings
 ```
 
 ## Documentation
 
+- [Install guide](docs/install.md) and the
+  [release notes of 0.1.0](docs/releases/v0.1.0.md) with its known limits.
 - [Design document](docs/superpowers/specs/2026-10-17-portico-design.md):
   intent, goals and anti-goals, architecture, security model, milestones.
 - [Decisions](docs/adr/): the pc.7.6 baseline, the proxy in the Go
@@ -238,9 +256,11 @@ docs/
 
 ## Roadmap
 
-Step 1 ends with the first release: the appliance image (Rocky Linux 9,
-CIS Level 1, console wizard, `cloudflared` option) and an install guide.
-Step 2, in no fixed order: a setup page that lists connected services
+Step 1 ended with 0.1.0: the appliance image (Rocky Linux 9, CIS
+Level 1, console wizard, `cloudflared` option), sites and an install
+guide. Next, from the known limits: the container images inside the
+qcow2, so a first boot needs no Internet, and a backup of Keycloak's
+database with the store. Step 2, in no fixed order: a setup page that lists connected services
 (several Prism Central, later NKP and Nutanix Enterprise AI), tenant API
 keys bound to federated identities, brokering each tenant to its own
 directory (AD, Entra ID, LDAP), brownfield inventory with an exclusion
@@ -263,8 +283,8 @@ test first, measure on the lab, English everywhere, no secrets).
 
 ## Supporting the project
 
-Portico is built and measured on one lab: a single-node AHV cluster
-with Prism Central pc.7.6. That is enough for the single appliance, and
+Portico is built and measured on two single-node AHV clusters with
+Prism Central pc.7.6. That is enough for the single appliance, and
 not enough for what comes next. If you can help
 with any of the following, it turns a design into a measurement:
 
