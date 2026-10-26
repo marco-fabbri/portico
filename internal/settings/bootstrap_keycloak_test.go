@@ -41,6 +41,9 @@ type fakeKCAdmin struct {
 	// onMasterDelete runs just before.
 	masterDeleted  bool
 	onMasterDelete func()
+	// resetAdmin: the admin API drops the connection (Keycloak
+	// restarting with its public name).
+	resetAdmin bool
 }
 
 func newFakeKCAdmin(t *testing.T) *fakeKCAdmin {
@@ -120,6 +123,12 @@ func (f *fakeKCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer tok-") {
 		w.WriteHeader(401)
+		return
+	}
+	if f.resetAdmin {
+		if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+			conn.Close()
+		}
 		return
 	}
 	raw, _ := io.ReadAll(r.Body)
@@ -488,5 +497,18 @@ func TestKeycloakAutoNameChangeUsesTheAdminClient(t *testing.T) {
 	var se *StateError
 	if _, _, err := NewBootstrapper(nil, nil).KeycloakAuto(ctx, kc.srv.URL, Settings{PortalHost: "a.test", IDHost: "b.test"}, filepath.Join(t.TempDir(), "absent.env")); !errors.As(err, &se) || !strings.Contains(err.Error(), "existing realm") {
 		t.Fatalf("no file, no realm: %v", err)
+	}
+}
+
+// A dropped connection is Keycloak not answering (it restarts after the
+// names are saved), not an error it answered: the realm job waits.
+func TestKeycloakAutoDroppedConnectionIsNotAnswering(t *testing.T) {
+	kc := newFakeKCAdmin(t)
+	kc.resetAdmin = true
+	svc := newService(t)
+	s := namedSettings(t, svc)
+	res, _, err := NewBootstrapper(nil, svc).KeycloakAuto(context.Background(), kc.srv.URL, s, writeBootstrapFile(t))
+	if err != nil || res.OK || !strings.HasPrefix(res.Message, "Keycloak did not answer") {
+		t.Fatalf("res=%+v err=%v", res, err)
 	}
 }

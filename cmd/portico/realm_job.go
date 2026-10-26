@@ -60,6 +60,12 @@ func (j *realmJob) State() (string, string) {
 // Kick runs an attempt now: the public names were saved, or the
 // administrator pressed Retry.
 func (j *realmJob) Kick() {
+	// Retry shows the new attempt at once, not the failure it retries.
+	j.mu.Lock()
+	if j.phase == phaseFailed {
+		j.phase, j.msg = phaseCreating, "Trying again…"
+	}
+	j.mu.Unlock()
 	select {
 	case j.kick <- struct{}{}:
 	default:

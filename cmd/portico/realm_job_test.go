@@ -109,3 +109,19 @@ func TestRealmAttemptPhases(t *testing.T) {
 		t.Fatalf("no administrator: %s %q", p, msg)
 	}
 }
+
+// Retry on a failed job shows the new attempt at once, not the failure
+// it is retrying.
+func TestRealmJobKickLeavesTheFailure(t *testing.T) {
+	j := newRealmJob(nil)
+	j.set(phaseFailed, "Keycloak refused")
+	j.Kick()
+	if phase, msg := j.State(); phase != phaseCreating || msg == "Keycloak refused" {
+		t.Fatalf("after Kick: %s %q", phase, msg)
+	}
+	j.set(phaseReady, "ready")
+	j.Kick()
+	if phase, _ := j.State(); phase != phaseReady {
+		t.Fatalf("Kick on a ready job changed it to %s", phase)
+	}
+}

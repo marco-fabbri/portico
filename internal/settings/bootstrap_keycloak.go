@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -87,7 +88,9 @@ func (b *Bootstrapper) Keycloak(ctx context.Context, keycloakURL string, s Setti
 			res.Message = fmt.Sprintf("Keycloak answered status %d at the token endpoint", se.Status)
 		case errors.As(err, &se):
 			res.Message = "Keycloak answered an error: " + strings.TrimPrefix(err.Error(), "keycloak: ")
-		case strings.HasPrefix(err.Error(), "keycloak: token:"):
+		case strings.HasPrefix(err.Error(), "keycloak: token:"), errors.As(err, new(*url.Error)):
+			// No answer at all (a dropped connection while it restarts
+			// with its public name): the caller waits and tries again.
 			res.Message = "Keycloak did not answer: " + errClass(err)
 		default:
 			res.Message = "Keycloak answered an error: " + strings.TrimPrefix(err.Error(), "keycloak: ")
