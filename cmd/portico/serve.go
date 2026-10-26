@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -342,6 +343,17 @@ func newServer(addr string, h http.Handler, log *slog.Logger) *http.Server {
 	}
 }
 
+// exposureOptions locates the exposure requests beside the store: the
+// installer creates /var/lib/portico/exposure on an appliance; without
+// that directory (a host run by hand) the admin UI hides the form.
+func exposureOptions(cfg *config.Config) web.ExposureOptions {
+	dir := filepath.Join(filepath.Dir(cfg.Store.Path), "exposure")
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		dir = ""
+	}
+	return web.ExposureOptions{Dir: dir, CertFile: cfg.Public.TLS.CertFile, Tunnel: cfg.Public.TLS.CertFile == "" && cfg.Public.TLS.KeyFile == ""}
+}
+
 // adminListener builds the admin listener shared by both modes: the
 // REST API and the UI behind the break-glass account, one failure
 // limiter and one authentication middleware. tenants is nil in setup
@@ -353,7 +365,7 @@ func adminListener(cfg *config.Config, st store.Store, brand *branding.Service, 
 	}
 	limiter := api.NewLimiter()
 	adminSessions := auth.NewMemoryStore(8*time.Hour, 15*time.Minute)
-	ui := web.New(web.Options{Store: st, Service: tenants, Branding: brand, Sessions: adminSessions, Limiter: limiter, Setup: setup, Secure: internalTLS != nil, Version: version, Log: log})
+	ui := web.New(web.Options{Store: st, Service: tenants, Branding: brand, Sessions: adminSessions, Limiter: limiter, Setup: setup, Exposure: exposureOptions(cfg), Secure: internalTLS != nil, Version: version, Log: log})
 	guard := api.RequireAdmin(st, ui, limiter, "portico", log)
 	adminAPI := guard(api.New(tenants, st, brand, setup, log))
 	adminUI := guard(ui)
