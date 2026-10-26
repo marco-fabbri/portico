@@ -236,5 +236,16 @@ bk=$(mktemp -d); install -d "$bk/usr/local/bin"; cp "$bin" "$bk/usr/local/bin/po
 bash deploy/install.sh --render-only "$bk" --binary "$bin" >/dev/null 2>&1 || rc=$?
 if [ $rc -eq 0 ] && ! compgen -G "$bk/var/lib/portico/backup-*" >/dev/null; then ok "install.sh takes no backup without a store"; else ko "install.sh without a store: rc=$rc or a backup"; fi
 
+# Milestone 6 Task 2: the tag publishes a draft whose text is the notes file of
+# docs/releases, a suffixed tag is a pre-release, every asset has a checksum, and a
+# tag without notes fails before the image build.
+wf=.github/workflows/image.yml
+if grep -q '^ *draft: true' "$wf"; then ok "the release is a draft"; else ko "the release is not a draft"; fi
+if grep -q 'body_path:' "$wf" && grep -q 'docs/releases/' "$wf" && ! grep -q 'generate_release_notes' "$wf"; then ok "the release text is docs/releases"; else ko "the release text is not docs/releases"; fi
+if grep -q "prerelease: \${{ contains(github.ref_name, '-') }}" "$wf"; then ok "a suffixed tag is a pre-release"; else ko "a suffixed tag is not a pre-release"; fi
+if grep -q 'sha256sum "install-$VER.tar.gz" > "install-$VER.tar.gz.sha256"' "$wf"; then ok "the install tarball has a checksum"; else ko "the install tarball has no checksum"; fi
+notes=$(grep -n 'release notes .* missing' "$wf" | head -1 | cut -d: -f1); packer=$(grep -n 'name: Packer build (install, then provision)' "$wf" | cut -d: -f1)
+if [ -n "$notes" ] && [ -n "$packer" ] && [ "$notes" -lt "$packer" ]; then ok "a tag without notes fails before the build"; else ko "a tag without notes is not refused before the build"; fi
+
 if shellcheck -x lab/*.sh lab/*/*.sh deploy/install.sh; then ok "shellcheck"; else ko "shellcheck"; fi
 if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi
