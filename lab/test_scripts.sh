@@ -261,6 +261,10 @@ bk=$(mktemp -d); install -d "$bk/usr/local/bin" "$bk/var/lib/portico"; cp "$bin"
 rc=0; out=$(PORTICO_REPO="file://$bk/no-such-mirror" bash deploy/install.sh --render-only "$bk" --release 9.9.9 2>&1) || rc=$?
 if [ $rc -ne 0 ] && ! compgen -G "$bk/var/lib/portico/backup-*" >/dev/null && ! grep -q 'would stop: portico' <<<"$out"; then ok "install.sh: a failed download stops nothing and backs up nothing"; else ko "install.sh: a failed download (rc=$rc) left a backup or stopped portico"; fi
 if grep -q "^trap cleanup EXIT" deploy/install.sh && grep -q 'systemctl start portico.service' deploy/install.sh; then ok "install.sh starts Portico again when it aborts after stopping it"; else ko "install.sh leaves Portico stopped when it aborts"; fi
+# A firewalld reload drops netavark's rules: inside keycloak "postgres"
+# no longer resolves and new database connections fail (measured).
+# netavark-firewalld-reload.service restores them after every reload.
+if grep -q '^systemctl enable netavark-firewalld-reload.service' deploy/install.sh && grep -A1 'systemctl start netavark-firewalld-reload.service' deploy/install.sh | grep -q '^  configure_firewall$'; then ok "install.sh enables netavark-firewalld-reload and starts it before reloading the firewall"; else ko "install.sh reloads the firewall without netavark-firewalld-reload"; fi
 
 # Milestone 6 Task 2: the tag publishes a draft whose text is the notes file of
 # docs/releases, a suffixed tag is a pre-release, every asset has a checksum, and a
