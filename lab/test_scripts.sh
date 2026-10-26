@@ -120,6 +120,14 @@ if [ -e "$d/var/lib/portico/keycloak.hostname.env" ] && grep -q '^EnvironmentFil
 # ordered after it (Wants=), never bound to it (Requires=): a start job that fails on a
 # dependency is never retried, and the appliance came up with Keycloak dead.
 if grep -q '^Wants=postgres.service' "$d/etc/containers/systemd/keycloak.container" && grep -q '^After=postgres.service' "$d/etc/containers/systemd/keycloak.container" && ! grep -q '^Requires=' "$d/etc/containers/systemd/keycloak.container"; then ok "keycloak.container wants postgres, is not bound to it"; else ko "keycloak.container is bound to postgres with Requires= (a first-boot dependency failure leaves it dead)"; fi
+# Both pull their image at first boot, before the network may be up: systemd's
+# default start limit (5 starts in 10 s, restarts 100 ms apart) gave up on them in two
+# seconds and left them failed for good (write-up 30). They wait 10 s between tries
+# and never stop trying.
+for c in postgres keycloak; do
+  f="$d/etc/containers/systemd/$c.container"
+  if grep -q '^StartLimitIntervalSec=0' "$f" && grep -q '^RestartSec=10' "$f" && grep -q '^Restart=always' "$f"; then ok "$c.container retries every 10 s with no start limit"; else ko "$c.container gives up after systemd's start limit (a first boot without network leaves it failed)"; fi
+done
 if grep -q 'KC_HOSTNAME_STRICT=false' "$d/etc/containers/systemd/keycloak.container" && ! grep -qi 'lab' "$d/etc/containers/systemd/keycloak.container"; then ok "keycloak.container learns its name from the request, no lab name"; else ko "keycloak.container hostname"; fi
 mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 bash deploy/install.sh --render-only "$d" --render-secrets --binary "$bin" >/dev/null 2>&1
