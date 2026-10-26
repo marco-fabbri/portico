@@ -12,8 +12,8 @@
 {{end}}
 
 <section class="card" id="card-hosts">
-  <h2>Public names</h2>
-  {{if index .Data.Done "hosts"}}<p class="state done">Configured: tenants reach the portal at <code>{{.Data.S.PortalHost}}</code> and sign in at <code>{{.Data.S.IDHost}}</code>.</p>{{else}}<p class="state todo">Not configured yet: both public names are needed.</p>{{end}}
+  <h2>Public names and exposure</h2>
+  {{if index .Data.Done "hosts"}}<p class="state done">Configured: tenants reach the portal at <code>{{.Data.S.PortalHost}}</code> and sign in at <code>{{.Data.S.IDHost}}</code>.</p>{{else}}<p class="state todo">Not configured yet: both public names are needed, then how they are published.</p>{{end}}
   <form method="post" action="/setup/save">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
     <input type="hidden" name="section" value="hosts">
@@ -21,6 +21,26 @@
     <label>Identity public host <input type="text" name="id_host" value="{{.Data.S.IDHost}}" placeholder="id.msp.example" required></label>
     <div class="actions"><button type="submit" class="primary">Save</button></div>
   </form>
+  {{if .Data.Exposure.Enabled}}
+  <h3>Exposure</h3>
+  <div id="exposure-status">{{template "exposure-status" .Data.Exposure}}</div>
+  {{if index .Data.Done "hosts"}}
+  <p class="muted">Renewing the certificate keeps tenant sessions; changing the mode restarts Portico and ends them.</p>
+  <form method="post" action="/exposure" enctype="multipart/form-data" hx-post="/exposure" hx-encoding="multipart/form-data" hx-target="#exposure-status">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <fieldset class="choices">
+      <legend>How the public names are published</legend>
+      <label class="inline"><input type="radio" name="mode" value="certificate" checked> Upload a certificate, served by Portico on port 443</label>
+      <label>Certificate chain (PEM, the server's first) <input type="file" name="cert" accept=".pem,.crt,.cer"></label>
+      <label>Private key (PEM, without a passphrase) <input type="file" name="key" accept=".pem,.key"></label>
+      <label class="inline"><input type="radio" name="mode" value="selfsigned"> Self-signed, for a first try: browsers will warn, tenants should not see it</label>
+      <label class="inline"><input type="radio" name="mode" value="tunnel"> Cloudflare tunnel: no inbound port, Cloudflare holds the certificate</label>
+      <label>Connector token (from the tunnel's install command) <input type="password" name="token" value="" autocomplete="off"></label>
+    </fieldset>
+    <div class="actions"><button type="submit" class="primary">Apply the exposure</button></div>
+  </form>
+  {{end}}
+  {{end}}
 </section>
 
 <section class="card" id="card-sites">
@@ -118,6 +138,18 @@
 <div class="banner {{.Status}}">{{.Message}}</div>
 {{template "boot-form-keycloak" .}}
 {{if .OK}}{{template "input-realm" .Data}}{{template "input-admin_client_id" .Data}}{{template "input-admin_client_secret" .Data}}{{template "input-issuer" .Data}}{{template "input-client_id" .Data}}{{template "input-client_secret" .Data}}{{end}}
+{{end}}
+{{/* The exposure in service, the last result, and the polling while a request is applied. */}}
+{{define "exposure-status"}}
+{{if .Error}}<div class="banner error">{{.Error}}</div>{{end}}
+{{if .Pending}}
+{{if .Restart}}<div class="banner warning">Applying: Portico restarts to change the mode, which ends this session. Log in again in a minute.</div>
+{{else}}<div class="banner notice" hx-get="/exposure/status" hx-trigger="every 2s" hx-target="#exposure-status">Applying the change…</div>{{end}}
+{{else if .Last}}<div class="banner {{if .Last.OK}}notice{{else}}error{{end}}">Last change: {{.Last.Message}}</div>{{end}}
+{{if .Tunnel}}<p class="state done">Cloudflare tunnel: Portico listens on the loopback for cloudflared.</p>
+{{else if .Cert}}<p class="state {{if .Cert.SelfSigned}}todo{{else}}done{{end}}">{{if .Cert.SelfSigned}}Self-signed certificate{{else}}Certificate from {{.Cert.Issuer}}{{end}} on port 443 for {{range $i, $n := .Cert.Names}}{{if $i}}, {{end}}<code>{{$n}}</code>{{end}}, valid until {{.Cert.NotAfter.Format "2006-01-02"}}.</p>
+<p class="muted">SHA-256 fingerprint <code>{{.Cert.Fingerprint}}</code></p>
+{{else}}<p class="state todo">No public certificate is installed.</p>{{end}}
 {{end}}
 {{define "check"}}
 <div class="banner {{if .Res.OK}}notice{{else}}error{{end}}">{{.Res.Message}}</div>
