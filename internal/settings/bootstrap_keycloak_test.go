@@ -495,7 +495,7 @@ func TestKeycloakAutoNameChangeUsesTheAdminClient(t *testing.T) {
 	}
 	// No realm and no temporary administrator: the operator types an existing realm.
 	var se *StateError
-	if _, _, err := NewBootstrapper(nil, nil).KeycloakAuto(ctx, kc.srv.URL, Settings{PortalHost: "a.test", IDHost: "b.test"}, filepath.Join(t.TempDir(), "absent.env")); !errors.As(err, &se) || !strings.Contains(err.Error(), "existing realm") {
+	if _, _, err := NewBootstrapper(nil, nil).KeycloakAuto(ctx, kc.srv.URL, Settings{PortalHost: "a.test", IDHost: "b.test"}, filepath.Join(t.TempDir(), "absent.env")); !errors.As(err, &se) || !errors.Is(err, ErrNoTemporaryAdmin) {
 		t.Fatalf("no file, no realm: %v", err)
 	}
 }
