@@ -42,6 +42,19 @@ func serverTLS(t config.TLS) (*tls.Config, error) {
 	return &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}}, nil
 }
 
+// publicServerTLS is serverTLS for the public listener, whose pair is
+// reloaded when the admin UI installs a new one (certReloader).
+func publicServerTLS(t config.TLS, log *slog.Logger) (*tls.Config, error) {
+	if t.CertFile == "" && t.KeyFile == "" {
+		return nil, nil
+	}
+	r, err := newCertReloader(t.CertFile, t.KeyFile, log)
+	if err != nil {
+		return nil, err
+	}
+	return &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: r.GetCertificate}, nil
+}
+
 // ErrRestart is what runServe returns when an administrator applied the
 // stored settings: main exits 0 and the unit's Restart=always brings the
 // service back with the new document.
@@ -235,7 +248,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	tenants.OnPlacementChange(placements.Invalidate)
 	setup.Runtime = &api.Runtime{Monitor: monitor, Store: sessions}
 
-	publicTLS, err := serverTLS(cfg.Public.TLS)
+	publicTLS, err := publicServerTLS(cfg.Public.TLS, log)
 	if err != nil {
 		return fmt.Errorf("public: %w", err)
 	}
