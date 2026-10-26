@@ -29,6 +29,8 @@ instance): as root,
 
 ```
 curl -fsSLO https://github.com/marco-fabbri/portico/releases/download/v<version>/install-<version>.tar.gz
+curl -fsSLO https://github.com/marco-fabbri/portico/releases/download/v<version>/install-<version>.tar.gz.sha256
+sha256sum -c install-<version>.tar.gz.sha256
 tar -xzf install-<version>.tar.gz && cd deploy && ./install.sh --release <version>
 ```
 
@@ -40,7 +42,11 @@ console (`portico console` on tty1, or run it over SSH as root) for the
 exposure, or do the same by hand and open `https://<address>:8443/`.
 
 Re-running the installer upgrades the binary and the files and keeps
-every secret, the store and the settings.
+every secret, the store and the settings. Before it replaces an
+installed binary it stops Portico and copies the store and the master
+key to `/var/lib/portico/backup-<old version>-<time>/`; the backup of
+the whole appliance is a snapshot of its VM (docs/operating.md,
+Backup).
 
 ## What the installer never does
 

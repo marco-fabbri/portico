@@ -36,8 +36,37 @@ flag is cleared by the password page and by `portico admin set-password`.
 | `/var/lib/portico/keycloak-theme/` | portico | The Keycloak login theme, written at every start and on every save from the branding (the default one when none is saved), with the logo as `img/logo.<ext>` and the tab icon as `img/favicon.ico`; mounted into the Keycloak container as `/opt/keycloak/themes/portico`. After a change of tab icon, Safari keeps the old one on the login page until its caches are emptied (Develop > Empty Caches); Portico's own pages update at once (write-up 22) |
 | `deploy/portico.service` | | The unit: user `portico`, `CAP_NET_BIND_SERVICE` for port 443, hardened, `Restart=always`, no start limit |
 
-Backup: copy `/var/lib/portico` with the service stopped, or the `.db`
-with its `-wal` file. Restore the key with the store.
+Back them up together: see [Backup](#backup).
+
+## Backup
+
+**The backup of an appliance is a snapshot of its VM** in Prism Central,
+or a protection policy that takes one. Portico's store and master key
+are in `/var/lib/portico`, but Keycloak's database (the realm, its
+clients, every tenant user) is in the podman volume `postgres-data`:
+only the snapshot holds both, and it keeps the master key inside the
+appliance. Take one before every upgrade.
+
+The installer also copies the store and the master key before it
+replaces an installed binary, into
+`/var/lib/portico/backup-<old version>-<YYYYmmdd-HHMMSS>/` (root, 0700).
+That copy undoes a store migration that went wrong, nothing more.
+Copies are kept until you remove them; they are small, but each upgrade
+adds one. To restore one:
+
+```
+systemctl stop portico
+b=/var/lib/portico/backup-<version>-<time>
+rm -f /var/lib/portico/portico.db-wal /var/lib/portico/portico.db-shm
+cp -p "$b"/portico.db* "$b"/master.key /var/lib/portico/
+chown portico:portico /var/lib/portico/portico.db* /var/lib/portico/master.key
+restorecon /var/lib/portico/portico.db* /var/lib/portico/master.key
+```
+
+then, from the unpacked `install-<version>.tar.gz` of the version the
+copy was taken from, `./deploy/install.sh --release <version>`: it puts
+that binary back and starts Portico on the restored store. Starting the
+newer binary instead would migrate the store again.
 
 ## First start of a fresh appliance
 
@@ -143,8 +172,12 @@ credentials.
 
 ## Upgrading
 
-Replace the binary and restart the unit; the store format is versioned
-and migrated at start. The lab does this with `lab/portico/deploy.sh`.
+In place, with the installer of the new release, after a snapshot
+([install guide](install.md#updating)): it backs up the store and the
+key, replaces the binary and its files and restarts Portico; the store
+format is versioned and migrated at start. Open sessions end. The
+development equivalent is `lab/portico/upgrade-appliance.sh`, which runs
+the installer with the binary of a checkout.
 
 ## The console wizard
 
