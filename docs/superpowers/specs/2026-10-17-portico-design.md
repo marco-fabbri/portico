@@ -635,9 +635,20 @@ internal admin UI. Nothing else is configurable from the console.
   that since Milestone 1). Only network reachability matters: port 9440
   of every Prism Central from Portico's address, never from the Internet,
   and the public names towards the tenants.
-- Updates: `dnf` for the OS, a new `portico` rpm for the application,
-  container image tags for Keycloak/PostgreSQL. Full image replacement
-  documented as the clean path. The qcow2 carries no container image:
+- Updates: `dnf` for the OS; for the application the installer of the
+  new release run in place (`install.sh --release`), which stops
+  Portico, copies the store and the master key to
+  `/var/lib/portico/backup-<old version>-<time>/` and replaces the binary,
+  the units and the quadlets (container image tags for
+  Keycloak/PostgreSQL included); no rpm. The backup of an appliance is a
+  snapshot of its VM in Prism Central (decided with Marco on 2026-10-26,
+  Milestone 6): Keycloak's database lives in the podman volume
+  `postgres-data`, outside `/var/lib/portico`, so a copy of that
+  directory onto a new image loses the realm and every tenant user, and
+  copying the master key off the appliance would break "the master key
+  never leaves the appliance"; the snapshot holds both and keeps the key
+  inside. Full image replacement is therefore not a path in v0.1.0; an
+  export of Keycloak's database with the store is in the backlog. The qcow2 carries no container image:
   PostgreSQL and Keycloak are pulled from their registries at first boot
   (write-up 29), a known limit of v0.1.0 until they ship in the image.
 - Builder's calls, fixed with Marco on 2026-10-19 for Milestone 3:
@@ -846,7 +857,7 @@ portico/
 | 2f | Minor sweep after 2d and 2e | done 2026-10-18 (write-up 16): the deferred minors of write-ups 14 and 15 closed with a test each (password policy on the realm Portico creates, login restarted once when its state expired, logo above the realm name, URL with credentials refused, store failures as 500, typed Keycloak errors, no start limit on the service); the older deferred findings live in `docs/backlog.md` |
 | 3 | Appliance image | done 2026-10-20 (write-up 19): Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
 | 4 | Sites | several Prism Centrals behind one Portico, shown to tenants as sites on one public name (design `2026-10-20-sites-design.md`, ADR 0004); accepted on the appliance with one site (write-up 21), the two-site live test when a second pc.7.6 lab cluster is up |
-| 5 | Backlog sweep | the findings in `docs/backlog.md` that must not ship in a release closed with a test each |
+| 5 | Backlog sweep | done 2026-10-25 (write-ups 27 and 28): the findings in `docs/backlog.md` that must not ship in a release closed with a test each |
 | 6 | First release (step 1 complete) | README, install guide, release artefacts, known limits documented; tag `v0.1.0` |
 
 Step 2 (later): richer UI, MSP features, brownfield inventory with exclusion
