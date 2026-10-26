@@ -417,3 +417,29 @@ func TestSettingsAPIAcceptsTheOldField(t *testing.T) {
 		t.Fatalf("both keys differing: %d %v", rec.Code, out)
 	}
 }
+
+type kickCounter struct{ kicks int }
+
+func (k *kickCounter) State() (string, string) { return "waiting-names", "" }
+func (k *kickCounter) Kick()                   { k.kicks++ }
+
+// The API saving new public names starts the realm job in setup mode,
+// as the setup page does; in service they wait for Apply.
+func TestSettingsPutNamesKickTheRealmJobInSetupMode(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	realm := &kickCounter{}
+	e.so.Realm, e.so.Mode = realm, "setup"
+	body := func(portal string) string {
+		return `{"portal_host":"` + portal + `","id_host":"id.example.test","keycloak":{"realm":"portico","admin_client_id":"portico-admin"},"oidc":{"issuer":"https://id.example.test/realms/portico","client_id":"portico"},"tenants":{"project_prefix":"portico","group_prefix":"tenant-","role":"Project Admin","operation_timeout":"10m"}}`
+	}
+	if rec, _ := e.do("PUT", "/api/v1/settings", body("prism.example.test")); rec.Code != 200 || realm.kicks != 0 {
+		t.Fatalf("same names: %d kicks %d", rec.Code, realm.kicks)
+	}
+	if rec, _ := e.do("PUT", "/api/v1/settings", body("portal.new.test")); rec.Code != 200 || realm.kicks != 1 {
+		t.Fatalf("new names in setup mode: %d kicks %d", rec.Code, realm.kicks)
+	}
+	e.so.Mode = "running"
+	if rec, _ := e.do("PUT", "/api/v1/settings", body("portal.other.test")); rec.Code != 200 || realm.kicks != 1 {
+		t.Fatalf("new names in service: %d kicks %d", rec.Code, realm.kicks)
+	}
+}
