@@ -186,20 +186,74 @@ the installer with the binary of a checkout.
 ## The console wizard
 
 `portico console` (the appliance's tty1, through a getty override; on
-your own host run it as root in a terminal) is the only place that needs
-root: it writes NetworkManager keyfiles and applies them with `nmcli`,
-sets the break-glass password by running `portico admin set-password` as
-the `portico` user, installs the public certificate and key in
-`/etc/portico/tls/` or the tunnel token in `/etc/cloudflared/token` and
-switches the `public` block of the process YAML between direct mode
-(`:443` with the pair) and tunnel mode (`127.0.0.1:8081`, no TLS: 8080 is Keycloak's published port; point the Cloudflare tunnel's ingress at `http://127.0.0.1:8081`), and
-shows the Keycloak administrator credentials from
-`/etc/portico/keycloak.env` on request. It re-runs at any time with the
-current values as defaults; a wrong entry is refused with the field
-named. Nothing else is configurable from the console.
+your own host run it as root in a terminal) does the network, the
+break-glass password and the status (design 4.8). It writes
+NetworkManager keyfiles and applies them with `nmcli`, sets the
+break-glass password by running `portico admin set-password` as the
+`portico` user, and shows the state of the services and the address of
+the admin UI. It re-runs at any time with the current values as
+defaults; a wrong entry is refused with the field named. Nothing else is
+configurable from the console.
 
-Whenever the settings are saved with an identity host (the public names
-card, and Apply), Portico writes `KC_HOSTNAME` for it into
+## The public certificate and the tunnel
+
+The setup page's first card publishes the public names: a certificate
+and key served on port 443, a self-signed pair for a first try, or a
+Cloudflare tunnel. Portico runs unprivileged, so the page checks what it
+receives and writes a request into `/var/lib/portico/exposure/` (0700,
+`portico`); the unit `portico-exposure.path` runs `portico exposure
+apply` as root. That command installs the pair in `/etc/portico/tls/`
+(`public.crt` 0644, `public.key` 0640 `root:portico`) or the token in
+`/etc/cloudflared/token` (0600), switches the `public` block of the
+process YAML between direct mode (`:443` with the pair) and tunnel mode
+(`127.0.0.1:8081`, no TLS: 8080 is Keycloak's published port), and
+deletes the request. Its result is in `result.json` beside it and in
+`journalctl -u portico-exposure`.
+
+- **Renewing the certificate**: upload the new pair in the same card.
+  The mode does not change, so Portico does not restart: the public
+  listener picks the new pair up within a few seconds and the tenants
+  keep their sessions. A pair that does not load leaves the old one in
+  service, with a warning in Portico's log.
+- **Changing the mode** restarts Portico, and every session ends. In
+  tunnel mode `cloudflared` is started first and checked five seconds
+  later; when it stops (a wrong token), the token is withdrawn and
+  Portico keeps the exposure it had.
+- A tunnel whose token is well formed but revoked keeps `cloudflared`
+  retrying without stopping: check the tunnel's state in the Cloudflare
+  dashboard after a change.
+
+## The Keycloak administrator
+
+The first boot creates a temporary administrator in Keycloak's master
+realm, `kcadmin`, with a random password in `/etc/portico/keycloak.env`
+(root, 0600) and a copy for Portico in
+`/var/lib/portico/keycloak-bootstrap.env` (`portico`, 0600). Once the
+public names are saved, Portico creates the realm `portico` and its two
+clients with it, stores their secrets, deletes `kcadmin` from Keycloak
+and deletes its copy of the password. From then on Portico works
+through its own admin client, `portico-admin`, which has rights on the
+`portico` realm only. Keycloak 26 does not create `kcadmin` again at the
+next start (measured).
+
+Keycloak's admin console listens on the loopback only, and the master
+realm has no administrator. To get one for a maintenance task, as root
+on the appliance:
+
+```
+read -rs PW; export PW
+podman exec -e PW keycloak /opt/keycloak/bin/kc.sh bootstrap-admin user \
+  --username maint --password:env PW --no-prompt --http-management-port=9001
+unset PW
+```
+
+then `ssh -L 8080:127.0.0.1:8080 admin@<address>` and
+`http://127.0.0.1:8080/admin/` on your workstation. Delete the account
+in the admin console when you are done. `--http-management-port` keeps
+the command off the port the running Keycloak holds.
+
+Whenever the settings are saved with an identity host (the first card,
+and Apply), Portico writes `KC_HOSTNAME` for it into
 `/var/lib/portico/keycloak.hostname.env`; the unit
 `keycloak-hostname.path` restarts Keycloak with it (about a minute). The
 Keycloak bootstrap waits for Keycloak to answer again, up to two minutes,
