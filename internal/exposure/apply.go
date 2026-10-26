@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -67,12 +68,31 @@ type Host interface {
 // MaxRequestFile bounds what Apply reads from the request directory.
 const MaxRequestFile = 64 << 10
 
-// How long cloudflared gets to fail after its start: a malformed or
-// revoked token makes it exit within a second or two, and systemd's
-// Restart=always turns that into restarts.
+// How long cloudflared gets to register a connection with Cloudflare
+// after its start (about eight seconds, measured), and how often its
+// readiness endpoint is asked. A token Cloudflare does not know does not
+// make cloudflared exit: it keeps retrying, so only a registered
+// connection proves the token.
+const (
+	tunnelWait = 30 * time.Second
+	tunnelPoll = time.Second
+	// tunnelReadyURL is cloudflared's readiness endpoint, on the metrics
+	// address deploy/cloudflared.service pins: 200 once a connection is
+	// registered, 503 before.
+	tunnelReadyURL = "http://127.0.0.1:20241/ready"
+)
+
 var (
-	settle = 5 * time.Second
-	sleep  = time.Sleep
+	sleep       = time.Sleep
+	tunnelReady = func() bool {
+		c := http.Client{Timeout: 2 * time.Second}
+		resp, err := c.Get(tunnelReadyURL)
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	}
 )
 
 // Apply runs as root from the path unit: it reads the request in dir,
@@ -214,8 +234,8 @@ func tunnel(h Host, dir, configPath, y string, wasTunnel bool) (string, bool) {
 	return "tunnel mode: Portico listens on the loopback for cloudflared; Portico restarted", true
 }
 
-// startCloudflared starts the connector and waits for it to stay up;
-// the message is empty on success.
+// startCloudflared starts the connector and waits for Cloudflare to
+// register its connection; the message is empty on success.
 func startCloudflared(h Host) string {
 	if _, err := h.Exec(nil, "systemctl", "enable", "cloudflared"); err != nil {
 		return "cloudflared cannot be enabled: " + err.Error()
@@ -223,15 +243,13 @@ func startCloudflared(h Host) string {
 	if _, err := h.Exec(nil, "systemctl", "restart", "cloudflared"); err != nil {
 		return "cloudflared did not start: " + err.Error()
 	}
-	sleep(settle)
-	out, err := h.Exec(nil, "systemctl", "show", "-p", "ActiveState", "-p", "NRestarts", "cloudflared")
-	if err != nil {
-		return "cloudflared state unknown: " + err.Error()
+	for waited := time.Duration(0); waited < tunnelWait; waited += tunnelPoll {
+		if tunnelReady() {
+			return ""
+		}
+		sleep(tunnelPoll)
 	}
-	if !strings.Contains(out, "ActiveState=active") || !strings.Contains(out, "NRestarts=0") {
-		return "cloudflared stopped right after its start: the token is probably wrong (journalctl -u cloudflared)"
-	}
-	return ""
+	return "cloudflared did not register a connection with Cloudflare within 30 seconds: the token is probably wrong or revoked (journalctl -u cloudflared)"
 }
 
 var (
