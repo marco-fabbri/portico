@@ -20,16 +20,13 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/marco-fabbri/portico/internal/api"
 	"github.com/marco-fabbri/portico/internal/config"
 	"github.com/marco-fabbri/portico/internal/store"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "dev"
-
-// bcryptCost is the work factor of the break-glass password hash.
-const bcryptCost = 12
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
@@ -128,23 +125,15 @@ func setAdminPassword(cfg *config.Config, stdin io.Reader, stdout, stderr io.Wri
 		fmt.Fprintln(stderr, "portico: password is empty (write it on stdin, one line)")
 		return 2
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(pw), bcryptCost)
-	if err != nil {
-		fmt.Fprintf(stderr, "portico: %v\n", err)
-		return 1
-	}
 	st, err := store.OpenSQLite(cfg.Store.Path)
 	if err != nil {
 		fmt.Fprintf(stderr, "portico: %v\n", err)
 		return 1
 	}
 	defer st.Close()
-	if err := st.SetAdminPassword(context.Background(), "admin", string(hash)); err != nil {
-		fmt.Fprintf(stderr, "portico: %v\n", err)
-		return 1
-	}
-	// A password set by hand is a chosen one: no forced change at login.
-	if err := st.SetSetting(context.Background(), "admin.password_change_required", []byte("0")); err != nil {
+	// The same path as the password page: a password set by hand is a
+	// chosen one, so it clears the forced change at login.
+	if err := api.SetAdminPassword(context.Background(), st, pw); err != nil {
 		fmt.Fprintf(stderr, "portico: %v\n", err)
 		return 1
 	}
