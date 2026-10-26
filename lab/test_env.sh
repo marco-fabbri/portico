@@ -11,6 +11,6 @@ grep -q 'secrets file not found' <<<"$out" || { echo "FAIL: missing message, got
 source lab/env.sh
 [ -n "$PC_PASS" ] || { echo "FAIL: PC_PASS empty"; exit 1; }
 [ "$PC_URL" = "https://10.23.210.175:9440" ] || { echo "FAIL: PC_URL=$PC_URL"; exit 1; }
-[ "$LAB_VM_IP" = "10.23.210.190" ] || { echo "FAIL: LAB_VM_IP=$LAB_VM_IP"; exit 1; }
+[ "$LAB_VM_IP" = "10.23.210.191" ] || { echo "FAIL: LAB_VM_IP=$LAB_VM_IP"; exit 1; }
 [[ "$PC_PASS" != *$'\n'* ]] || { echo "FAIL: newline in password"; exit 1; }
 echo PASS
