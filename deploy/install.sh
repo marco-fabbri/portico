@@ -40,7 +40,8 @@ done
 # release (or the repository), never piped into bash.
 SELF=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")
 HERE=$(cd "$(dirname "$SELF")" && pwd)
-REPO="https://github.com/marco-fabbri/portico"
+# PORTICO_REPO points the download at a mirror of the releases (same layout).
+REPO="${PORTICO_REPO:-https://github.com/marco-fabbri/portico}"
 # --first-boot runs from the installed copy alone (/usr/local/sbin) and installs nothing from the tree.
 if [ $FIRSTBOOT -eq 0 ] && [ ! -d "$HERE/quadlets" ]; then echo "install.sh: run it from the unpacked release: $HERE/quadlets is missing" >&2; exit 1; fi
 if [ $RENDER -eq 0 ] && [ "$(id -u)" -ne 0 ]; then echo "install.sh: run as root" >&2; exit 1; fi
@@ -150,32 +151,45 @@ if [ ! -e "$ROOT/var/lib/portico/keycloak.hostname.env" ]; then e=$(mktemp); put
 # consistent only with its writer stopped), the store and the master key
 # copied beside them, so a migration that goes wrong is undone by copying
 # them back. The copy stays on the appliance, like the key.
+# If the run aborts after that, cleanup starts the old binary again on the
+# untouched store instead of leaving every tenant locked out.
+tmp=""; STOPPED=0
+cleanup() {
+  if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
+  if [ $STOPPED -eq 1 ]; then systemctl start portico.service || true; fi
+}
+trap cleanup EXIT
 backup_state() {
   local lib="$ROOT/var/lib/portico" ver dir f
   [ -x "$ROOT/usr/local/bin/portico" ] && [ -e "$lib/portico.db" ] || return 0
   ver=$("$ROOT/usr/local/bin/portico" version 2>/dev/null | awk '{print $2}') || true
   dir="$lib/backup-${ver:-unknown}-$(date +%Y%m%d-%H%M%S)"
-  if [ $RENDER -eq 1 ]; then log "would stop: portico"; else systemctl stop portico.service; fi
+  if [ $RENDER -eq 1 ]; then
+    log "would stop: portico"
+  elif systemctl cat portico.service >/dev/null 2>&1; then
+    systemctl stop portico.service; STOPPED=1
+  fi
   install -d -m 0700 "$dir"
   for f in portico.db portico.db-wal portico.db-shm master.key; do
     if [ -e "$lib/$f" ]; then cp -p "$lib/$f" "$dir/"; fi
   done
   log "backup of the store and the master key in ${dir#"$ROOT"}"
 }
-backup_state
-
-# 3. The binary.
-if [ -n "$BINARY" ]; then
-  put 0755 root root "$BINARY" /usr/local/bin/portico
-elif [ -n "$RELEASE" ]; then
-  tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+# 3. The binary. A release is downloaded and checked before anything is
+# stopped: a wrong version or no egress leaves the running appliance alone.
+if [ -n "$RELEASE" ]; then
+  tmp=$(mktemp -d)
   base="$REPO/releases/download/v$RELEASE/portico-$RELEASE-linux-amd64.tar.gz"
   log "downloading $base"
   curl -fsSL -o "$tmp/portico.tar.gz" "$base"
   curl -fsSL -o "$tmp/portico.tar.gz.sha256" "$base.sha256"
   (cd "$tmp" && sed 's#  .*#  portico.tar.gz#' portico.tar.gz.sha256 | sha256sum -c --quiet -)
   tar -xzf "$tmp/portico.tar.gz" -C "$tmp" portico
-  put 0755 root root "$tmp/portico" /usr/local/bin/portico
+  BINARY="$tmp/portico"
+fi
+backup_state
+if [ -n "$BINARY" ]; then
+  put 0755 root root "$BINARY" /usr/local/bin/portico
 elif [ ! -x "$ROOT/usr/local/bin/portico" ]; then
   echo "install.sh: no binary: give --binary PATH or --release VERSION" >&2; exit 1
 fi

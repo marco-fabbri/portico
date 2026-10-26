@@ -236,6 +236,13 @@ bk=$(mktemp -d); install -d "$bk/usr/local/bin"; cp "$bin" "$bk/usr/local/bin/po
 bash deploy/install.sh --render-only "$bk" --binary "$bin" >/dev/null 2>&1 || rc=$?
 if [ $rc -eq 0 ] && ! compgen -G "$bk/var/lib/portico/backup-*" >/dev/null; then ok "install.sh takes no backup without a store"; else ko "install.sh without a store: rc=$rc or a backup"; fi
 
+# Final review M6: a release that cannot be downloaded aborts the upgrade before
+# Portico is stopped or any backup is taken (the download comes first).
+bk=$(mktemp -d); install -d "$bk/usr/local/bin" "$bk/var/lib/portico"; cp "$bin" "$bk/usr/local/bin/portico"; echo store > "$bk/var/lib/portico/portico.db"
+rc=0; out=$(PORTICO_REPO="file://$bk/no-such-mirror" bash deploy/install.sh --render-only "$bk" --release 9.9.9 2>&1) || rc=$?
+if [ $rc -ne 0 ] && ! compgen -G "$bk/var/lib/portico/backup-*" >/dev/null && ! grep -q 'would stop: portico' <<<"$out"; then ok "install.sh: a failed download stops nothing and backs up nothing"; else ko "install.sh: a failed download (rc=$rc) left a backup or stopped portico"; fi
+if grep -q "^trap cleanup EXIT" deploy/install.sh && grep -q 'systemctl start portico.service' deploy/install.sh; then ok "install.sh starts Portico again when it aborts after stopping it"; else ko "install.sh leaves Portico stopped when it aborts"; fi
+
 # Milestone 6 Task 2: the tag publishes a draft whose text is the notes file of
 # docs/releases, a suffixed tag is a pre-release, every asset has a checksum, and a
 # tag without notes fails before the image build.
