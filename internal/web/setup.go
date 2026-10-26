@@ -176,7 +176,9 @@ func (h *Handler) setupSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.log.Info("settings saved", "via", "ui", "section", section)
-	if section == "hosts" && h.setup.Realm != nil {
+	// In setup mode the names start the realm job; in service they take
+	// effect at Apply, which restarts the process and the job with it.
+	if section == "hosts" && h.setup.Realm != nil && h.setup.Mode == "setup" {
 		h.setup.Realm.Kick()
 	}
 	http.Redirect(w, r, "/setup", http.StatusSeeOther)
