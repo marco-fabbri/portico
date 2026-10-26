@@ -375,7 +375,7 @@ func (h *Handler) setupBootstrap(w http.ResponseWriter, r *http.Request) {
 		d.CSRF = sess.CSRF
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
+	w.WriteHeader(swapStatus(r, status))
 	if err := h.pages["setup"].ExecuteTemplate(w, "bootstrap_"+target, d); err != nil {
 		h.log.Error("template", "page", "setup/bootstrap", "err", err.Error())
 	}
