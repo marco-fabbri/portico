@@ -287,6 +287,11 @@ func (h *handler) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.log.Info("settings saved", "via", "api", "secrets_given", secretsIn(fromBody(in)))
+	// New public names start the realm job in setup mode, as the setup
+	// page does; in service they take effect at Apply.
+	if h.so.Realm != nil && h.so.Mode == "setup" && (s.PortalHost != base.PortalHost || s.IDHost != base.IDHost) {
+		h.so.Realm.Kick()
+	}
 	cur, source, err := h.so.Current(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
