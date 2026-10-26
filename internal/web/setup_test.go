@@ -295,7 +295,7 @@ func TestIdentityCardFollowsTheRealmJob(t *testing.T) {
 	e := newEnv(t, true)
 	withSetup(t, e, false)
 	realm := &fakeRealm{phase: "waiting-keycloak", msg: "Keycloak is starting"}
-	e.web.setup.Realm = realm
+	e.web.setup.Realm, e.web.setup.Mode = realm, "setup"
 	e.login(t)
 	body := e.do("GET", "/setup", nil, true).Body.String()
 	if !strings.Contains(body, "Keycloak is starting") || !strings.Contains(body, `hx-get="/setup/realm"`) || !strings.Contains(body, "Use an existing realm") {
@@ -333,5 +333,18 @@ func TestSetupCardsInTheGuideOrder(t *testing.T) {
 			t.Fatalf("%s out of order", h)
 		}
 		last = i
+	}
+}
+
+// In service, the names saved on the page take effect at Apply: the
+// realm job must not re-point the clients at them before.
+func TestHostsSaveInServiceDoesNotKickTheRealmJob(t *testing.T) {
+	e := newEnv(t, true)
+	withSetup(t, e, true)
+	realm := &fakeRealm{phase: "ready"}
+	e.web.setup.Realm = realm
+	e.login(t)
+	if rec := e.do("POST", "/setup/save", e.form("section", "hosts", "portal_host", "prism2.example.test", "id_host", "id2.example.test"), true); rec.Code != 303 || realm.kicks != 0 {
+		t.Fatalf("hosts save in service: %d kicks %d", rec.Code, realm.kicks)
 	}
 }
