@@ -67,7 +67,10 @@
 
 <section class="card" id="card-keycloak">
   <h2>Identity</h2>
-  {{if index .Data.Done "keycloak"}}<p class="state done">Configured: realm <code>{{.Data.S.Keycloak.Realm}}</code>, admin client <code>{{.Data.S.Keycloak.AdminClientID}}</code> and OIDC client <code>{{.Data.S.OIDC.ClientID}}</code>; both secrets are stored.</p>{{else}}<p class="state todo">Not configured yet: the realm, the admin client and the OIDC client are needed, typed here or created by Portico below.</p>{{end}}
+  {{if index .Data.Done "keycloak"}}<p class="state done">Configured: realm <code>{{.Data.S.Keycloak.Realm}}</code>, admin client <code>{{.Data.S.Keycloak.AdminClientID}}</code> and OIDC client <code>{{.Data.S.OIDC.ClientID}}</code>; both secrets are stored.</p>{{else}}<p class="state todo">Not configured yet: Portico creates the realm and its clients in Keycloak once the public names are saved.</p>{{end}}
+  {{if .Data.Realm.On}}<div id="realm-status">{{template "realm-status" .Data.Realm}}</div>{{end}}
+  <details{{if and (not (index .Data.Done "keycloak")) (not .Data.Realm.On)}} open{{end}}><summary>Use an existing realm</summary>
+  <p class="muted">For a realm made outside Portico: type its clients here, or let Portico create them with a Keycloak administrator's credentials.</p>
   <form method="post" action="/setup/save" id="form-keycloak">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
     <input type="hidden" name="section" value="keycloak">
@@ -85,7 +88,8 @@
     <div id="check-keycloak" class="check-result"></div>
     <div id="check-oidc" class="check-result"></div>
   </form>
-  <details{{if not (index .Data.Done "keycloak")}} open{{end}}><summary>Let Portico create the realm and clients</summary><div id="boot-keycloak" class="bootstrap">{{template "boot-form-keycloak" .}}</div></details>
+  <div id="boot-keycloak" class="bootstrap">{{template "boot-form-keycloak" .}}</div>
+  </details>
 </section>
 
 <section class="card" id="card-tenants">
@@ -138,6 +142,13 @@
 <div class="banner {{.Status}}">{{.Message}}</div>
 {{template "boot-form-keycloak" .}}
 {{if .OK}}{{template "input-realm" .Data}}{{template "input-admin_client_id" .Data}}{{template "input-admin_client_secret" .Data}}{{template "input-issuer" .Data}}{{template "input-client_id" .Data}}{{template "input-client_secret" .Data}}{{end}}
+{{end}}
+{{/* The realm job: polled while it waits or creates; Retry after a failure. */}}
+{{define "realm-status"}}
+{{if eq .Phase "ready"}}<div class="banner notice">{{.Msg}}</div>
+{{else if eq .Phase "failed"}}<div class="banner error">{{.Msg}}</div>
+<form hx-post="/setup/realm/retry{{if .Reload}}?reload=1{{end}}" hx-target="#realm-status"><input type="hidden" name="_csrf" value="{{.CSRF}}"><div class="actions"><button type="submit">Retry</button></div></form>
+{{else}}<div class="banner notice" hx-get="/setup/realm{{if .Reload}}?reload=1{{end}}" hx-trigger="every 3s" hx-target="#realm-status">{{.Msg}}</div>{{end}}
 {{end}}
 {{/* The exposure in service, the last result, and the polling while a request is applied. */}}
 {{define "exposure-status"}}
