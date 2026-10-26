@@ -102,7 +102,7 @@ var errRestartUnavailable = errors.New("restart is not available in this process
 
 // Check runs the named check with the candidate document. A site's
 // Prism Central is checked with CheckSite.
-func (o *SettingsOptions) Check(ctx context.Context, target string, cur, s settings.Settings, keyGiven bool) (settings.CheckResult, bool) {
+func (o *SettingsOptions) Check(ctx context.Context, target string, s settings.Settings) (settings.CheckResult, bool) {
 	switch target {
 	case "keycloak":
 		return o.Checker.Keycloak(ctx, o.KeycloakURL, s, string(s.Keycloak.AdminClientSecret)), true
@@ -332,7 +332,7 @@ func (h *handler) checkSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	res, ok := h.so.Check(r.Context(), in.Target, cur, candidate(cur, in.Target, cand), false)
+	res, ok := h.so.Check(r.Context(), in.Target, candidate(cur, in.Target, cand))
 	if !ok {
 		writeError(w, http.StatusBadRequest, "target must be keycloak or oidc (a site's Prism Central is checked at /api/v1/sites/{id}/check)")
 		return

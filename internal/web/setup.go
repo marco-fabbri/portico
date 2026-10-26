@@ -168,23 +168,10 @@ func (h *Handler) setupSave(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/setup", http.StatusSeeOther)
 }
 
-// pickersView feeds the "pickers" template: the choices and the current
-// selection of the two tenants-card selects.
-type pickersView struct {
-	Clusters, Containers []settings.Choice
-	Cluster, Container   string
-}
-
-func pickersData(clusters, containers []settings.Choice, cluster, container string) pickersView {
-	return pickersView{Clusters: clusters, Containers: containers, Cluster: cluster, Container: container}
-}
-
-// checkData is the check fragment: the result plus the current pickers'
-// values so a refilled picker keeps the selection.
+// checkData is the check fragment: the target and its result.
 type checkData struct {
-	Target                         string
-	Res                            settings.CheckResult
-	ClusterExtID, StorageContainer string
+	Target string
+	Res    settings.CheckResult
 }
 
 // sectionOf maps a check target to the card whose fields it reads.
@@ -209,7 +196,7 @@ func (h *Handler) setupCheck(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown target", http.StatusBadRequest)
 		return
 	}
-	res, ok := h.setup.Check(r.Context(), target, cur, cand, false)
+	res, ok := h.setup.Check(r.Context(), target, cand)
 	if !ok {
 		http.Error(w, "unknown target", http.StatusBadRequest)
 		return
@@ -267,18 +254,18 @@ type bootData struct {
 	OK                      bool
 	CSRF                    string
 	Data                    setupData
-	Clusters, Containers    []settings.Choice
 }
 
-// setupBootstrap runs one bootstrap from the card's form: the one-time
-// credentials travel in this request only (design §4.5) and the result
-// is stored through the settings service when the step succeeded.
+// setupBootstrap runs the Keycloak bootstrap from the Identity card's
+// form (since the one-step site setup, the only bootstrap of this page):
+// the one-time credentials travel in this request only (design §4.5) and
+// the result is stored through the settings service when it succeeded.
 func (h *Handler) setupBootstrap(w http.ResponseWriter, r *http.Request) {
 	if !h.requireCSRF(w, r) {
 		return
 	}
-	target := r.PathValue("target")
-	if target != "keycloak" {
+	const target = "keycloak"
+	if r.PathValue("target") != target {
 		http.NotFound(w, r)
 		return
 	}
@@ -287,24 +274,10 @@ func (h *Handler) setupBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := func(name string) string { return strings.TrimSpace(r.FormValue(name)) }
-	b := h.setup.Bootstrapper
-	var (
-		okRes   bool
-		message string
-		out     settings.Settings
-		err     error
-		d       = bootData{Target: target}
-		form    = map[string]string{}
-	)
-	for _, name := range []string{"username", "service_account", "admin_username", "display_name"} {
-		form[name] = v(name)
-	}
-	switch target {
-	case "keycloak":
-		var res settings.KeycloakResult
-		res, out, err = b.Keycloak(r.Context(), h.setup.KeycloakURL, cur, settings.KeycloakInput{AdminUsername: v("admin_username"), AdminPassword: r.FormValue("admin_password"), Realm: v("realm"), DisplayName: v("display_name")})
-		okRes, message = res.OK, res.Message
-	}
+	d := bootData{Target: target}
+	form := map[string]string{"admin_username": v("admin_username"), "display_name": v("display_name")}
+	res, out, err := h.setup.Bootstrapper.Keycloak(r.Context(), h.setup.KeycloakURL, cur, settings.KeycloakInput{AdminUsername: v("admin_username"), AdminPassword: r.FormValue("admin_password"), Realm: v("realm"), DisplayName: v("display_name")})
+	okRes, message := res.OK, res.Message
 	status := http.StatusOK
 	var se *settings.StateError
 	switch {
@@ -332,7 +305,7 @@ func (h *Handler) setupBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	if err := h.pages["setup"].ExecuteTemplate(w, "bootstrap_"+strings.ReplaceAll(target, "-", "_"), d); err != nil {
+	if err := h.pages["setup"].ExecuteTemplate(w, "bootstrap_"+target, d); err != nil {
 		h.log.Error("template", "page", "setup/bootstrap", "err", err.Error())
 	}
 }
