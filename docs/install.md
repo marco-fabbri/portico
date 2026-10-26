@@ -48,6 +48,9 @@ names on port 443. It must:
 
 - name both hosts in its Subject Alternative Name;
 - carry `extendedKeyUsage = serverAuth`;
+- have an RSA key of 2048 bits or more, or an ECDSA key on P-256 or
+  P-384 (browsers refuse Ed25519 certificates and other curves), and
+  SHA-256 or stronger signatures, not SHA-1;
 - be given with its chain: the certificate first, then each
   intermediate, in one PEM file.
 
@@ -82,8 +85,8 @@ cat portal.crt ca.crt > portal-chain.crt
 Upload `portal-chain.crt` and `portal.key` in the setup page's first
 card (step 5 below). The page checks them before anything is installed
 and says what is wrong: a name missing, the chain in the wrong order, a
-key that does not match or that has a passphrase, an expired
-certificate. Files of 64 KiB at most.
+key that does not match or that has a passphrase, a key or signature
+browsers refuse, an expired certificate. Files of 64 KiB at most.
 
 ## What listens where
 
