@@ -136,6 +136,16 @@ if [ "$(mode "$d/etc/portico/tls/internal.key")" = 640 ] && openssl x509 -in "$d
 first=$(grep KC_BOOTSTRAP_ADMIN_PASSWORD "$d/etc/portico/keycloak.env"); firstkey=$(cat "$d/etc/portico/tls/internal.key")
 bash deploy/install.sh --render-only "$d" --render-secrets --binary "$bin" >/dev/null 2>&1
 if [ "$(grep KC_BOOTSTRAP_ADMIN_PASSWORD "$d/etc/portico/keycloak.env")" = "$first" ] && [ "$(cat "$d/etc/portico/tls/internal.key")" = "$firstkey" ]; then ok "install.sh keeps the secrets on a second run"; else ko "install.sh regenerated a secret"; fi
+# Setup in the web UI: the exposure request of the admin UI is applied by a root path
+# unit, and Portico creates the Keycloak realm with a copy of the temporary
+# administrator readable by portico alone, deleted once the realm exists.
+if [ -e "$d/etc/systemd/system/portico-exposure.path" ] && grep -q '^PathChanged=/var/lib/portico/exposure/request.json' "$d/etc/systemd/system/portico-exposure.path" && grep -q 'portico exposure apply -config /etc/portico/portico.yaml' "$d/etc/systemd/system/portico-exposure.service" && grep -qE '^systemctl enable .*portico-exposure.path' deploy/install.sh; then ok "install.sh installs and enables the exposure path unit"; else ko "exposure path unit"; fi
+if [ "$(mode "$d/var/lib/portico/exposure")" = 700 ]; then ok "the exposure directory is 0700"; else ko "exposure directory mode $(mode "$d/var/lib/portico/exposure")"; fi
+bs="$d/var/lib/portico/keycloak-bootstrap.env"
+if [ "$(mode "$bs")" = 600 ] && grep -q '^KC_BOOTSTRAP_ADMIN_USERNAME=kcadmin$' "$bs" && [ "$(grep KC_BOOTSTRAP_ADMIN_PASSWORD "$bs")" = "$first" ] && ! grep -q 'DB_PASSWORD' "$bs"; then ok "keycloak-bootstrap.env: the temporary administrator only, mode 0600"; else ko "keycloak-bootstrap.env"; fi
+rm -f "$bs"; bash deploy/install.sh --render-only "$d" --render-secrets --binary "$bin" >/dev/null 2>&1
+if [ ! -e "$bs" ]; then ok "keycloak-bootstrap.env is not written again once Portico deleted it"; else ko "keycloak-bootstrap.env came back on a second run"; fi
+if grep -q 'rm -f /etc/portico/keycloak.env /etc/portico/tls/\* /var/lib/portico/keycloak-bootstrap.env' image/scripts/cleanup.sh; then ok "the image cleanup removes the bootstrap copy"; else ko "cleanup leaves keycloak-bootstrap.env"; fi
 # Milestone 5 Task 9: the installer runs from the unpacked release (its quadlets and units are beside it),
 # installs itself from BASH_SOURCE, and restarts PostgreSQL and Keycloak only when their quadlets changed.
 alone=$(mktemp -d); cp deploy/install.sh "$alone/install.sh"
