@@ -37,6 +37,15 @@ jobs:
           v="${VERSION#v}"
           echo "VER=$v" >> "$GITHUB_ENV"
           echo "building portico $v"
+      - name: Release notes (tags only)
+        # The release text is docs/releases/v<X.Y.Z>.md (a suffix such as
+        # -rc.2 shares the notes of its release): refused here, not after
+        # the image build.
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          notes="docs/releases/v${VER%%-*}.md"
+          [ -f "$notes" ] || { echo "::error::release notes $notes missing"; exit 1; }
+          echo "release notes: $notes"
       - name: Build the binary (linux/amd64, static)
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$VER" -o dist/portico ./cmd/portico
@@ -85,7 +94,7 @@ jobs:
           cp dist/portico-"$VER"-linux-amd64.tar.gz dist/portico-"$VER"-linux-amd64.tar.gz.sha256 dist/install-"$VER".tar.gz release/
           # Packer's checksum file is tab-separated and lists the report too;
           # write the standard "<sum>  <name>" that sha256sum -c accepts.
-          (cd release && sha256sum "portico-$VER.qcow2" > "portico-$VER.qcow2.sha256" && sha256sum "portico-$VER-oscap.html" > "portico-$VER-oscap.html.sha256" && sha256sum -c ./*.sha256)
+          (cd release && sha256sum "portico-$VER.qcow2" > "portico-$VER.qcow2.sha256" && sha256sum "portico-$VER-oscap.html" > "portico-$VER-oscap.html.sha256" && sha256sum "install-$VER.tar.gz" > "install-$VER.tar.gz.sha256" && sha256sum -c ./*.sha256)
           ls -la release; cat "release/portico-$VER.qcow2.sha256"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -101,6 +110,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The release text comes from the tagged tree.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Release notes
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          echo "NOTES=docs/releases/v${v%%-*}.md" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: portico-*
@@ -108,7 +123,10 @@ jobs:
           merge-multiple: true
       - name: Checksums
         run: cd release && ls -la && sha256sum -c ./*.sha256
+      # A draft: Marco reads it on GitHub and publishes it himself.
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body_path: ${{ env.NOTES }}
           files: release/*
-          generate_release_notes: true
