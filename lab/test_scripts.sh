@@ -222,5 +222,19 @@ out=$(env -i PATH="$PATH" HOME="$HOME" bash lab/portico/demo-branding.sh --arch 
 if [ "$rc" -eq 2 ] && grep -q 'exclusive' <<<"$out"; then ok "demo-branding.sh refuses two logo choices"; else ko "demo-branding.sh accepted two logo choices (rc=$rc)"; fi
 if grep -q 'text_color:"#ffffff"' lab/portico/bootstrap-acceptance.sh && grep -q 'portico_logo,logo_type' lab/portico/tab-icons.sh; then ok "bootstrap and tab icon scripts know the new branding fields"; else ko "a lab script ignores the new branding fields"; fi
 
+# Milestone 6 Task 1: before it replaces an installed binary, the installer
+# copies the store and the master key into a backup directory beside them;
+# a first install, or an install that never started (no store), takes none.
+bk=$(mktemp -d); install -d "$bk/usr/local/bin" "$bk/var/lib/portico"; cp "$bin" "$bk/usr/local/bin/portico"
+echo store > "$bk/var/lib/portico/portico.db"; echo key > "$bk/var/lib/portico/master.key"
+bash deploy/install.sh --render-only "$bk" --binary "$bin" >/dev/null 2>&1
+set -- "$bk"/var/lib/portico/backup-*/
+if [ $# -eq 1 ] && cmp -s "$1/portico.db" "$bk/var/lib/portico/portico.db" && cmp -s "$1/master.key" "$bk/var/lib/portico/master.key"; then ok "install.sh backs up the store and the key before an upgrade"; else ko "install.sh took no backup of the store and the key ($# directories)"; fi
+bk=$(mktemp -d); rc=0; bash deploy/install.sh --render-only "$bk" --binary "$bin" >/dev/null 2>&1 || rc=$?
+if [ $rc -eq 0 ] && ! compgen -G "$bk/var/lib/portico/backup-*" >/dev/null; then ok "install.sh takes no backup on a first install"; else ko "install.sh on a first install: rc=$rc or a backup"; fi
+bk=$(mktemp -d); install -d "$bk/usr/local/bin"; cp "$bin" "$bk/usr/local/bin/portico"; rc=0
+bash deploy/install.sh --render-only "$bk" --binary "$bin" >/dev/null 2>&1 || rc=$?
+if [ $rc -eq 0 ] && ! compgen -G "$bk/var/lib/portico/backup-*" >/dev/null; then ok "install.sh takes no backup without a store"; else ko "install.sh without a store: rc=$rc or a backup"; fi
+
 if shellcheck -x lab/*.sh lab/*/*.sh deploy/install.sh; then ok "shellcheck"; else ko "shellcheck"; fi
 if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi

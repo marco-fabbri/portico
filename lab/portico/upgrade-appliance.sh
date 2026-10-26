@@ -4,10 +4,10 @@
 # store). Lab only; Portico restarts and tenant sessions end, so ask first.
 #   source lab/env.sh && lab/portico/upgrade-appliance.sh
 # Needs LAB_VM_IP and LAB_SSH_USER (the appliance's admin user, sudo
-# without a password) and optionally LAB_SSH_OPTS. Before the installer
-# runs, Portico is stopped and the store and the master key are copied to
-# /var/lib/portico/backup-<version>-<time>/ on the appliance itself: the
-# master key never leaves it.
+# without a password) and optionally LAB_SSH_OPTS. The installer stops
+# Portico and copies the store and the master key to
+# /var/lib/portico/backup-<version>-<time>/ on the appliance itself before
+# it replaces the binary: the master key never leaves it.
 set -euo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 : "${LAB_VM_IP:?source lab/env.sh first}" "${LAB_SSH_USER:?set LAB_SSH_USER (admin on the appliance)}"
@@ -26,12 +26,9 @@ echo "upgrade-appliance.sh: $(ssh "${O[@]}" "$T" /usr/local/bin/portico version)
 # shellcheck disable=SC2087 # $stage and $version expand here, the rest on the appliance
 ssh "${O[@]}" "$T" bash -s <<REMOTE
 set -euo pipefail
-b=/var/lib/portico/backup-\$(/usr/local/bin/portico version | awk '{print \$2}')-\$(date +%Y%m%d-%H%M%S)
-sudo -n systemctl stop portico
-sudo -n install -d -m 0700 -o root -g root "\$b"
-sudo -n sh -c 'cp -a /var/lib/portico/portico.db* /var/lib/portico/master.key "\$1"/' sh "\$b"
-echo "upgrade-appliance.sh: backup in \$b: \$(sudo -n ls "\$b" | tr '\n' ' ')"
-sudo -n bash "$stage/deploy/install.sh" --binary "$stage/portico" 2>&1 | grep -v '^\s*$' | tail -5
+out=\$(sudo -n bash "$stage/deploy/install.sh" --binary "$stage/portico" 2>&1) || { printf '%s\n' "\$out" >&2; exit 1; }
+printf '%s\n' "\$out" | grep 'backup of the store' || true
+printf '%s\n' "\$out" | grep -v '^\s*$' | tail -5
 [ "\$(/usr/local/bin/portico version)" = "portico $version" ] || { echo "upgrade-appliance.sh: the installed binary is not $version" >&2; exit 1; }
 systemctl is-active -q portico && echo "upgrade-appliance.sh: portico $version active"
 REMOTE
