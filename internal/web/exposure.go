@@ -84,10 +84,20 @@ func (h *Handler) renderExposure(w http.ResponseWriter, r *http.Request, status 
 	d := h.exposureState(r)
 	d.Error = errMsg
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
+	w.WriteHeader(swapStatus(r, status))
 	if err := h.pages["setup"].ExecuteTemplate(w, "exposure-status", d); err != nil {
 		h.log.Error("template", "page", "setup/exposure", "err", err.Error())
 	}
+}
+
+// swapStatus is the status of a fragment answer: HTMX 2 swaps only 2xx
+// responses, so an HTMX request gets a refusal with 200 and the message
+// in the fragment; other clients get the real status.
+func swapStatus(r *http.Request, status int) int {
+	if r.Header.Get("HX-Request") == "true" {
+		return http.StatusOK
+	}
+	return status
 }
 
 func (h *Handler) exposureStatus(w http.ResponseWriter, r *http.Request) {
