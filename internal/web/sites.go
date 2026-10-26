@@ -250,7 +250,7 @@ func (h *Handler) writeSiteFragment(w http.ResponseWriter, r *http.Request, stat
 		f.CSRF = sess.CSRF
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
+	w.WriteHeader(swapStatus(r, status))
 	if err := h.pages["site"].ExecuteTemplate(w, name, f); err != nil {
 		h.log.Error("template", "page", "site/"+name, "err", err.Error())
 	}
@@ -265,13 +265,16 @@ func (h *Handler) siteCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cand := settings.Site{ID: s.ID, TLSVerify: s.TLSVerify, TLSPin: s.TLSPin, CAPEM: s.CAPEM}
+	refused := func(status int, err error) {
+		h.writeSiteFragment(w, r, status, "site_check", siteFragment{Status: "error", Message: err.Error()})
+	}
 	if err := siteFromForm(r, &cand); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		refused(http.StatusBadRequest, err)
 		return
 	}
 	res, err := h.setup.CheckSite(r.Context(), s.ID, cand, cand.APIKey != "")
 	if err != nil {
-		http.Error(w, err.Error(), siteStatus(err))
+		refused(siteStatus(err), err)
 		return
 	}
 	h.log.Info("site check", "via", "ui", "id", s.ID, "ok", res.OK, "version", res.Version)

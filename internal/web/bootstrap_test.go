@@ -160,3 +160,22 @@ func TestSetupBootstrapFailureKeepsTypedFields(t *testing.T) {
 		}
 	}
 }
+
+// HTMX 2 swaps only 2xx answers: a refused bootstrap reaches the card
+// with 200 and the message; other clients keep the real status.
+func TestSetupBootstrapRefusalReachesTheBrowser(t *testing.T) {
+	e := newEnv(t, true)
+	withSetup(t, e, false)
+	e.web.setup.File, e.web.setup.Mode = nil, "setup"
+	withBootstrapFakes(t, e)
+	e.login(t)
+	e.do("POST", "/setup/save", e.form("section", "hosts", "portal_host", "prism.example.test", "id_host", "id.example.test"), true)
+	form := e.form("admin_username", "kcadmin", "admin_password", "", "realm", "msp")
+	rec := e.hx("POST", "/setup/bootstrap/keycloak", form)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "username and password are required") {
+		t.Fatalf("HTMX: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec = e.do("POST", "/setup/bootstrap/keycloak", form, true); rec.Code != 409 {
+		t.Fatalf("plain client: %d", rec.Code)
+	}
+}

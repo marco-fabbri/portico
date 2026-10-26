@@ -123,6 +123,21 @@ func TestSetupSaveSectionAndSecretsStayHidden(t *testing.T) {
 	}
 }
 
+// A refused check reaches the card as a banner: HTMX 2 swaps only 2xx.
+func TestSiteCheckRefusalReachesTheBrowser(t *testing.T) {
+	e := newEnv(t, true)
+	_, pc, _ := withSetup(t, e, true)
+	e.login(t)
+	form := e.form("url", pc.URL, "tls_verify", "", "code", "AZ-X", "order", "first")
+	rec := e.hx("POST", "/setup/sites/site-a/check", form)
+	if body := rec.Body.String(); rec.Code != 200 || !strings.Contains(body, "banner error") || !strings.Contains(body, "order must be a whole number") {
+		t.Fatalf("HTMX: %d %s", rec.Code, body)
+	}
+	if rec = e.do("POST", "/setup/sites/site-a/check", form, true); rec.Code != 400 {
+		t.Fatalf("plain client: %d", rec.Code)
+	}
+}
+
 func TestSetupCheckRendersResultAndPickers(t *testing.T) {
 	e := newEnv(t, true)
 	_, pc, _ := withSetup(t, e, true)

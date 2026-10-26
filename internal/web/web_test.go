@@ -306,3 +306,17 @@ func TestLayoutCarriesThePorticoMark(t *testing.T) {
 		}
 	}
 }
+
+// hx is do for a signed-in HTMX request.
+func (e *env) hx(method, path string, form url.Values) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, "https://127.0.0.1:8443"+path, strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("HX-Request", "true")
+	if e.cookie != nil {
+		r.AddCookie(e.cookie)
+	}
+	r.RemoteAddr = "10.0.0.9:4000"
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, r)
+	return rec
+}
