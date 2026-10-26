@@ -157,3 +157,19 @@ func TestMenuShowsTheStatusLineAndLeavesOnZeroOrEOF(t *testing.T) {
 		t.Fatalf("unknown choice: %s", out)
 	}
 }
+
+// Design 4.8: the console is network, break-glass password and status;
+// the exposure and the Keycloak realm are set up in the admin UI.
+func TestMenuIsNetworkPasswordStatus(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true})
+	sys.keyfiles["eth0"] = NetConfig{Address: "10.0.0.5", Prefix: 24}
+	out := run(t, sys, "3\n4\n0\n")
+	for _, no := range []string{"Exposure", "Keycloak administrator"} {
+		if strings.Contains(out, no) {
+			t.Fatalf("menu still offers %q:\n%s", no, out)
+		}
+	}
+	if strings.Count(out, "unknown choice") != 2 || !strings.Contains(out, "Open https://10.0.0.5:8443/ to continue the setup") {
+		t.Fatalf("menu:\n%s", out)
+	}
+}

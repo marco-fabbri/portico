@@ -1,6 +1,6 @@
 // Package console is the wizard on the appliance's tty1 (design 4.8):
-// network, break-glass password, exposure, the Keycloak administrator
-// credentials shown once, and the state of the services. It runs as root
+// network, break-glass password and the state of the services, with the
+// address of the admin UI where the rest of the setup happens. It runs as root
 // through a getty override and talks to the host through System, so the
 // screens are tested against a fake.
 package console
@@ -66,10 +66,6 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, sys System) error {
 			s.network()
 		case "2":
 			s.adminPassword()
-		case "3":
-			s.exposure()
-		case "4":
-			s.keycloakCredentials()
 		case "5", "":
 		default:
 			fmt.Fprintln(s.out, "unknown choice")
@@ -86,8 +82,10 @@ func (s *session) menu() {
 		fmt.Fprintf(s.out, "Portico %s%40s\n", Version, url+" (admin UI)")
 	}
 	fmt.Fprintln(s.out, s.statusLine(url))
-	fmt.Fprintln(s.out, "1) Network            3) Exposure (direct certificate or Cloudflare tunnel)")
-	fmt.Fprintln(s.out, "2) Admin password     4) Keycloak administrator credentials (show once)")
+	if url != "" {
+		fmt.Fprintf(s.out, "Open %s to continue the setup\n", url)
+	}
+	fmt.Fprintln(s.out, "1) Network            2) Admin password")
 	fmt.Fprintln(s.out, "5) Refresh            0) Log out")
 	fmt.Fprint(s.out, "> ")
 }
