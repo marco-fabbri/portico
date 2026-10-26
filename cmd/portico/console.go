@@ -19,6 +19,7 @@ import (
 
 	"github.com/marco-fabbri/portico/internal/config"
 	"github.com/marco-fabbri/portico/internal/console"
+	"github.com/marco-fabbri/portico/internal/exposure"
 )
 
 // runConsole is `portico console`: the wizard on tty1, run as root by the
@@ -155,6 +156,63 @@ func (h *hostSystem) Exec(stdin io.Reader, argv ...string) (string, error) {
 func (h *hostSystem) ReadFile(path string) ([]byte, error) { return os.ReadFile(path) }
 
 func (h *hostSystem) Remove(path string) error { return os.Remove(path) }
+
+// ReadRequestFile reads a file of the exposure request directory, which
+// the unprivileged portico user owns, for `portico exposure apply` run as
+// root: never through a link (O_NOFOLLOW), never a FIFO or a device (the
+// open does not block, then the file must be regular), at most
+// exposure.MaxRequestFile bytes.
+func (h *hostSystem) ReadRequestFile(path string) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		if errors.Is(err, syscall.ELOOP) {
+			return nil, fmt.Errorf("%s is a link, not a regular file", filepath.Base(path))
+		}
+		return nil, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", filepath.Base(path))
+	}
+	b, err := io.ReadAll(io.LimitReader(f, exposure.MaxRequestFile+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > exposure.MaxRequestFile {
+		return nil, fmt.Errorf("%s is larger than %d bytes", filepath.Base(path), exposure.MaxRequestFile)
+	}
+	return b, nil
+}
+
+// WriteResult writes the result of an exposure request beside it: a
+// fresh temporary file renamed over the old one, so a link planted under
+// that name is replaced, never followed.
+func (h *hostSystem) WriteResult(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".result-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Chmod(0o644); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
+}
 
 func (h *hostSystem) WriteFile(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {

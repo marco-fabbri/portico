@@ -49,13 +49,23 @@ type Result struct {
 	At      time.Time `json:"at"`
 }
 
-// Host is what Apply does to the appliance: the console's System subset.
+// Host is what Apply does to the appliance: the console's System subset,
+// and two calls for the request directory, which belongs to the
+// unprivileged portico user: ReadRequestFile reads a regular file only,
+// never through a link and at most MaxRequestFile bytes; WriteResult
+// replaces the file by a rename, so a link planted there is replaced,
+// not followed.
 type Host interface {
 	ReadFile(path string) ([]byte, error)
 	WriteFile(path string, data []byte, mode os.FileMode) error
 	Remove(path string) error
 	Exec(stdin io.Reader, argv ...string) (string, error)
+	ReadRequestFile(path string) ([]byte, error)
+	WriteResult(path string, data []byte) error
 }
+
+// MaxRequestFile bounds what Apply reads from the request directory.
+const MaxRequestFile = 64 << 10
 
 // How long cloudflared gets to fail after its start: a malformed or
 // revoked token makes it exit within a second or two, and systemd's
@@ -73,25 +83,35 @@ var (
 // written to result.json. Without a request it does nothing: the unit
 // fires again when the request is deleted.
 func Apply(h Host, dir, configPath string) Result {
-	b, err := h.ReadFile(filepath.Join(dir, RequestFile))
-	if err != nil {
+	b, err := h.ReadRequestFile(filepath.Join(dir, RequestFile))
+	if errors.Is(err, fs.ErrNotExist) {
 		return Result{}
 	}
 	var req Request
 	r := Result{At: time.Now().UTC()}
-	if err := json.Unmarshal(b, &req); err != nil {
+	if err != nil {
+		r.Message = "the request cannot be read: " + err.Error()
+	} else if err := json.Unmarshal(b, &req); err != nil {
 		r.Message = "the request cannot be read: " + err.Error()
 	} else {
 		r.ID, r.Mode = req.ID, req.Mode
 		r.Message, r.OK = apply(h, dir, configPath, req)
 	}
+	// The result first: the admin UI stops waiting when request.json is
+	// gone or the result carries its id.
+	out, _ := json.Marshal(r)
+	_ = h.WriteResult(filepath.Join(dir, ResultFile), out)
+	removed := true
 	for _, f := range []string{RequestFile, CertFile, KeyFile, TokenFile} {
 		if err := h.Remove(filepath.Join(dir, f)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			r.Message += "; " + f + " not deleted: " + err.Error()
+			removed = false
 		}
 	}
-	out, _ := json.Marshal(r)
-	_ = h.WriteFile(filepath.Join(dir, ResultFile), out, 0o644)
+	if !removed {
+		out, _ = json.Marshal(r)
+		_ = h.WriteResult(filepath.Join(dir, ResultFile), out)
+	}
 	return r
 }
 
@@ -112,13 +132,13 @@ func apply(h Host, dir, configPath string, req Request) (string, bool) {
 }
 
 func direct(h Host, dir, configPath, y string, wasTunnel bool) (string, bool) {
-	cert, err := h.ReadFile(filepath.Join(dir, CertFile))
+	cert, err := h.ReadRequestFile(filepath.Join(dir, CertFile))
 	if err != nil {
-		return "no certificate in the request", false
+		return "no certificate in the request: " + err.Error(), false
 	}
-	key, err := h.ReadFile(filepath.Join(dir, KeyFile))
+	key, err := h.ReadRequestFile(filepath.Join(dir, KeyFile))
 	if err != nil {
-		return "no key in the request", false
+		return "no key in the request: " + err.Error(), false
 	}
 	// The admin UI has checked the pair; root checks it again, since the
 	// files come from an unprivileged process.
@@ -153,9 +173,9 @@ func direct(h Host, dir, configPath, y string, wasTunnel bool) (string, bool) {
 }
 
 func tunnel(h Host, dir, configPath, y string, wasTunnel bool) (string, bool) {
-	token, err := h.ReadFile(filepath.Join(dir, TokenFile))
+	token, err := h.ReadRequestFile(filepath.Join(dir, TokenFile))
 	if err != nil {
-		return "no token in the request", false
+		return "no token in the request: " + err.Error(), false
 	}
 	text := y
 	if !wasTunnel {
