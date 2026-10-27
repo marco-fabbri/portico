@@ -77,7 +77,8 @@ type Step struct {
 	At             time.Time
 }
 
-// Store is the interface every consumer (tenant service, API, serve) uses.
+// Store is the persistence every package uses through this interface;
+// SQLite is the one implementation.
 type Store interface {
 	Close() error
 	CreateTenant(ctx context.Context, t *Tenant) error
