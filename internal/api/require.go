@@ -65,6 +65,13 @@ func RequireAdmin(st store.Store, sessions SessionChecker, lim *Limiter, realm s
 				next.ServeHTTP(w, r)
 				return
 			}
+			// A browser keeps Basic credentials it was asked for once and
+			// attaches them to a form another site submits; it also says
+			// where the request comes from, which scripts do not.
+			if api && crossSiteChange(r) {
+				writeError(w, http.StatusForbidden, "the API does not accept changes sent by a browser from another site")
+				return
+			}
 			// The UI session is a cookie with no CSRF token on the API, and
 			// SameSite=Strict is port-blind: a page on the tenant site could
 			// post to the API with it. API paths take Basic only.
@@ -123,6 +130,17 @@ func RequireAdmin(st store.Store, sessions SessionChecker, lim *Limiter, realm s
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 		})
 	}
+}
+
+// crossSiteChange reports a state-changing request a browser sent from
+// another origin.
+func crossSiteChange(r *http.Request) bool {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return false
+	}
+	site := r.Header.Get("Sec-Fetch-Site")
+	return site != "" && site != "none" && site != "same-origin"
 }
 
 func challenge(w http.ResponseWriter, realm string) {
