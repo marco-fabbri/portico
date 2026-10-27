@@ -58,28 +58,33 @@ func (s *Service) Get(ctx context.Context) Branding {
 		return b
 	}
 	s.mu.RUnlock()
-	b := s.load(ctx)
-	s.mu.Lock()
-	s.cached = &b
-	s.mu.Unlock()
+	b, ok := s.load(ctx)
+	if ok {
+		s.mu.Lock()
+		s.cached = &b
+		s.mu.Unlock()
+	}
 	return b
 }
 
-func (s *Service) load(ctx context.Context) Branding {
+// load reads the stored branding; ok is false when the read failed, so
+// the defaults it returns then are not cached and the next call tries
+// again.
+func (s *Service) load(ctx context.Context) (Branding, bool) {
 	raw, err := s.st.GetSetting(ctx, SettingKey)
 	if errors.Is(err, store.ErrNotFound) {
-		return Default()
+		return Default(), true
 	}
 	if err != nil {
 		s.log.Warn("branding: read failed, using defaults", "err", err.Error())
-		return Default()
+		return Default(), false
 	}
 	b, err := decodeStored(raw)
 	if err != nil {
 		s.log.Warn("branding: stored value unreadable, using defaults", "err", err.Error())
-		return Default()
+		return Default(), true
 	}
-	return b
+	return b, true
 }
 
 // Icons returns the tenant icons of the current branding. An icon that
