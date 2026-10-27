@@ -6,6 +6,11 @@ admin UI uses, meant for scripts: every call is HTTP Basic with the
 break-glass account (`admin` and the password set with
 `portico admin set-password`), over TLS when the listener is off the
 loopback. Repeated authentication failures from one address are delayed.
+A change (any method but GET, HEAD and OPTIONS) that a browser marks as
+coming from another site (`Sec-Fetch-Site` other than `same-origin` or
+`none`) is refused with 403: a browser that once asked for the password
+keeps it, and would attach it to another site's form. Scripts do not
+send that header.
 Bodies are JSON; errors come back as `{"error": "<message>"}` with the
 status codes below. In setup mode (settings incomplete) the tenant calls
 and the live site calls (maintenance, sessions) answer 503 with the

@@ -198,3 +198,32 @@ func TestRequireAdminLetsTheRestartPollsThrough(t *testing.T) {
 		t.Fatalf("/exposure/status without a session: %d", rec.Code)
 	}
 }
+
+// Review before v0.1.0: a browser that once asked for /api/v1/ keeps the
+// Basic credentials and attaches them to a form another site submits.
+// A browser marks such a request with Sec-Fetch-Site; scripts send none.
+func TestRequireAdminRefusesCrossSiteAPIChanges(t *testing.T) {
+	h, _, _ := requireEnv(t, true)
+	send := func(method, site string) int {
+		r := httptest.NewRequest(method, "https://127.0.0.1:8443/api/v1/tenants/acme/disable", nil)
+		r.SetBasicAuth("admin", adminPassword)
+		if site != "" {
+			r.Header.Set("Sec-Fetch-Site", site)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec.Code
+	}
+	for _, site := range []string{"cross-site", "same-site"} {
+		if c := send("POST", site); c != http.StatusForbidden {
+			t.Errorf("POST from %s: %d", site, c)
+		}
+	}
+	for _, c := range []struct {
+		method, site string
+	}{{"POST", ""}, {"POST", "none"}, {"POST", "same-origin"}, {"GET", "cross-site"}} {
+		if got := send(c.method, c.site); got != http.StatusTeapot {
+			t.Errorf("%s with Sec-Fetch-Site %q: %d", c.method, c.site, got)
+		}
+	}
+}
