@@ -199,8 +199,12 @@ refuses to serve pages until it is set. The REST API authenticates with
 HTTP Basic against that account; the UI with a session cookie obtained
 from a login form on the same listener (`portico_admin`, HttpOnly,
 SameSite=Strict, Secure when the listener has TLS, 8 h, 15 min idle), a
-per-session CSRF token on every state-changing form, and a delay after
-failed logins shared with the API's Basic check. Off the loopback the
+per-session CSRF token on every state-changing form, and a lockout
+after failed logins shared with the API's Basic check (after three
+failures in ten minutes the address is refused with 429 for 1, 2, 4,
+then 8 s, before any password is checked). Polls on a timer do not
+count as activity, and the API refuses changes a browser marks as sent
+from another site. Off the loopback the
 listener must have TLS (enforced since 2a). OIDC login for admins can be
 added later; the break-glass account stays.
 Marco's call on 2026-10-19 (Milestone 3): the account starts with the
@@ -260,7 +264,8 @@ Nutanix accepts with `nutanix/4u`, mitigated by never publishing 8443.
    SAML form (write-ups 12 and 13; 1.2 s on the lab). The console's own
    Sign Out ends on `/redirect?logout=…`; Portico turns it into its own
    logout, so signing out of Prism Central also ends the Keycloak session
-   instead of signing the tenant straight back in. Keycloak already
+   instead of signing the tenant straight back in. A sign-out the
+   browser marks as coming from another site goes home and ends nothing. Keycloak already
    has a session → immediate return with the SAML assertion. Prism Central
    creates its session, scoped by the user's project membership. If the
    selection call fails (for example after a Prism Central upgrade changes
@@ -297,7 +302,8 @@ visibility check. Deletion runs the reverse order and must unshare the IdP
 before deleting the project. The tenant row stores: project `id` and
 `extId`, resource group extId, SAML group extId, role membership extIds,
 IdP sharing state. Project naming: `<prefix>-<slug>`, prefix configurable,
-default `portico` (SP Central uses `sp-`). A tenant can be disabled (group
+default `portico` (SP Central uses `sp-`); the project and group prefixes
+are fixed once a tenant exists. A tenant can be disabled (group
 disabled → login impossible). Disconnecting a tenant from a site deletes
 an empty project and refuses a non-empty one; deleting a tenant needs no
 sites left; Portico never deletes VMs (sites usability design 4.6,
@@ -562,9 +568,10 @@ Portico, and both carry the MSP's identity, not Nutanix's or Portico's.
   the background; accent, i.e. the primary button and the links inside
   the white card, which stays white), logo (Portico's arch drawn in the
   text colour, an uploaded image, or none; an upload is PNG, JPEG or
-  SVG, at most 256 KiB; an SVG with scripts, event handlers,
-  `javascript:` links or `foreignObject` is refused, because Keycloak
-  serves the theme's copy from the login origin), tab icon (a PNG of 128
+  SVG, at most 256 KiB; an SVG is parsed and accepted only as static
+  drawing (allow-listed elements, no event handlers, no DTD, links and
+  `url()` only to its own ids or an embedded raster image), because
+  Keycloak serves the theme's copy from the login origin), tab icon (a PNG of 128
   to 1024 px on its longer side, the shorter at least half of it, at
   most 256 KiB, centred on a square; without one, Portico's arch in
   white on the accent colour), minimum landing display time. Edited on
