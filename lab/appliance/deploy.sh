@@ -4,8 +4,8 @@
 # from the GitHub release, as an MSP's would. Otherwise the image is a
 # workflow artifact of .github/workflows/image.yml (or a local file),
 # served over HTTP from LAB_IMAGE_HOST, a host Prism Central can download
-# from (user lab, python3); there is no default since the first VM that
-# did it was deleted on 2026-10-27. Requires `source lab/env.sh`, and `gh`
+# from (user LAB_IMAGE_USER, default lab; python3); there is no default
+# host since the first VM that did it was deleted on 2026-10-27. Requires `source lab/env.sh`, and `gh`
 # logged in for an artifact. Lab only.
 #   lab/appliance/deploy.sh --release V
 #   lab/appliance/deploy.sh [--run ID | --image PATH] [--version V]
@@ -13,6 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 : "${PC_URL:?source lab/env.sh first}" "${PC_USER:?}" "${PC_PASS:?}"
 IMAGE_HOST="${LAB_IMAGE_HOST:-}"
+IMAGE_USER="${LAB_IMAGE_USER:-lab}"
 # shellcheck source=lab/lib.sh
 source lab/lib.sh
 RUN=""; IMAGE=""; VERSION="0.0.0-dev"; RELEASE=0
@@ -64,10 +65,10 @@ if ping -c 2 -W 1 "$APPLIANCE_IP" >/dev/null 2>&1; then echo "refusing: $APPLIAN
 # a URL. A release needs none: the deployer's default URL is the release.
 IMAGE_URL=""
 if [ $RELEASE -eq 0 ]; then
-  SSH=(ssh -o BatchMode=yes -o ConnectTimeout=5 "lab@$IMAGE_HOST")
-  stage=$(remote_stage_dir "lab@$IMAGE_HOST")
+  SSH=(ssh -o BatchMode=yes -o ConnectTimeout=5 "$IMAGE_USER@$IMAGE_HOST")
+  stage=$(remote_stage_dir "$IMAGE_USER@$IMAGE_HOST")
   echo "copying $(du -h "$IMAGE" | cut -f1) to $IMAGE_HOST"
-  scp -q -o BatchMode=yes "$IMAGE" "lab@$IMAGE_HOST:$stage/portico-$VERSION.qcow2"
+  scp -q -o BatchMode=yes "$IMAGE" "$IMAGE_USER@$IMAGE_HOST:$stage/portico-$VERSION.qcow2"
   "${SSH[@]}" "sudo firewall-cmd -q --add-port=8000/tcp; cd '$stage' && (nohup python3 -m http.server 8000 >/dev/null 2>&1 & echo \$! > '$stage/http.pid')"
   echo "$stage" > "$A/.stage"
   IMAGE_URL="http://$IMAGE_HOST:8000/portico-$VERSION.qcow2"
