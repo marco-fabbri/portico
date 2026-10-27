@@ -66,7 +66,7 @@ restorecon /var/lib/portico/portico.db* /var/lib/portico/master.key
 
 then put back the binary of the version the copy was taken from: from
 the unpacked `install-<version>.tar.gz` of that release,
-`./deploy/install.sh --release <version>`, or `--binary <path>` for a
+`bash deploy/install.sh --release <version>`, or `--binary <path>` for a
 build of your own. The installer takes one more copy (of the restored
 store) and starts Portico on it. Starting the newer binary instead
 would migrate the store again. A copy taken from a development build

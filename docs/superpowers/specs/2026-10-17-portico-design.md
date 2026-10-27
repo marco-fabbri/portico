@@ -891,7 +891,7 @@ portico/
 | 3 | Appliance image | done 2026-10-20 (write-up 19): Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
 | 4 | Sites | several Prism Centrals behind one Portico, shown to tenants as sites on one public name (design `2026-10-20-sites-design.md`, ADR 0004); accepted on the appliance with one site (write-up 21), the two-site live test when a second pc.7.6 lab cluster is up |
 | 5 | Backlog sweep | done 2026-10-25 (write-ups 27 and 28): the findings in `docs/backlog.md` that must not ship in a release closed with a test each |
-| 6 | First release (step 1 complete) | README, install guide, release artefacts, known limits documented; tag `v0.1.0` |
+| 6 | First release (step 1 complete) | done 2026-10-27 (write-ups 29, 30, 33): README, install guide, release artefacts, known limits documented; tag `v0.1.0` published, its image downloaded by Prism Central from GitHub and its installer run from the public release |
 
 Step 2 (later): richer UI, MSP features, brownfield inventory with exclusion
 list, multi-Prism Central, further services.

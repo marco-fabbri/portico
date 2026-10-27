@@ -192,7 +192,7 @@ curl -fsSLO https://github.com/marco-fabbri/portico/releases/download/v0.1.0/ins
 curl -fsSLO https://github.com/marco-fabbri/portico/releases/download/v0.1.0/install-0.1.0.tar.gz.sha256
 sha256sum -c install-0.1.0.tar.gz.sha256
 tar -xzf install-0.1.0.tar.gz
-./deploy/install.sh --release 0.1.0
+bash deploy/install.sh --release 0.1.0
 ```
 
 The installer ([deploy/README.md](../deploy/README.md)) installs the
@@ -219,7 +219,9 @@ appliance's state in 0.1.0.
    realm and every tenant user), which lives outside `/var/lib/portico`.
 2. On the appliance, as root, download and check
    `install-<version>.tar.gz` as above, unpack it and run
-   `./deploy/install.sh --release <version>`.
+   `bash deploy/install.sh --release <version>`. Through `bash`, because
+   the appliance mounts `/tmp`, `/var/tmp` and `/home` `noexec` (CIS):
+   `./deploy/install.sh` there ends with "Permission denied".
 3. The installer stops Portico, copies the store and the master key to
    `/var/lib/portico/backup-<old version>-<time>/`, replaces the binary
    and its files, restarts PostgreSQL and Keycloak only when their units
