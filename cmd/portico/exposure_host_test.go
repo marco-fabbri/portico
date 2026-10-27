@@ -156,3 +156,32 @@ func TestExposureApplyKeepsToTheDirectoryItOpened(t *testing.T) {
 	os.Remove(filepath.Join(victim, exposure.RequestFile))
 	untouched()
 }
+
+// Review before v0.1.0: root rewrites portico.yaml, the public pair and
+// the token by a rename, so a power loss never leaves a truncated file.
+// A hard link to the old file shows it: rewritten in place, the link
+// would see the new text.
+func TestHostWriteFileReplacesByRename(t *testing.T) {
+	dir := t.TempDir()
+	path, old := filepath.Join(dir, "portico.yaml"), filepath.Join(dir, "old")
+	os.WriteFile(path, []byte("before\n"), 0o640)
+	if err := os.Link(path, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&hostSystem{}).WriteFile(path, []byte("after\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "after\n" {
+		t.Fatalf("file %q", b)
+	}
+	if b, _ := os.ReadFile(old); string(b) != "before\n" {
+		t.Fatalf("rewritten in place: the old inode reads %q", b)
+	}
+	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o640 {
+		t.Fatalf("mode %o", fi.Mode().Perm())
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 2 {
+		t.Fatalf("temporary file left behind: %v", entries)
+	}
+}

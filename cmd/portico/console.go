@@ -14,7 +14,9 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -245,21 +247,50 @@ func (d *requestDir) Remove(name string) error { return d.root.Remove(name) }
 
 func (d *requestDir) Close() error { return d.root.Close() }
 
+// WriteFile replaces path by a rename: written beside it, synced, then
+// moved over it, so a power loss leaves the old file or the new one,
+// never a truncated one. The old file's owner is kept; a new file under
+// /etc/portico gets the portico group, which reads it.
 func (h *hostSystem) WriteFile(path string, data []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, data, mode); err != nil {
+	uid, gid := -1, -1
+	if fi, err := os.Stat(path); err == nil {
+		if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+			uid, gid = int(st.Uid), int(st.Gid)
+		}
+	} else if strings.HasPrefix(path, "/etc/portico/") {
+		if g, err := user.LookupGroup("portico"); err == nil {
+			gid, _ = strconv.Atoi(g.Gid)
+		}
+	}
+	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
 		return err
 	}
-	if err := os.Chmod(path, mode); err != nil {
-		return err
+	tmp := f.Name()
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Chmod(mode)
 	}
-	// Files under /etc/portico are read by the portico user (group).
-	if strings.HasPrefix(path, "/etc/portico/") {
-		_, _ = h.Exec(nil, "chgrp", "portico", path)
+	if err == nil && (uid >= 0 || gid >= 0) {
+		err = f.Chown(uid, gid)
 	}
-	return nil
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		os.Remove(tmp)
+	}
+	return err
 }
 
 // Echo turns the terminal echo off while a secret is typed.
