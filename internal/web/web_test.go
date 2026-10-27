@@ -395,3 +395,18 @@ func TestAnExpiredPollSendsThePageToTheLogin(t *testing.T) {
 		t.Fatalf("%d HX-Redirect=%q body %q", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body.String())
 	}
 }
+
+// Review before v0.1.0: a sign-in from a browser that holds a session
+// replaces it; the old one does not stay alive beside the new one.
+func TestLoginEndsTheSessionItReplaces(t *testing.T) {
+	e := newEnv(t, true)
+	e.login(t)
+	old := e.cookie
+	rec := e.do("POST", "/login", url.Values{"user": {"admin"}, "password": {adminPassword}}, true)
+	if rec.Code != 303 {
+		t.Fatalf("second login: %d", rec.Code)
+	}
+	if _, ok := e.web.sessions.Peek(old.Value, time.Now()); ok {
+		t.Fatal("the replaced session is still valid")
+	}
+}

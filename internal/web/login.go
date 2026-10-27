@@ -60,6 +60,10 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.limiter.Reset(source)
+	// A sign-in replaces the session this browser held.
+	if c, err := r.Cookie(SessionCookie); err == nil {
+		h.sessions.Delete(c.Value)
+	}
 	h.newSession(w)
 	h.log.Info("admin login", "source", source)
 	if api.PasswordChangeRequired(r.Context(), h.st) {
