@@ -103,6 +103,12 @@ func NewPublic(o PublicOptions) http.Handler {
 		// the routing: a tenant with several sites and no site chosen (a
 		// stale console tab) is still signed out of that site only.
 		if o.Landing.interceptsSignOut(r) {
+			// From another site's link: home, nothing ended.
+			if auth.FromAnotherSite(r) {
+				setRule(r, "sign-out-cross-site")
+				http.Redirect(w, r, "/", http.StatusSeeOther)
+				return
+			}
 			if o.Sites.multiple(r.Context(), sess.Tenant) {
 				o.Sites.leaveSite(w, r, sess)
 				return

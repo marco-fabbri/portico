@@ -553,3 +553,37 @@ func TestSecondLoginRetiresTheFirstSession(t *testing.T) {
 		t.Fatal("the second session is not live")
 	}
 }
+
+// Review before v0.1.0: a link or a redirect from another site must not
+// sign a tenant out. The browser says where a navigation comes from; one
+// from elsewhere goes home with the session kept. Prism Central's own
+// Sign Out chain stays on the public host (write-up 12): same-origin.
+func TestLogoutFromAnotherSiteKeepsTheSession(t *testing.T) {
+	idp := newFakeIDP(t)
+	a, st := newTestAuth(t, idp)
+	for _, site := range []string{"cross-site", "same-site"} {
+		st.Create(Session{ID: "sid", CreatedAt: time.Now(), LastSeen: time.Now()})
+		rec := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "https://prism.test/.portico/logout", nil)
+		r.AddCookie(&http.Cookie{Name: SessionCookie, Value: "sid"})
+		r.Header.Set("Sec-Fetch-Site", site)
+		a.Logout().ServeHTTP(rec, r)
+		if _, ok := st.Get("sid", time.Now()); !ok || len(rec.Result().Cookies()) != 0 {
+			t.Fatalf("%s: signed out", site)
+		}
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/" {
+			t.Fatalf("%s: %d %q", site, rec.Code, rec.Header().Get("Location"))
+		}
+	}
+	for _, site := range []string{"same-origin", "none"} {
+		st.Create(Session{ID: "sid", CreatedAt: time.Now(), LastSeen: time.Now()})
+		rec := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "https://prism.test/.portico/logout", nil)
+		r.AddCookie(&http.Cookie{Name: SessionCookie, Value: "sid"})
+		r.Header.Set("Sec-Fetch-Site", site)
+		a.Logout().ServeHTTP(rec, r)
+		if _, ok := st.Get("sid", time.Now()); ok {
+			t.Fatalf("%s: not signed out", site)
+		}
+	}
+}
