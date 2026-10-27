@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -157,16 +159,41 @@ func (h *hostSystem) ReadFile(path string) ([]byte, error) { return os.ReadFile(
 
 func (h *hostSystem) Remove(path string) error { return os.Remove(path) }
 
-// ReadRequestFile reads a file of the exposure request directory, which
-// the unprivileged portico user owns, for `portico exposure apply` run as
-// root: never through a link (O_NOFOLLOW), never a FIFO or a device (the
-// open does not block, then the file must be regular), at most
-// exposure.MaxRequestFile bytes.
-func (h *hostSystem) ReadRequestFile(path string) ([]byte, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+// OpenRequestDir opens the exposure request directory, which the
+// unprivileged portico user owns, for `portico exposure apply` run as
+// root: the directory itself must not be a link, and it is opened once,
+// so every later read, removal and result write stays in it even if the
+// name is swapped for a link meanwhile (os.Root).
+func (h *hostSystem) OpenRequestDir(dir string) (exposure.RequestDir, error) {
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.IsDir() {
+		return nil, fmt.Errorf("%s is not a directory", dir)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	// Swapped between the check and the open: refused.
+	if opened, err := root.Stat("."); err != nil || !os.SameFile(fi, opened) {
+		root.Close()
+		return nil, fmt.Errorf("%s changed while it was opened", dir)
+	}
+	return &requestDir{root: root}, nil
+}
+
+type requestDir struct{ root *os.Root }
+
+// Read reads a file of the request directory: never through a link
+// (O_NOFOLLOW), never a FIFO or a device (the open does not block, then
+// the file must be regular), at most exposure.MaxRequestFile bytes.
+func (d *requestDir) Read(name string) ([]byte, error) {
+	f, err := d.root.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		if errors.Is(err, syscall.ELOOP) {
-			return nil, fmt.Errorf("%s is a link, not a regular file", filepath.Base(path))
+			return nil, fmt.Errorf("%s is a link, not a regular file", name)
 		}
 		return nil, err
 	}
@@ -176,43 +203,47 @@ func (h *hostSystem) ReadRequestFile(path string) ([]byte, error) {
 		return nil, err
 	}
 	if !fi.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a regular file", filepath.Base(path))
+		return nil, fmt.Errorf("%s is not a regular file", name)
 	}
 	b, err := io.ReadAll(io.LimitReader(f, exposure.MaxRequestFile+1))
 	if err != nil {
 		return nil, err
 	}
 	if len(b) > exposure.MaxRequestFile {
-		return nil, fmt.Errorf("%s is larger than %d bytes", filepath.Base(path), exposure.MaxRequestFile)
+		return nil, fmt.Errorf("%s is larger than %d bytes", name, exposure.MaxRequestFile)
 	}
 	return b, nil
 }
 
-// WriteResult writes the result of an exposure request beside it: a
-// fresh temporary file renamed over the old one, so a link planted under
-// that name is replaced, never followed.
-func (h *hostSystem) WriteResult(path string, data []byte) error {
-	f, err := os.CreateTemp(filepath.Dir(path), ".result-*")
+// WriteResult writes a fresh temporary file and renames it over name,
+// so a link planted under that name is replaced, never followed.
+func (d *requestDir) WriteResult(name string, data []byte) error {
+	r := make([]byte, 8)
+	rand.Read(r)
+	tmp := ".result-" + hex.EncodeToString(r)
+	f, err := d.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return err
 	}
-	tmp := f.Name()
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		return err
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Chmod(0o644) // the umask may have narrowed it
 	}
-	if err := f.Chmod(0o644); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		return err
+	if cerr := f.Close(); err == nil {
+		err = cerr
 	}
-	if err := f.Close(); err != nil {
-		os.Remove(tmp)
-		return err
+	if err == nil {
+		err = d.root.Rename(tmp, name)
 	}
-	return os.Rename(tmp, path)
+	if err != nil {
+		d.root.Remove(tmp)
+	}
+	return err
 }
+
+func (d *requestDir) Remove(name string) error { return d.root.Remove(name) }
+
+func (d *requestDir) Close() error { return d.root.Close() }
 
 func (h *hostSystem) WriteFile(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
