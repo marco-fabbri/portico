@@ -3,7 +3,6 @@ package settings
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -198,24 +197,11 @@ func TestCheckerRefusesOldPrismCentral(t *testing.T) {
 	}
 }
 
-func TestBootstrapPrismUnknownSite(t *testing.T) {
-	pc := newFakePCAdmin(t)
-	s := sample()
-	_, _, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), s, "nope", prismInput(pc.srv.URL))
-	var se *StateError
-	if !errors.As(err, &se) || !strings.Contains(err.Error(), "nope") {
-		t.Fatalf("err = %v", err)
-	}
-	if len(pc.posts) != 0 {
-		t.Fatalf("Prism Central was called: %v", pc.posts)
-	}
-}
-
 // Two sites, each with its own Prism Central, trust the same realm. With
-// the shared client (variant B) the second bootstrap only ensures the
+// the shared client (variant B) the second trust only ensures the
 // Keycloak client; with per-site issuers (variant A) each site gets its
 // own client named by its issuer.
-func TestBootstrapSAMLPerSite(t *testing.T) {
+func TestSAMLTrustPerSite(t *testing.T) {
 	for _, perSite := range []bool{false, true} {
 		t.Run(map[bool]string{false: "shared client", true: "per-site issuer"}[perSite], func(t *testing.T) {
 			old := perSiteEntityID
@@ -224,19 +210,13 @@ func TestBootstrapSAMLPerSite(t *testing.T) {
 			pc1, kc, s := samlEnv(t)
 			pc2 := newFakePCAdmin(t)
 			s.Sites = append(s.Sites, Site{ID: "nyc1", Code: "AZ-US-NYC1", URL: pc2.srv.URL, APIKey: Secret(pc2.issuedKey)})
-			b := NewBootstrapper(nil, nil)
-			res1, out, err := b.SAML(context.Background(), kc.srv.URL, s, s.Sites[0].ID, SAMLInput{})
-			if err != nil || !res1.OK {
-				t.Fatalf("site 1: %+v %v", res1, err)
+			res1, msg, _ := samlOn(t, kc, s, s.Sites[0].ID, defaultIdPName, false)
+			if msg != "" {
+				t.Fatalf("site 1: %q", msg)
 			}
-			res2, out, err := b.SAML(context.Background(), kc.srv.URL, out, "nyc1", SAMLInput{})
-			if err != nil || !res2.OK {
-				t.Fatalf("site 2: %+v %v", res2, err)
-			}
-			nyc, _ := out.Site("nyc1")
-			first, _ := out.Site(s.Sites[0].ID)
-			if nyc.SAMLIdPName != "portico-keycloak" || nyc.SAMLEntityID != res2.EntityID || first.SAMLEntityID != res1.EntityID {
-				t.Fatalf("sites after = %+v / %+v", first, nyc)
+			res2, msg, _ := samlOn(t, kc, s, "nyc1", defaultIdPName, false)
+			if msg != "" {
+				t.Fatalf("site 2: %q", msg)
 			}
 			if pc1.idpPost == nil || pc2.idpPost == nil {
 				t.Fatal("each Prism Central must get its identity provider")

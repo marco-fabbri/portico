@@ -519,8 +519,6 @@ func (h *handler) siteRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/pin", h.pinSite)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/check", h.checkSite)
 	mux.HandleFunc("POST "+Prefix+"sites/{id}/status", h.siteStatus)
-	mux.HandleFunc("POST "+Prefix+"sites/{id}/bootstrap/prism-central", h.bootstrapPrismCentral)
-	mux.HandleFunc("POST "+Prefix+"sites/{id}/bootstrap/saml", h.bootstrapSAML)
 	h.runtimeRoutes(mux)
 }
 
@@ -905,82 +903,4 @@ func (o *SettingsOptions) CheckStatus(ctx context.Context, id string, log *slog.
 	}
 	log.Info("site status", "site", id, "status", out.Status, "connection", rep.Connection.OK, "service_account", rep.ServiceAccount.OK, "saml", rep.SAML.OK, "defaults", rep.Defaults.OK)
 	return out, nil
-}
-
-// bootstrapPrismJSON is the Prism Central bootstrap request body; an
-// empty url uses the site's stored connection.
-type bootstrapPrismJSON struct {
-	Username       string `json:"username"`
-	Password       string `json:"password"`
-	URL            string `json:"url"`
-	TLSVerify      *bool  `json:"tls_verify"`
-	CAPEM          string `json:"ca_pem"`
-	ServiceAccount string `json:"service_account"`
-}
-
-func (h *handler) bootstrapPrismCentral(w http.ResponseWriter, r *http.Request) {
-	if h.settingsUnavailable(w) {
-		return
-	}
-	var in bootstrapPrismJSON
-	if err := decode(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
-		return
-	}
-	cur, _, err := h.so.Current(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	id := r.PathValue("id")
-	if _, ok := cur.Site(id); !ok {
-		writeError(w, http.StatusNotFound, ErrUnknownSite.Error())
-		return
-	}
-	pin := settings.PrismInput{Username: in.Username, Password: in.Password, URL: in.URL, TLSVerify: true, CAPEM: in.CAPEM, ServiceAccount: in.ServiceAccount}
-	if in.TLSVerify != nil {
-		pin.TLSVerify = *in.TLSVerify
-	}
-	res, _, err := h.so.Bootstrapper.PrismCentral(r.Context(), cur, id, pin)
-	if err == nil {
-		attrs := []any{"site", id, "user", in.Username, "service_account", res.ServiceAccount, "ok", res.OK, "created", res.Created, "version", res.Version}
-		if res.OK {
-			attrs = append(attrs, "key_expires", res.KeyExpires)
-		}
-		h.log.Info("bootstrap prism central", attrs...)
-	}
-	h.bootstrapAnswer(w, r, res, err)
-}
-
-// bootstrapSAMLJSON is the SAML trust bootstrap request body.
-type bootstrapSAMLJSON struct {
-	Name     string `json:"name"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-func (h *handler) bootstrapSAML(w http.ResponseWriter, r *http.Request) {
-	if h.settingsUnavailable(w) {
-		return
-	}
-	var in bootstrapSAMLJSON
-	if err := decode(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
-		return
-	}
-	cur, _, err := h.so.Current(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	id := r.PathValue("id")
-	if _, ok := cur.Site(id); !ok {
-		writeError(w, http.StatusNotFound, ErrUnknownSite.Error())
-		return
-	}
-	res, _, err := h.so.Bootstrapper.SAML(r.Context(), h.so.KeycloakURL, cur, id, settings.SAMLInput{Name: in.Name, Username: in.Username, Password: in.Password})
-	if err == nil {
-		h.log.Info("bootstrap saml", "site", id, "name", res.Name, "ok", res.OK, "used_credentials", res.UsedCredentials, "created", res.Created)
-	}
-	h.bootstrapAnswer(w, r, res, err)
 }

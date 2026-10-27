@@ -201,10 +201,6 @@ surface or the admin authentication path, so they wait for a decision.
   `deploy/portico.yaml.example`. Retiring it also shrinks
   `settings.Overlay`, which still writes fields nobody reads, and
   `Runtime` to the two Keycloak secrets (about 250 lines).
-- The two-step site endpoints `POST /api/v1/sites/{id}/bootstrap/prism-central`
-  and `/bootstrap/saml`, superseded by the one-step setup but listed in
-  `docs/api.md`: removing them is an API change (about 850 lines of
-  tests).
 - The `prism_host` aliases (store document, YAML, the settings body of
   the API): drop them one release after 0.1.0 with a note.
 - The adoption of the single-Prism-Central document of before Milestone

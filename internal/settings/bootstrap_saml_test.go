@@ -2,13 +2,14 @@ package settings
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
+
+	"github.com/marco-fabbri/portico/internal/nutanix"
 )
 
-// samlEnv is a settings document after the Keycloak and Prism Central
-// bootstraps, pointing at the two fakes.
+// samlEnv is a settings document with the Keycloak realm and a site whose
+// service account key is stored, pointing at the two fakes.
 func samlEnv(t *testing.T) (*fakePCAdmin, *fakeKCAdmin, Settings) {
 	t.Helper()
 	pc, kc := newFakePCAdmin(t), newFakeKCAdmin(t)
@@ -20,20 +21,52 @@ func samlEnv(t *testing.T) (*fakePCAdmin, *fakeKCAdmin, Settings) {
 	return pc, kc, s
 }
 
-func TestSAMLBootstrapCreatesIdPAndKeycloakClient(t *testing.T) {
-	pc, kc, s := samlEnv(t)
-	res, out, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{})
-	if res.Name != "portico-keycloak" {
-		t.Fatalf("result name %q, want the default", res.Name)
+// samlOn runs what the identity-provider and saml-trust steps of "Finish
+// setup" run: the realm's descriptor, Prism Central's providers, then the
+// trust. foreign names a provider that is not Portico's.
+func samlOn(t *testing.T, kc *fakeKCAdmin, s Settings, siteID, name string, creds bool) (out samlOutcome, msg, foreign string) {
+	t.Helper()
+	ctx := context.Background()
+	b := NewBootstrapper(nil, nil)
+	k := KeycloakAdmin(kc.srv.URL, s, b.log)
+	descriptor, msg := samlDescriptor(ctx, k, s)
+	if msg != "" {
+		return out, msg, ""
 	}
-	if err != nil || !res.OK || res.UsedCredentials || out.Sites[0].SAMLIdPName != "portico-keycloak" {
-		t.Fatalf("res=%+v out=%+v err=%v", res, out, err)
+	site, _ := s.Site(siteID)
+	var client *nutanix.Client
+	var err error
+	if creds {
+		client, err = nutanix.NewWithPassword(site.URL, "admin", "pc-pw-1", nil, nil)
+	} else {
+		client, err = nutanix.New(site.URL, string(site.APIKey), nil, nil)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	idps, err := client.ListSAMLIdPs(ctx)
+	if err != nil {
+		return out, samlRefusal(site.URL, err, creds), ""
+	}
+	own, foreign := ownIdP(idps, s, site, name)
+	if foreign != "" {
+		return out, "", foreign
+	}
+	out, msg = b.samlTrust(ctx, client, k, s, siteID, name, own, descriptor, creds)
+	return out, msg, ""
+}
+
+func TestSAMLTrustCreatesIdPAndKeycloakClient(t *testing.T) {
+	pc, kc, s := samlEnv(t)
+	res, msg, _ := samlOn(t, kc, s, "site-a", defaultIdPName, false)
+	if msg != "" {
+		t.Fatalf("msg = %q", msg)
 	}
 	if pc.idpPost["redirectURL"] != "https://prism.example.test" || pc.idpPost["name"] != "portico-keycloak" || pc.idpPost["idpMetadataXml"] == nil {
 		t.Fatalf("IdP POST = %v", pc.idpPost)
 	}
 	// Each site's Prism Central is named by its own issuer (D3, write-up 20).
-	if res.IdPExtID != "idp-portico-keycloak" || res.EntityID != "https://prism.example.test/api/iam/authn/site-a" || res.ACSURL != "https://prism.example.test/api/iam/authn/callback" || res.KeycloakClientID != res.EntityID {
+	if res.IdPExtID != "idp-portico-keycloak" || res.EntityID != "https://prism.example.test/api/iam/authn/site-a" || res.ACSURL != "https://prism.example.test/api/iam/authn/callback" {
 		t.Fatalf("res = %+v", res)
 	}
 	cl := kc.client(res.EntityID)
@@ -48,120 +81,73 @@ func TestSAMLBootstrapCreatesIdPAndKeycloakClient(t *testing.T) {
 	}
 }
 
-func TestSAMLBootstrapRefusesAnotherIdP(t *testing.T) {
+func TestSAMLTrustNamesAnotherIdP(t *testing.T) {
 	pc, kc, s := samlEnv(t)
 	pc.addIdP("corp-adfs")
-	var se *StateError
-	_, _, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{})
-	if !errors.As(err, &se) || !strings.Contains(err.Error(), "corp-adfs") || !strings.Contains(err.Error(), "does not adopt") {
-		t.Fatalf("another IdP: %v", err)
+	if _, _, foreign := samlOn(t, kc, s, "site-a", defaultIdPName, false); foreign != "corp-adfs" {
+		t.Fatalf("foreign = %q", foreign)
 	}
-	if kc.tokens != 0 {
-		t.Fatal("Keycloak was called although the IdP was refused")
+	if pc.idpPost != nil {
+		t.Fatal("an identity provider was created next to another one")
 	}
 }
 
-func TestSAMLBootstrapDescriptorMismatch(t *testing.T) {
+func TestSAMLTrustDescriptorMismatch(t *testing.T) {
 	pc, kc, s := samlEnv(t)
 	kc.descriptorEntityID = "https://localhost:8080/realms/msp"
-	res, _, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{})
-	if err != nil || res.OK || !strings.Contains(res.Message, "check Keycloak's hostname setting") || !strings.Contains(res.Message, "https://localhost:8080/realms/msp") {
-		t.Fatalf("mismatch: %+v %v", res, err)
+	_, msg, _ := samlOn(t, kc, s, "site-a", defaultIdPName, false)
+	if !strings.Contains(msg, "check Keycloak's hostname setting") || !strings.Contains(msg, "https://localhost:8080/realms/msp") {
+		t.Fatalf("mismatch: %q", msg)
 	}
 	if len(pc.idps) != 0 || pc.idpPost != nil {
 		t.Fatal("Prism Central was called with a wrong descriptor")
 	}
 }
 
-func TestSAMLBootstrapForbiddenAsksForCredentials(t *testing.T) {
+func TestSAMLTrustForbiddenAsksForCredentials(t *testing.T) {
 	pc, kc, s := samlEnv(t)
 	pc.forbidKey = true
-	res, _, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{})
-	if err != nil || res.OK || res.Message != "Prism Central refused the service account (403): give the credentials of an account that can manage identity providers" {
-		t.Fatalf("forbidden: %+v %v", res, err)
+	if _, msg, _ := samlOn(t, kc, s, "site-a", defaultIdPName, false); msg != "Prism Central refused the service account (403): give the credentials of an account that can manage identity providers" {
+		t.Fatalf("forbidden: %q", msg)
 	}
-	res, out, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{Username: "admin", Password: "pc-pw-1"})
-	if err != nil || !res.OK || !res.UsedCredentials || out.Sites[0].SAMLIdPName != "portico-keycloak" || out.Sites[0].APIKey != Secret(pc.issuedKey) {
-		t.Fatalf("with credentials: %+v %v", res, err)
+	if res, msg, _ := samlOn(t, kc, s, "site-a", defaultIdPName, true); msg != "" || res.IdPExtID != "idp-portico-keycloak" {
+		t.Fatalf("with credentials: %+v %q", res, msg)
 	}
 }
 
-func TestSAMLBootstrapIsIdempotent(t *testing.T) {
+func TestSAMLTrustIsIdempotent(t *testing.T) {
 	pc, kc, s := samlEnv(t)
-	b := NewBootstrapper(nil, nil)
-	if res, _, err := b.SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{Name: "msp-idp"}); err != nil || !res.OK {
-		t.Fatalf("first run: %+v %v", res, err)
+	if _, msg, _ := samlOn(t, kc, s, "site-a", "msp-idp", false); msg != "" {
+		t.Fatalf("first run: %q", msg)
 	}
-	res, out, err := b.SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{Name: "msp-idp"})
-	if err != nil || !res.OK || len(res.Created) != 0 || res.IdPExtID != "idp-msp-idp" || out.Sites[0].SAMLIdPName != "msp-idp" {
-		t.Fatalf("second run: %+v %v", res, err)
+	res, msg, _ := samlOn(t, kc, s, "site-a", "msp-idp", false)
+	if msg != "" || len(res.Created) != 0 || res.IdPExtID != "idp-msp-idp" {
+		t.Fatalf("second run: %+v %q", res, msg)
 	}
 	if len(pc.idps) != 1 || len(kc.mappers[clientUUID("https://prism.example.test/api/iam/authn/site-a")]) != 2 {
 		t.Fatalf("duplicates: idps=%d mappers=%d", len(pc.idps), len(kc.mappers[clientUUID("https://prism.example.test/api/iam/authn/site-a")]))
 	}
 }
 
-func TestSAMLBootstrapPreconditions(t *testing.T) {
-	_, kc, s := samlEnv(t)
-	b := NewBootstrapper(nil, nil)
-	var se *StateError
-	for name, mut := range map[string]func(*Settings){
-		"no hosts":        func(s *Settings) { s.IDHost = "" },
-		"no realm":        func(s *Settings) { s.Keycloak.Realm = "" },
-		"no admin secret": func(s *Settings) { s.Keycloak.AdminClientSecret = "" },
-		"no pc url":       func(s *Settings) { s.Sites[0].URL = "" },
-		"no key":          func(s *Settings) { s.Sites[0].APIKey = "" },
-	} {
-		c := s
-		c.Sites = append([]Site(nil), s.Sites...)
-		mut(&c)
-		if _, _, err := b.SAML(context.Background(), kc.srv.URL, c, "site-a", SAMLInput{}); !errors.As(err, &se) || !strings.Contains(err.Error(), "must be set first") {
-			t.Fatalf("%s: %v", name, err)
-		}
-	}
-	if _, _, err := b.SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{Name: "Bad Name"}); !errors.As(err, &se) {
-		t.Fatalf("bad name: %v", err)
-	}
-	// Without the key, both credentials make the precondition pass.
-	c := s
-	c.Sites = append([]Site(nil), s.Sites...)
-	c.Sites[0].APIKey = ""
-	if res, _, err := b.SAML(context.Background(), kc.srv.URL, c, "site-a", SAMLInput{Username: "admin", Password: "pc-pw-1"}); err != nil || !res.OK {
-		t.Fatalf("credentials instead of the key: %+v %v", res, err)
-	}
-}
-
 // Keycloak's SAML backchannel logout goes to the client's admin URL, the
 // public Prism Central name, which the Keycloak container cannot resolve
 // and which Portico would refuse without a session anyway (write-up 24):
-// the client has none, and a client left by an older bootstrap loses it
-// when the bootstrap runs again.
+// the client has none, and a client left by an older run loses it when
+// the trust is set up again.
 func TestSAMLClientHasNoBackchannelLogoutURL(t *testing.T) {
-	pc, kc, s := samlEnv(t)
-	_ = pc
-	res, _, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{})
-	if err != nil || !res.OK {
-		t.Fatalf("res=%+v err=%v", res, err)
+	_, kc, s := samlEnv(t)
+	res, msg, _ := samlOn(t, kc, s, "site-a", defaultIdPName, false)
+	if msg != "" {
+		t.Fatalf("msg = %q", msg)
 	}
 	if cl := kc.client(res.EntityID); cl["adminUrl"] != "" {
 		t.Fatalf("adminUrl = %v, want empty", cl["adminUrl"])
 	}
 	kc.client(res.EntityID)["adminUrl"] = "https://prism.example.test/api/iam/authn/callback"
-	if res, _, err = NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{}); err != nil || !res.OK {
-		t.Fatalf("second run: res=%+v err=%v", res, err)
+	if _, msg, _ = samlOn(t, kc, s, "site-a", defaultIdPName, false); msg != "" {
+		t.Fatalf("second run: %q", msg)
 	}
 	if cl := kc.client(res.EntityID); cl["adminUrl"] != "" {
 		t.Fatalf("adminUrl after a second run = %v, want empty", cl["adminUrl"])
-	}
-}
-
-func TestSAMLBootstrapStoresIdPExtID(t *testing.T) {
-	_, kc, s := samlEnv(t)
-	res, out, err := NewBootstrapper(nil, nil).SAML(context.Background(), kc.srv.URL, s, "site-a", SAMLInput{})
-	if err != nil || !res.OK {
-		t.Fatalf("res=%+v err=%v", res, err)
-	}
-	if out.Sites[0].SAMLIdPExtID != "idp-portico-keycloak" {
-		t.Fatalf("stored extId = %q", out.Sites[0].SAMLIdPExtID)
 	}
 }

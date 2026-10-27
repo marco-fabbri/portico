@@ -334,7 +334,8 @@ Step 1 scope decisions (design calls):
   during setup. Prism Central accepts a single SAML identity provider: if one
   already exists, Portico refuses to overwrite it and explains (adoption of an
   existing IdP is a brownfield feature, step 2). Lab item 6.8. Details
-  (Milestone 2e, `POST /api/v1/settings/bootstrap/saml`): Portico fetches
+  (the `saml-trust` step of `POST /api/v1/sites/{id}/setup`; Milestone 2e
+  had it as a call of its own, removed before 0.1.0): Portico fetches
   the realm's SAML descriptor on the Keycloak backchannel (measured: with
   a fixed `KC_HOSTNAME` it already carries the public URLs) and refuses
   when its entityID is not `https://<id_host>/realms/<realm>`; creates the
@@ -387,10 +388,11 @@ Key rotation (create second key, switch, revoke first) is a step 2 UI
 feature; step 1 logs the key expiry. The UI says "an account that can
 create users and edit authorization policies", not "the admin account".
 
-Bootstrap details (Milestone 2e; the one-page run of path 1 reuses these
-steps, sites usability design 4.1). The bootstrap is one call,
-`POST /api/v1/settings/bootstrap/prism-central`, carrying the one-time
-credentials, the Prism Central URL and its TLS settings. Portico opens a
+Bootstrap details (the `service-account` step of
+`POST /api/v1/sites/{id}/setup`, sites usability design 4.1; Milestone 2e
+had it as a call of its own, removed before 0.1.0). The call carries the
+one-time credentials; the site's address and TLS settings are the stored
+ones. Portico opens a
 Basic-auth client for that call only; the credentials live in the request
 and in that client, and the log records the username at most. Steps, each
 idempotent: find or create the service account (`username` as given,

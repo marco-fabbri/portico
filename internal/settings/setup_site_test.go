@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/marco-fabbri/portico/internal/proxy"
 	"github.com/marco-fabbri/portico/internal/settings/settingstest"
+	"github.com/marco-fabbri/portico/internal/store"
 )
 
 // setupFixture is a document ready for "Add a site": the public names,
@@ -277,5 +279,40 @@ func TestSetupInvalidInput(t *testing.T) {
 	}
 	if _, err := f.b.SetupSite(context.Background(), f.kc.Srv.URL, "site-a", SetupInput{Username: "admin"}); err == nil {
 		t.Fatal("ran without a password")
+	}
+}
+
+// writesStore refuses the settings writes while fail is set.
+type writesStore struct {
+	store.Store
+	fail *bool
+}
+
+func (s writesStore) SetSetting(ctx context.Context, k string, v []byte) error {
+	if *s.fail {
+		return errors.New("disk full")
+	}
+	return s.Store.SetSetting(ctx, k, v)
+}
+
+// A key that could not be stored is a key nobody holds: the run revokes
+// it and the step says so.
+func TestSetupRevokesTheKeyWhenTheStoreFails(t *testing.T) {
+	f := setupEnv(t)
+	fail := false
+	f.svc = NewService(writesStore{f.svc.st, &fail}, f.svc.sealer)
+	f.b = NewBootstrapper(nil, f.svc)
+	d := f.doc(t)
+	d.Sites[0].TLSPin = f.pin
+	if err := f.svc.Set(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	fail = true
+	res := f.run(t, f.admin(""))
+	if s := stepOf(res, "service-account"); s.Status != "failed" || !strings.Contains(s.Message, "so the new key was revoked") || res.Complete {
+		t.Fatalf("steps = %+v", res.Steps)
+	}
+	if len(f.pc.DeletedKeys) != 1 {
+		t.Fatalf("revoked keys = %v", f.pc.DeletedKeys)
 	}
 }
