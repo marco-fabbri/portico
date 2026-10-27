@@ -125,7 +125,10 @@ func newWithAuth(baseURL string, auth func(*http.Request), tlsCfg *tls.Config, l
 		base: &url.URL{Scheme: u.Scheme, Host: u.Host},
 		auth: auth,
 		// The lab Prism Central answered one call in 48 s (2026-10-18).
-		http:     &http.Client{Transport: tr, Timeout: 60 * time.Second},
+		http: &http.Client{Transport: tr, Timeout: 60 * time.Second,
+			// The v4 API never redirects, and Go would forward the
+			// X-Ntnx-Api-Key header to the target, even over plain http.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 		log:      log,
 		taskPoll: 5 * time.Second,
 	}, nil
