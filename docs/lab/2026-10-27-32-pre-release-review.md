@@ -55,6 +55,16 @@ things needed a real appliance:
   and a tenant, which this appliance in setup mode did not have; the
   unit tests cover them. Port 443 was closed throughout, as setup mode
   keeps the public listener off.
+- MEASURED on NTNX-01 (pc.7.6), 2026-10-27: in the morning the vmm VM
+  and image lists answered `504 upstream request timeout` to a
+  `$filter` on the name while the plain lists answered; a few hours
+  later `$filter=projectExtId eq '<id>'`, the filter Disconnect counts
+  a project's contents with, answered `200` within a second on the VMs,
+  images and subnets lists. VMs carry `projectExtId` in the list. The
+  timeouts were Prism Central being slow for a while, not the filter:
+  Disconnect keeps failing its count on a 5xx (it stops with the
+  reason, and a Retry counts again) rather than counting by paging the
+  whole list.
 
 ## Implications for the design
 
@@ -67,4 +77,6 @@ Steps 1 to 3 above. With a site and a tenant in place, also: open the
 pass-through on `:9440` under the same name as the admin UI and check
 in Prism Central's access log, or with a capture on the appliance, that
 no `portico_admin` cookie arrives; sign out from the console and check
-that the chain still ends on Keycloak's logout.
+that the chain still ends on Keycloak's logout. For the project
+filter: `lab/pc.sh GET "/api/vmm/v4.0/ahv/config/vms?\$limit=1&\$filter=projectExtId%20eq%20'<id>'"`
+with and without the filter, timed.
