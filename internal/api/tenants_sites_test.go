@@ -38,7 +38,7 @@ func newEnv2(t *testing.T) (*env, *tenanttest.PC) {
 	}
 	svc := tenant.NewService(st, sites, kc, tenant.Config{OperationTimeout: 5 * time.Second}, log)
 	brand := branding.NewService(st, log)
-	return &env{h: BasicAuth(st, "portico", log)(New(svc, st, brand, nil, log)), svc: svc, st: st, pc: pcA, kc: kc, brand: brand, log: &buf}, pcB
+	return &env{h: RequireAdmin(st, nil, nil, "portico", log)(New(svc, st, brand, nil, log)), svc: svc, st: st, pc: pcA, kc: kc, brand: brand, log: &buf}, pcB
 }
 
 func TestTenantAPIPlacementsShape(t *testing.T) {

@@ -134,9 +134,7 @@ this file.
   needs (reposync on the build host, `inst.repo` pointing at it) makes the
   build local; until then the image is built by the CI and the build host
   runs the boot test (write-up 19).
-- Minor findings of the Milestone 3 review, deferred: `api.BasicAuth`
-  duplicates the factory-password check of `RequireAdmin` and only tests
-  use it; `portico-firstboot`'s
+- Minor findings of the Milestone 3 review, deferred: `portico-firstboot`'s
   once-only condition is `keycloak.env`, not a marker written last;
   `sysctl` sets `ip_forward = 0` while the tailoring documents that
   netavark needs it;
@@ -211,7 +209,7 @@ surface or the admin authentication path, so they wait for a decision.
   the API): drop them one release after 0.1.0 with a note.
 - The adoption of the single-Prism-Central document of before Milestone
   4 (`adoptLegacy`, `LegacySiteCode`): no 0.1.0 store goes through it.
-- `api.BasicAuth` and `IdentityFromContext` are used by tests only;
+- `IdentityFromContext` is used by tests only;
   the admin login page repeats `checkPassword` and `sourceOf` of the
   API, without the constant-time dummy hash: share them, with a test on
   the limiter (`internal/api`, `internal/web/login.go`).
