@@ -62,7 +62,7 @@ func TestLimiterSweepsIdleSources(t *testing.T) {
 // Factory password (Nutanix's convention, Marco 2026-10-19): the appliance
 // starts with admin / portico/4u and refuses every API call until it is
 // changed; the UI forces the change at the first login.
-func TestBasicAuthRefusesTheFactoryPasswordUntilChanged(t *testing.T) {
+func TestRequireAdminRefusesTheFactoryPasswordUntilChanged(t *testing.T) {
 	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "p.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +80,7 @@ func TestBasicAuthRefusesTheFactoryPasswordUntilChanged(t *testing.T) {
 	if !PasswordChangeRequired(ctx, st) {
 		t.Fatal("no change required after the factory password")
 	}
-	h := BasicAuth(st, "portico", nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	h := RequireAdmin(st, nil, nil, "portico", nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
 	call := func(pw string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest("GET", "/api/v1/tenants", nil)
 		req.SetBasicAuth("admin", pw)

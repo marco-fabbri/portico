@@ -52,7 +52,7 @@ func newEnv(t *testing.T) *env {
 	sites := []tenant.Site{{ID: "site-a", Code: "SITE-A", PC: pc, SAMLIdPName: "portico-idp", ClusterExtID: "cl", StorageContainerExtID: "sc"}}
 	svc := tenant.NewService(st, sites, kc, tenant.Config{OperationTimeout: 5 * time.Second}, log)
 	brand := branding.NewService(st, log)
-	h := BasicAuth(st, "portico", log)(New(svc, st, brand, nil, log))
+	h := RequireAdmin(st, nil, nil, "portico", log)(New(svc, st, brand, nil, log))
 	return &env{h: h, svc: svc, st: st, pc: pc, kc: kc, brand: brand, log: &buf}
 }
 

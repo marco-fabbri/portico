@@ -36,17 +36,6 @@ func (s *BackendSet) Get(id string) (*SiteBackend, bool) {
 	return b, ok
 }
 
-// All returns the backends sorted by order, then code.
-func (s *BackendSet) All() []*SiteBackend {
-	m := *s.m.Load()
-	out := make([]*SiteBackend, 0, len(m))
-	for _, b := range m {
-		out = append(out, b)
-	}
-	sortBackends(out)
-	return out
-}
-
 func sortBackends(bs []*SiteBackend) {
 	sort.SliceStable(bs, func(i, j int) bool {
 		if bs[i].Order != bs[j].Order {
