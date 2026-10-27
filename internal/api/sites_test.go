@@ -440,7 +440,7 @@ func TestCreateSiteWithAdminRunsSetup(t *testing.T) {
 	if rec.Code != 201 || out["complete"] != true || len(out["steps"].([]any)) != 8 || out["site"].(map[string]any)["id"] != "az-us-nyc1" || out["site"].(map[string]any)["tls_pin"] != fp {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), "pc-pw-1") || strings.Contains(rec.Body.String(), pc.Key) || strings.Contains(e.log.String(), "pc-pw-1") {
+	if strings.Contains(rec.Body.String(), "pc-pw-1") || strings.Contains(rec.Body.String(), pc.Key) || strings.Contains(e.log.String(), "pc-pw-1") || strings.Contains(e.log.String(), pc.Key) {
 		t.Fatal("a secret in the answer or the log")
 	}
 	// Finish setup on a complete site changes nothing.
