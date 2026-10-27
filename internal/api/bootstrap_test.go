@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
 )
 
 // fakeKCAdmin is a compact Keycloak for the bootstrap routes: master
