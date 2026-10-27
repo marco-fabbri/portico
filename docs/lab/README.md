@@ -37,6 +37,7 @@ and how to re-measure after an upgrade. Scripts are under `lab/`.
 | 29 | [The general test before v0.1.0](2026-10-25-29-general-test.md) | a fresh appliance from the CI image; two release blockers found and fixed (Keycloak dead at first boot, the login page answering 500); the first boot needs the Internet; tenants, sites, maintenance and hardening pass on the new VM |
 | 30 | [The first release](2026-10-26-30-release.md) | the tag `v0.1.0-rc.2` builds a draft pre-release in 48 minutes with eight assets whose checksums verify; the appliance upgrades in place from them with a backup of its store, and acme logs in on both sites |
 | 31 | [Setup in the web UI](2026-10-26-31-setup-in-the-web-ui.md) | a deleted temporary Keycloak administrator stays deleted and `kc.sh bootstrap-admin` with `--http-management-port=9001` brings one back; cloudflared keeps running with an unknown token, so the tunnel check reads its `/ready`; the exposure request installs a pair and switches modes as designed |
+| 32 | [Pre-release review](2026-10-27-32-pre-release-review.md) | root installs a pair through the opened request directory under SELinux, renamed files keep owner, mode and label; the login lockout answers 429 with `Retry-After`; cross-site API changes get 403 |
 
 `lab-inventory.md` lists everything created in the lab and how to remove it.
 `TEMPLATE.md` is the write-up skeleton. `payloads/` holds sanitised request
