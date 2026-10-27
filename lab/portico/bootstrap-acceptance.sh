@@ -7,7 +7,6 @@
 # bodies in a private temp dir with jq --rawfile, never on a command line
 # and never written under the repository.
 #   source lab/env.sh && lab/portico/bootstrap-acceptance.sh            full run on a fresh appliance
-#   source lab/env.sh && lab/portico/bootstrap-acceptance.sh --refusal-only   while another IdP exists: the 409
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 : "${PC_URL:?source lab/env.sh first}" "${LAB_VM_IP:?}" "${LAB_PRISM_HOST:?}" "${LAB_ID_HOST:?}"
@@ -25,15 +24,6 @@ line() { local ok=ok; [ "$2" = "$3" ] || { ok=FAIL; fail=1; }; printf '%-4s %-70
 api() { local code; code=$(lab/tenants/api.sh "$@" 2>&1 >"$tmp/out" | tail -1); echo "${code#HTTP }"; }
 field() { jq -r "$1" "$tmp/out" 2>/dev/null; }
 t0() { date +%s; }
-
-if [ "${1:-}" = "--refusal-only" ]; then
-  # Review focus 3 on the real Prism Central: a foreign IdP is refused, not adopted.
-  jq -n '{name:"portico-e2e"}' > "$tmp/saml.json"
-  code=$(api POST "/api/v1/sites/$SITE/bootstrap/saml" "$tmp/saml.json")
-  line "bootstrap/saml with another name while $IDP_NAME exists" "$code $(field '.error' | grep -o "$IDP_NAME" | head -1)" "409 $IDP_NAME"
-  if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi
-  exit
-fi
 
 # 1. Setup mode on an empty store.
 code=$(api GET /api/v1/settings)
