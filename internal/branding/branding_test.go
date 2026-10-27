@@ -224,3 +224,36 @@ func TestLogoSVGIsParsedNotSearched(t *testing.T) {
 		t.Fatalf("an editor's SVG was refused: %v", err)
 	}
 }
+
+// flakyStore fails the first reads of the setting, as SQLite does when
+// it stays busy past busy_timeout.
+type flakyStore struct {
+	store.Store
+	fails int
+}
+
+func (f *flakyStore) GetSetting(ctx context.Context, key string) ([]byte, error) {
+	if f.fails > 0 {
+		f.fails--
+		return nil, errors.New("database is locked")
+	}
+	return f.Store.GetSetting(ctx, key)
+}
+
+// Review before v0.1.0: a read that fails once does not pin Portico's
+// own branding until the next save or restart.
+func TestServiceDoesNotCacheAFailedRead(t *testing.T) {
+	st := newStore(t)
+	b := Default()
+	b.MSPName = "Acme MSP"
+	if err := NewService(st, nil).Set(context.Background(), b); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(&flakyStore{Store: st, fails: 1}, nil)
+	if got := svc.Get(context.Background()); got.MSPName != "Portico" {
+		t.Fatalf("a failed read gives the defaults, got %q", got.MSPName)
+	}
+	if got := svc.Get(context.Background()); got.MSPName != "Acme MSP" {
+		t.Fatalf("the failed read was cached: %q", got.MSPName)
+	}
+}
