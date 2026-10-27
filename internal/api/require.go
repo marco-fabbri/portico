@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/marco-fabbri/portico/internal/store"
 )
@@ -30,9 +29,6 @@ func IdentityFromContext(ctx context.Context) (Identity, bool) {
 	id, ok := ctx.Value(identityKey{}).(Identity)
 	return id, ok
 }
-
-// sleep is replaced by tests.
-var sleep = time.Sleep
 
 // publicUIPaths need no authentication: the login page and its assets,
 // and the readiness fragment the restart page polls (sessions do not
@@ -83,6 +79,11 @@ func RequireAdmin(st store.Store, sessions SessionChecker, lim *Limiter, realm s
 			}
 			if user, pass, ok := r.BasicAuth(); ok {
 				source := sourceOf(r)
+				if wait := lim.Wait(source); wait > 0 {
+					w.Header().Set("Retry-After", RetryAfter(wait))
+					writeError(w, http.StatusTooManyRequests, "too many failed sign-ins from this address: wait "+RetryAfter(wait)+" s")
+					return
+				}
 				if checkPassword(r.Context(), st, user, pass, log) {
 					lim.Reset(source)
 					// The factory password opens the admin UI's password page
@@ -95,11 +96,9 @@ func RequireAdmin(st store.Store, sessions SessionChecker, lim *Limiter, realm s
 					next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), identityKey{}, id)))
 					return
 				}
-				// The failure is recorded first, then the answer waits:
-				// the fourth wrong password in ten minutes costs 1 s, the
-				// next ones 2, 4, 8 s.
+				// The fourth wrong password in ten minutes locks the
+				// source out for 1 s, the next ones 2, 4, 8 s.
 				lim.Failed(source)
-				sleep(lim.Delay(source))
 				challenge(w, realm)
 				return
 			}

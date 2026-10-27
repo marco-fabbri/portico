@@ -6,16 +6,12 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/marco-fabbri/portico/internal/store"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type loginData struct{ Next string }
-
-// sleep is replaced by tests.
-var sleep = time.Sleep
 
 // passwordSet reports whether the break-glass hash exists.
 func (h *Handler) passwordSet(r *http.Request) bool {
@@ -47,6 +43,11 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	user, pass := r.PostFormValue("user"), r.PostFormValue("password")
 	next := safeNext(r.PostFormValue("next"))
 	source := sourceOf(r)
+	if wait := h.limiter.Wait(source); wait > 0 {
+		w.Header().Set("Retry-After", api.RetryAfter(wait))
+		h.render(w, r, http.StatusTooManyRequests, "login", "Sign in", loginData{Next: next}, "Too many failed sign-ins from this address: wait "+api.RetryAfter(wait)+" seconds and try again")
+		return
+	}
 	hash, err := h.st.AdminPasswordHash(r.Context(), "admin")
 	ok := err == nil && user == "admin" && bcrypt.CompareHashAndPassword([]byte(hash), []byte(pass)) == nil
 	if !ok {
@@ -54,7 +55,6 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 			h.log.Warn("admin password lookup failed", "err", err.Error())
 		}
 		h.limiter.Failed(source)
-		sleep(h.limiter.Delay(source))
 		h.log.Warn("admin login failed", "source", source)
 		h.render(w, r, http.StatusOK, "login", "Sign in", loginData{Next: next}, "Wrong user or password")
 		return

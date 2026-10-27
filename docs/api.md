@@ -5,7 +5,10 @@ default `127.0.0.1:8443`) under `/api/v1/`. It is the same surface the
 admin UI uses, meant for scripts: every call is HTTP Basic with the
 break-glass account (`admin` and the password set with
 `portico admin set-password`), over TLS when the listener is off the
-loopback. Repeated authentication failures from one address are delayed.
+loopback. After three authentication failures from one address in ten
+minutes, that address is locked out for 1, 2, 4, then 8 seconds after
+each further failure: 429 with `Retry-After`, the right password
+included.
 A change (any method but GET, HEAD and OPTIONS) that a browser marks as
 coming from another site (`Sec-Fetch-Site` other than `same-origin` or
 `none`) is refused with 403: a browser that once asked for the password

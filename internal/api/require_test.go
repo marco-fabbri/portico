@@ -102,29 +102,31 @@ func TestRequireAdminRedirectsUIPaths(t *testing.T) {
 	}
 }
 
-func TestRequireAdminDelaysAfterFailures(t *testing.T) {
-	h, _, _ := requireEnv(t, true)
-	var slept []time.Duration
-	old := sleep
-	sleep = func(d time.Duration) { slept = append(slept, d) }
-	defer func() { sleep = old }()
+// Review before v0.1.0: a delay on each answer did not stop parallel
+// guesses, so a source past three failures is locked out for the delay:
+// refused with 429 before any password is checked, the right one too.
+func TestRequireAdminLocksOutAfterFailures(t *testing.T) {
+	h, lim, _ := requireEnv(t, true)
+	now := time.Date(2026, 10, 27, 8, 0, 0, 0, time.UTC)
+	lim.now = func() time.Time { return now }
 	for i := 0; i < 4; i++ {
-		call(h, "/api/v1/tenants", "admin", "wrong", "", "10.0.0.1:5000")
-	}
-	if len(slept) != 4 || slept[3] != time.Second || slept[2] != 0 {
-		t.Fatalf("sleeps = %v, want [0 0 0 1s]", slept)
-	}
-	call(h, "/api/v1/tenants", "admin", "wrong", "", "10.0.0.2:5000")
-	if slept[len(slept)-1] != 0 {
-		t.Fatal("another source was delayed")
+		if rec := call(h, "/api/v1/tenants", "admin", "wrong", "", "10.0.0.1:5000"); rec.Code != 401 {
+			t.Fatalf("failure %d: %d", i+1, rec.Code)
+		}
 	}
 	rec := call(h, "/api/v1/tenants", "admin", adminPassword, "", "10.0.0.1:5000")
-	if rec.Code != http.StatusTeapot {
-		t.Fatalf("right password after failures: %d", rec.Code)
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "1" {
+		t.Fatalf("locked source: %d Retry-After %q", rec.Code, rec.Header().Get("Retry-After"))
 	}
-	call(h, "/api/v1/tenants", "admin", "wrong", "", "10.0.0.1:5000")
-	if slept[len(slept)-1] != 0 {
-		t.Fatal("the success did not reset the delay")
+	if rec := call(h, "/api/v1/tenants", "admin", adminPassword, "", "10.0.0.2:5000"); rec.Code != http.StatusTeapot {
+		t.Fatalf("another source was locked: %d", rec.Code)
+	}
+	now = now.Add(time.Second)
+	if rec := call(h, "/api/v1/tenants", "admin", adminPassword, "", "10.0.0.1:5000"); rec.Code != http.StatusTeapot {
+		t.Fatalf("right password after the lock: %d", rec.Code)
+	}
+	if rec := call(h, "/api/v1/tenants", "admin", "wrong", "", "10.0.0.1:5000"); rec.Code != 401 {
+		t.Fatalf("the success did not reset the count: %d", rec.Code)
 	}
 }
 

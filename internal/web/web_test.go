@@ -178,6 +178,16 @@ func TestLoginWrongPasswordShowsErrorAndFails(t *testing.T) {
 	if e.web.limiter.Delay("10.0.0.9") == 0 {
 		t.Fatal("four failures should delay")
 	}
+	// Locked out: even the right password waits (review before v0.1.0).
+	rec = e.do("POST", "/login", url.Values{"user": {"admin"}, "password": {adminPassword}}, false)
+	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "Too many failed sign-ins") {
+		t.Fatalf("locked login: %d %s", rec.Code, rec.Body.String())
+	}
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookie && c.Value != "" {
+			t.Fatal("a session was opened during the lockout")
+		}
+	}
 }
 
 func TestLoginNextIsPathOnly(t *testing.T) {

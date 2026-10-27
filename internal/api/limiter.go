@@ -1,14 +1,17 @@
 package api
 
 import (
+	"strconv"
 	"sync"
 	"time"
 )
 
-// Limiter delays the answer to repeated authentication failures from one
-// source address: nothing for the first three failures in ten minutes,
-// then 1 s, 2 s, 4 s, capped at 8 s. It is shared by the API's Basic check
-// and the UI's login form, so one password is braked once.
+// Limiter locks a source address out after repeated authentication
+// failures: nothing for the first three failures in ten minutes, then
+// 1 s, 2 s, 4 s, capped at 8 s, counted from the last failure. A locked
+// source is refused before any password is checked, so parallel guesses
+// do not get past it. It is shared by the API's Basic check and the UI's
+// login form, so one password is braked once.
 type Limiter struct {
 	mu       sync.Mutex
 	failures map[string]limitEntry
@@ -52,6 +55,26 @@ func (l *Limiter) Delay(source string) time.Duration {
 		d = limiterMax
 	}
 	return d
+}
+
+// Wait returns how long source is still locked out: the delay after its
+// last failure, less the time since.
+func (l *Limiter) Wait(source string) time.Duration {
+	d := l.Delay(source)
+	if d == 0 {
+		return 0
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if w := d - l.now().Sub(l.failures[l.key(source)].last); w > 0 {
+		return w
+	}
+	return 0
+}
+
+// RetryAfter is w in whole seconds, rounded up, for a Retry-After header.
+func RetryAfter(w time.Duration) string {
+	return strconv.Itoa(int((w + time.Second - 1) / time.Second))
 }
 
 // Failed records one failure for source.
