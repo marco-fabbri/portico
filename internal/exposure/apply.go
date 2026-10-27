@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -53,18 +52,26 @@ type Result struct {
 }
 
 // Host is what Apply does to the appliance: the console's System subset,
-// and two calls for the request directory, which belongs to the
-// unprivileged portico user: ReadRequestFile reads a regular file only,
-// never through a link and at most MaxRequestFile bytes; WriteResult
-// replaces the file by a rename, so a link planted there is replaced,
-// not followed.
+// and OpenRequestDir for the request directory, which belongs to the
+// unprivileged portico user and is opened once: a link planted in its
+// place, before or during Apply, never makes root work elsewhere.
 type Host interface {
 	ReadFile(path string) ([]byte, error)
 	WriteFile(path string, data []byte, mode os.FileMode) error
 	Remove(path string) error
 	Exec(stdin io.Reader, argv ...string) (string, error)
-	ReadRequestFile(path string) ([]byte, error)
-	WriteResult(path string, data []byte) error
+	OpenRequestDir(dir string) (RequestDir, error)
+}
+
+// RequestDir is the opened request directory. Read returns a regular
+// file only, never through a link and at most MaxRequestFile bytes;
+// WriteResult replaces the file by a rename, so a link planted under
+// that name is replaced, not followed.
+type RequestDir interface {
+	Read(name string) ([]byte, error)
+	WriteResult(name string, data []byte) error
+	Remove(name string) error
+	Close() error
 }
 
 // MaxRequestFile bounds what Apply reads from the request directory.
@@ -105,7 +112,15 @@ var (
 // written to result.json. Without a request it does nothing: the unit
 // fires again when the request is deleted.
 func Apply(h Host, dir, configPath string) Result {
-	b, err := h.ReadRequestFile(filepath.Join(dir, RequestFile))
+	d, err := h.OpenRequestDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Result{}
+	}
+	if err != nil {
+		return Result{At: time.Now().UTC(), Message: "the request directory cannot be opened: " + err.Error()}
+	}
+	defer d.Close()
+	b, err := d.Read(RequestFile)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Result{}
 	}
@@ -117,27 +132,27 @@ func Apply(h Host, dir, configPath string) Result {
 		r.Message = "the request cannot be read: " + err.Error()
 	} else {
 		r.ID, r.Mode = req.ID, req.Mode
-		r.Message, r.OK = apply(h, dir, configPath, req)
+		r.Message, r.OK = apply(h, d, configPath, req)
 	}
 	// The result first: the admin UI stops waiting when request.json is
 	// gone or the result carries its id.
 	out, _ := json.Marshal(r)
-	_ = h.WriteResult(filepath.Join(dir, ResultFile), out)
+	_ = d.WriteResult(ResultFile, out)
 	removed := true
 	for _, f := range []string{RequestFile, CertFile, KeyFile, TokenFile} {
-		if err := h.Remove(filepath.Join(dir, f)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := d.Remove(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			r.Message += "; " + f + " not deleted: " + err.Error()
 			removed = false
 		}
 	}
 	if !removed {
 		out, _ = json.Marshal(r)
-		_ = h.WriteResult(filepath.Join(dir, ResultFile), out)
+		_ = d.WriteResult(ResultFile, out)
 	}
 	return r
 }
 
-func apply(h Host, dir, configPath string, req Request) (string, bool) {
+func apply(h Host, d RequestDir, configPath string, req Request) (string, bool) {
 	y, err := h.ReadFile(configPath)
 	if err != nil {
 		return err.Error(), false
@@ -145,20 +160,20 @@ func apply(h Host, dir, configPath string, req Request) (string, bool) {
 	wasTunnel := tunnelMode(string(y))
 	switch req.Mode {
 	case "direct":
-		return direct(h, dir, configPath, string(y), wasTunnel)
+		return direct(h, d, configPath, string(y), wasTunnel)
 	case "tunnel":
-		return tunnel(h, dir, configPath, string(y), wasTunnel)
+		return tunnel(h, d, configPath, string(y), wasTunnel)
 	default:
 		return fmt.Sprintf("unknown mode %q", req.Mode), false
 	}
 }
 
-func direct(h Host, dir, configPath, y string, wasTunnel bool) (string, bool) {
-	cert, err := h.ReadRequestFile(filepath.Join(dir, CertFile))
+func direct(h Host, d RequestDir, configPath, y string, wasTunnel bool) (string, bool) {
+	cert, err := d.Read(CertFile)
 	if err != nil {
 		return "no certificate in the request: " + err.Error(), false
 	}
-	key, err := h.ReadRequestFile(filepath.Join(dir, KeyFile))
+	key, err := d.Read(KeyFile)
 	if err != nil {
 		return "no key in the request: " + err.Error(), false
 	}
@@ -194,8 +209,8 @@ func direct(h Host, dir, configPath, y string, wasTunnel bool) (string, bool) {
 	return "direct exposure on port 443 with the installed certificate; Portico restarted", true
 }
 
-func tunnel(h Host, dir, configPath, y string, wasTunnel bool) (string, bool) {
-	token, err := h.ReadRequestFile(filepath.Join(dir, TokenFile))
+func tunnel(h Host, d RequestDir, configPath, y string, wasTunnel bool) (string, bool) {
+	token, err := d.Read(TokenFile)
 	if err != nil {
 		return "no token in the request: " + err.Error(), false
 	}

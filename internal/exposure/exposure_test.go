@@ -267,14 +267,31 @@ func newFakeHost() *fakeHost {
 	return &fakeHost{files: map[string][]byte{}, links: map[string]bool{}, modes: map[string]os.FileMode{}, execErr: map[string]error{}, execOut: map[string]string{}}
 }
 
-func (h *fakeHost) ReadRequestFile(p string) ([]byte, error) {
-	if h.links[p] {
-		return nil, errors.New("not a regular file")
-	}
-	return h.ReadFile(p)
+// OpenRequestDir maps the directory's entries onto the fake's paths.
+func (h *fakeHost) OpenRequestDir(dir string) (RequestDir, error) {
+	return fakeDir{h, dir}, nil
 }
 
-func (h *fakeHost) WriteResult(p string, b []byte) error { return h.WriteFile(p, b, 0o644) }
+type fakeDir struct {
+	h   *fakeHost
+	dir string
+}
+
+func (d fakeDir) Read(name string) ([]byte, error) {
+	p := d.dir + "/" + name
+	if d.h.links[p] {
+		return nil, errors.New("not a regular file")
+	}
+	return d.h.ReadFile(p)
+}
+
+func (d fakeDir) WriteResult(name string, b []byte) error {
+	return d.h.WriteFile(d.dir+"/"+name, b, 0o644)
+}
+
+func (d fakeDir) Remove(name string) error { return d.h.Remove(d.dir + "/" + name) }
+
+func (d fakeDir) Close() error { return nil }
 
 func (h *fakeHost) ReadFile(p string) ([]byte, error) {
 	b, ok := h.files[p]
