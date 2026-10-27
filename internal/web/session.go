@@ -25,11 +25,19 @@ func (h *Handler) Identity(r *http.Request) (api.Identity, bool) {
 	return api.Identity{}, false
 }
 
-// session returns the request's live session, touching it.
+// PollHeader marks a request an element makes on a timer (hx-trigger
+// "every"): it checks the session without counting as activity.
+const PollHeader = "X-Portico-Poll"
+
+// session returns the request's live session, touching it unless the
+// request is a poll.
 func (h *Handler) session(r *http.Request) (auth.Session, bool) {
 	c, err := r.Cookie(SessionCookie)
 	if err != nil || c.Value == "" {
 		return auth.Session{}, false
+	}
+	if r.Header.Get(PollHeader) == "1" {
+		return h.sessions.Peek(c.Value, time.Now())
 	}
 	return h.sessions.Get(c.Value, time.Now())
 }

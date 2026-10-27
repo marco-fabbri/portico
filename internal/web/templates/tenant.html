@@ -101,7 +101,7 @@
 </section>
 {{end}}
 {{end}}
-{{define "steps"}}<div id="steps"{{if .Data.Polling}} hx-get="/tenants/{{.Data.Tenant.ID}}/steps" hx-trigger="every 5s" hx-swap="outerHTML"{{end}}>
+{{define "steps"}}<div id="steps"{{if .Data.Polling}} hx-get="/tenants/{{.Data.Tenant.ID}}/steps" hx-trigger="every 5s" hx-headers='{"X-Portico-Poll": "1"}' hx-disinherit="hx-headers" hx-swap="outerHTML"{{end}}>
 {{if .Data.Steps}}<table><thead><tr><th>Site</th><th>Step</th><th>Result</th><th>Detail</th><th>At</th></tr></thead><tbody>
 {{range .Data.Steps}}<tr><td>{{.Site}}</td><td>{{.Name}}</td>{{if .OK}}<td class="step-ok">ok</td>{{else}}<td class="step-failed">failed</td>{{end}}<td class="muted">{{.Detail}}</td><td>{{.At.Format "15:04:05"}}</td></tr>{{end}}
 </tbody></table>{{else}}<p class="muted">No steps recorded yet.</p>{{end}}

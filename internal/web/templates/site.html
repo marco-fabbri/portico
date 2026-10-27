@@ -122,7 +122,7 @@
 {{end}}
 
 {{/* The connected users: refreshed every 10 s; the disconnect button names how many it cuts. */}}
-{{define "site_sessions"}}{{with .Data.Live}}<div id="site-sessions" hx-get="/setup/sites/{{.ID}}/sessions" hx-trigger="every 10s" hx-swap="outerHTML">
+{{define "site_sessions"}}{{with .Data.Live}}<div id="site-sessions" hx-get="/setup/sites/{{.ID}}/sessions" hx-trigger="every 10s" hx-headers='{"X-Portico-Poll": "1"}' hx-disinherit="hx-headers" hx-swap="outerHTML">
   {{$n := len .Sessions}}
   {{if .Sessions}}
   <p><strong>{{$n}} user{{if ne $n 1}}s{{end}} still connected</strong> ({{.Active}} active, {{.Idle}} idle).</p>

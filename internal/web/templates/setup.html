@@ -151,14 +151,14 @@
 {{else if eq .Phase "needs-admin"}}<div class="banner warning">{{.Msg}}</div>
 {{else if eq .Phase "failed"}}<div class="banner error">{{.Msg}}</div>
 <form hx-post="/setup/realm/retry{{if .Reload}}?reload=1{{end}}" hx-target="#realm-status"><input type="hidden" name="_csrf" value="{{.CSRF}}"><div class="actions"><button type="submit">Retry</button></div></form>
-{{else}}<div class="banner notice" hx-get="/setup/realm{{if .Reload}}?reload=1{{end}}" hx-trigger="every 3s" hx-target="#realm-status">{{.Msg}}</div>{{end}}
+{{else}}<div class="banner notice" hx-get="/setup/realm{{if .Reload}}?reload=1{{end}}" hx-trigger="every 3s" hx-headers='{"X-Portico-Poll": "1"}' hx-disinherit="hx-headers" hx-target="#realm-status">{{.Msg}}</div>{{end}}
 {{end}}
 {{/* The exposure in service, the last result, and the polling while a request is applied. */}}
 {{define "exposure-status"}}
 {{if .Error}}<div class="banner error">{{.Error}}</div>{{end}}
 {{if .Pending}}
-{{if .Restart}}<div class="banner warning" hx-get="/exposure/ready" hx-trigger="every 2s" hx-swap="outerHTML">Applying: if the mode changes, Portico restarts and this session ends.</div>
-{{else}}<div class="banner notice" hx-get="/exposure/status" hx-trigger="every 2s" hx-target="#exposure-status">Applying the change…</div>{{end}}
+{{if .Restart}}<div class="banner warning" hx-get="/exposure/ready" hx-trigger="every 2s" hx-headers='{"X-Portico-Poll": "1"}' hx-disinherit="hx-headers" hx-swap="outerHTML">Applying: if the mode changes, Portico restarts and this session ends.</div>
+{{else}}<div class="banner notice" hx-get="/exposure/status" hx-trigger="every 2s" hx-headers='{"X-Portico-Poll": "1"}' hx-disinherit="hx-headers" hx-target="#exposure-status">Applying the change…</div>{{end}}
 {{else if .Last}}<div class="banner {{if .Last.OK}}notice{{else}}error{{end}}">Last change: {{.Last.Message}}</div>{{end}}
 {{if .Tunnel}}<p class="state done">Cloudflare tunnel: Portico listens on the loopback for cloudflared.</p>
 {{else if .Cert}}<p class="state {{if .Cert.SelfSigned}}todo{{else}}done{{end}}">{{if .Cert.SelfSigned}}Self-signed certificate{{else}}Certificate from {{.Cert.Issuer}}{{end}} on port 443 for {{range $i, $n := .Cert.Names}}{{if $i}}, {{end}}<code>{{$n}}</code>{{end}}, valid until {{.Cert.NotAfter.Format "2006-01-02"}}.</p>

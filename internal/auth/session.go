@@ -109,6 +109,23 @@ func (m *MemoryStore) Get(id string, now time.Time) (Session, bool) {
 	return s, true
 }
 
+// Peek is Get without touching the session: a request that is not the
+// user at the keyboard (a page polling on a timer) does not move its
+// idle clock.
+func (m *MemoryStore) Peek(id string, now time.Time) (Session, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[id]
+	if !ok {
+		return Session{}, false
+	}
+	if m.expired(s, now) {
+		delete(m.sessions, id)
+		return Session{}, false
+	}
+	return s, true
+}
+
 // Delete implements Store.
 func (m *MemoryStore) Delete(id string) {
 	m.mu.Lock()
