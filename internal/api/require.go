@@ -106,6 +106,14 @@ func RequireAdmin(st store.Store, sessions SessionChecker, lim *Limiter, realm s
 				w.Write([]byte("Portico's break-glass password is not set. On the appliance run:\n  printf '%s\\n' \"$PW\" | sudo -u portico portico admin set-password -config /etc/portico/portico.yaml\n"))
 				return
 			}
+			// An HTMX request (a poll, a button) asks HTMX to move the
+			// whole page: a redirect would swap the login page into the
+			// fragment.
+			if r.Header.Get("HX-Request") == "true" {
+				w.Header().Set("HX-Redirect", "/login")
+				w.WriteHeader(http.StatusOK)
+				return
+			}
 			// A return path only for a page load: a POST that met an
 			// expired session would land on a 405 after the login.
 			if r.Method == http.MethodGet || r.Method == http.MethodHead {
