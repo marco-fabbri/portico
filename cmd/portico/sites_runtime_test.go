@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marco-fabbri/portico/internal/auth"
 	"github.com/marco-fabbri/portico/internal/proxy"
 	"github.com/marco-fabbri/portico/internal/secrets"
 	"github.com/marco-fabbri/portico/internal/settings"
@@ -143,6 +144,26 @@ func TestRuntimePassthroughFollowsSite(t *testing.T) {
 	// reaches site-b's Prism Central, which refuses it.
 	if c := call(); c != http.StatusUnauthorized {
 		t.Fatalf("pass-through after the move: %d, want site-b's 401", c)
+	}
+}
+
+// The admin UI's cookie is sent to :9440 when the name is the one of
+// :8443 (cookies ignore the port): the pass-through drops it, as the
+// public upstreams do.
+func TestRuntimePassthroughStripsPorticoCookies(t *testing.T) {
+	e := newRuntimeEnv(t)
+	var got string
+	pc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = r.Header.Get("Cookie") }))
+	t.Cleanup(pc.Close)
+	e.rt.deps.strip = auth.PorticoCookies()
+	site := e.site("site-a", "SITE-A", e.pcA)
+	site.URL = pc.URL
+	e.rt.Apply(context.Background(), settings.Settings{Sites: []settings.Site{site}})
+	req := httptest.NewRequest("GET", "/console/index.html", nil)
+	req.Header.Set("Cookie", auth.AdminCookie+"=admin-session-id; NTNX_IGW_SESSION=pc")
+	e.rt.passthrough.ServeHTTP(httptest.NewRecorder(), req)
+	if strings.Contains(got, "admin-session-id") || !strings.Contains(got, "NTNX_IGW_SESSION=pc") {
+		t.Fatalf("Prism Central received Cookie %q", got)
 	}
 }
 
