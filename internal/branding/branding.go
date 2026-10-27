@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // Limits of the settings.
@@ -72,13 +73,13 @@ func (b Branding) HasLogo() bool { return b.LogoType != "" && len(b.LogoData) > 
 // Validate reports every violation in one error, each naming its field.
 func (b Branding) Validate() error {
 	var errs []error
-	if n := strings.TrimSpace(b.MSPName); n == "" || len(n) > MaxNameLen {
+	if n := strings.TrimSpace(b.MSPName); n == "" || utf8.RuneCountInString(n) > MaxNameLen {
 		errs = append(errs, fmt.Errorf("msp_name must be 1 to %d characters", MaxNameLen))
 	}
-	if len(b.Tagline) > MaxTaglineLen {
+	if utf8.RuneCountInString(b.Tagline) > MaxTaglineLen {
 		errs = append(errs, fmt.Errorf("tagline must be at most %d characters", MaxTaglineLen))
 	}
-	if len(b.HeaderText) > MaxHeaderTextLen || strings.ContainsAny(b.HeaderText, "\r\n") {
+	if utf8.RuneCountInString(b.HeaderText) > MaxHeaderTextLen || strings.ContainsAny(b.HeaderText, "\r\n") {
 		errs = append(errs, fmt.Errorf("header_text must be at most %d characters, on one line", MaxHeaderTextLen))
 	}
 	for _, c := range []struct{ field, value string }{

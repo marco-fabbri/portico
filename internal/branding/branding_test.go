@@ -257,3 +257,19 @@ func TestServiceDoesNotCacheAFailedRead(t *testing.T) {
 		t.Fatalf("the failed read was cached: %q", got.MSPName)
 	}
 }
+
+// Review before v0.1.0: the limits are characters, as the messages say;
+// an accented letter is two bytes in UTF-8, not two characters.
+func TestTextLimitsCountCharacters(t *testing.T) {
+	b := Default()
+	b.MSPName = strings.Repeat("è", MaxNameLen)
+	b.HeaderText = strings.Repeat("à", MaxHeaderTextLen)
+	b.Tagline = strings.Repeat("ù", MaxTaglineLen)
+	if err := b.Validate(); err != nil {
+		t.Fatalf("texts at the limit refused: %v", err)
+	}
+	b.HeaderText += "à"
+	if err := b.Validate(); err == nil {
+		t.Fatal("a header one character over the limit accepted")
+	}
+}
