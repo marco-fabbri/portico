@@ -404,3 +404,46 @@ func TestValidateFormatRefusesEqualHosts(t *testing.T) {
 		t.Fatalf("equal hosts: %v", err)
 	}
 }
+
+// Review before v0.1.0: the tenants' projects and groups carry the
+// prefixes they were created with, and login finds a tenant by its
+// group's name, so the prefixes cannot change while a tenant exists.
+func TestPrefixesAreFixedOnceATenantExists(t *testing.T) {
+	st := newStore(t)
+	svc := NewService(st, sealerFor(t, 1))
+	ctx := context.Background()
+	doc := sample()
+	if err := svc.Set(ctx, doc); err != nil {
+		t.Fatal(err)
+	}
+	moved := doc
+	moved.Tenants.GroupPrefix = "cust-"
+	if err := svc.Set(ctx, moved); err != nil {
+		t.Fatalf("no tenant yet, the prefix may change: %v", err)
+	}
+	if err := svc.Set(ctx, doc); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateTenant(ctx, &store.Tenant{ID: "acme", DisplayName: "Acme", Status: store.StatusActive}); err != nil {
+		t.Fatal(err)
+	}
+	for name, change := range map[string]func(*Settings){
+		"group":   func(s *Settings) { s.Tenants.GroupPrefix = "cust-" },
+		"project": func(s *Settings) { s.Tenants.ProjectPrefix = "msp" },
+	} {
+		in := doc
+		change(&in)
+		var ve *ValidationError
+		if err := svc.Set(ctx, in); !errors.As(err, &ve) || !strings.Contains(err.Error(), "tenant") {
+			t.Errorf("%s prefix changed with a tenant: %v", name, err)
+		}
+	}
+	// The same prefixes, spelled empty (the default), are no change.
+	same := doc
+	if doc.Tenants.ProjectPrefix == "portico" {
+		same.Tenants.ProjectPrefix = ""
+	}
+	if err := svc.Set(ctx, same); err != nil {
+		t.Fatalf("an unchanged prefix refused: %v", err)
+	}
+}
