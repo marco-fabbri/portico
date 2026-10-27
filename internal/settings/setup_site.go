@@ -61,6 +61,23 @@ func SetupReady(s Settings) error {
 	return nil
 }
 
+// CheckSetupInput refuses the input of a site setup on its face: missing
+// credentials, a service account name Prism Central would refuse. Adding
+// a site checks it before the row is stored.
+func CheckSetupInput(in SetupInput) error {
+	name := strings.TrimSpace(in.ServiceAccount)
+	if name == "" {
+		name = defaultServiceAccount
+	}
+	switch {
+	case in.Username == "" || in.Password == "":
+		return &StateError{Msg: "the Prism Central username and password are required"}
+	case !reServiceAccount.MatchString(name):
+		return &StateError{Msg: "the service account name must be lower-case letters, digits, dots, dashes and underscores"}
+	}
+	return nil
+}
+
 // SetupSite sets a site up in one run (design sites 4.1): certificate,
 // version, rights, identity provider, service account, SAML trust,
 // defaults, live. A failure stops the run at that step, except the
@@ -72,15 +89,12 @@ func (b *Bootstrapper) SetupSite(ctx context.Context, keycloakURL, siteID string
 	if b.svc == nil {
 		return SetupResult{}, errors.New("settings are not available in this process")
 	}
+	if err := CheckSetupInput(in); err != nil {
+		return SetupResult{}, err
+	}
 	name := strings.TrimSpace(in.ServiceAccount)
 	if name == "" {
 		name = defaultServiceAccount
-	}
-	switch {
-	case in.Username == "" || in.Password == "":
-		return SetupResult{}, &StateError{Msg: "the Prism Central username and password are required"}
-	case !reServiceAccount.MatchString(name):
-		return SetupResult{}, &StateError{Msg: "the service account name must be lower-case letters, digits, dots, dashes and underscores"}
 	}
 	ctx, cancel := context.WithTimeout(ctx, SetupDeadline)
 	defer cancel()

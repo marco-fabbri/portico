@@ -537,3 +537,24 @@ func TestSetupEndpointRepairsWhenIdPChanged(t *testing.T) {
 		t.Fatalf("no repair line for acme: %s", rec.Body.String())
 	}
 }
+
+// Review before v0.1.0: a request the setup refuses on its face (here
+// the service account's name) stores no site, so sending it again fixed
+// does not meet "a site with code X exists".
+func TestAddSiteRefusedInputStoresNothing(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	pc, fp := withSetup(t, e)
+	body := func(account string) string {
+		return `{"code":"AZ-US-NYC1","url":"` + pc.Srv.URL + `","tls_pin":"` + fp + `","service_account":"` + account + `","admin":{"username":"admin","password":"pc-pw-1"}}`
+	}
+	if rec, out := e.do("POST", "/api/v1/sites", body("Bad Name")); rec.Code != 409 || !strings.Contains(out["error"].(string), "service account") {
+		t.Fatalf("bad name: %d %v", rec.Code, out)
+	}
+	cur, _ := e.svc.Get(context.Background())
+	if _, ok := cur.Site("az-us-nyc1"); ok {
+		t.Fatal("the refused site was stored")
+	}
+	if rec, out := e.do("POST", "/api/v1/sites", body("portico")); rec.Code != 201 || out["complete"] != true {
+		t.Fatalf("fixed and sent again: %d %v", rec.Code, out)
+	}
+}

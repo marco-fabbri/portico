@@ -150,6 +150,11 @@ func (o *SettingsOptions) AddSite(ctx context.Context, in settings.Site, admin *
 		if admin.Username == "" || admin.Password == "" {
 			return settings.Site{}, nil, &settings.StateError{Msg: "the Prism Central administrator's username and password are required"}
 		}
+		// Refused on its face: nothing is stored, so the fixed request
+		// can be sent again.
+		if err := settings.CheckSetupInput(*admin); err != nil {
+			return settings.Site{}, nil, err
+		}
 		if o.Bootstrapper == nil {
 			return settings.Site{}, nil, errSettingsUnavailable
 		}
