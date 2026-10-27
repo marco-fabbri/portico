@@ -104,3 +104,24 @@ func TestBasicAuthRefusesTheFactoryPasswordUntilChanged(t *testing.T) {
 		t.Fatalf("new password: %d", rec.Code)
 	}
 }
+
+func TestLimiterWaitCountsDownFromTheLastFailure(t *testing.T) {
+	l := NewLimiter()
+	now := time.Date(2026, 10, 27, 8, 0, 0, 0, time.UTC)
+	l.now = func() time.Time { return now }
+	for i := 0; i < 3; i++ {
+		l.Failed("a")
+	}
+	if w := l.Wait("a"); w != 0 {
+		t.Fatalf("three failures are free: Wait = %v", w)
+	}
+	l.Failed("a")
+	now = now.Add(400 * time.Millisecond)
+	if w := l.Wait("a"); w != 600*time.Millisecond {
+		t.Fatalf("Wait = %v, want 600ms", w)
+	}
+	now = now.Add(600 * time.Millisecond)
+	if w := l.Wait("a"); w != 0 {
+		t.Fatalf("Wait after the delay = %v", w)
+	}
+}
