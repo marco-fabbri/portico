@@ -136,6 +136,8 @@ func (h *Handler) exposureStatus(w http.ResponseWriter, r *http.Request) {
 	h.renderExposure(w, r, http.StatusOK, "")
 }
 
+const exposureReadyBanner = `<div class="banner warning" hx-get="/exposure/ready" hx-trigger="every 2s" hx-headers='{"X-Portico-Poll": "1"}' hx-disinherit="hx-headers" hx-swap="outerHTML">Applying: if the mode changes, Portico restarts and this session ends.</div>`
+
 // exposureReady is what the restart banner polls: a mode change restarts
 // Portico and the session with it, so this answer needs no session and
 // says only whether a change is still being applied, nothing of it.
@@ -146,7 +148,7 @@ func (h *Handler) exposureReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, pending, _ := pendingRequest(h.exposure.Dir); pending {
-		w.Write([]byte(`<div class="banner warning" hx-get="/exposure/ready" hx-trigger="every 2s" hx-swap="outerHTML">Applying: if the mode changes, Portico restarts and this session ends.</div>`))
+		w.Write([]byte(exposureReadyBanner))
 		return
 	}
 	w.Write([]byte(`<div class="banner notice">Done. <a href="/setup">Open the setup page</a> to see the result; after a restart it asks you to log in again.</div>`))

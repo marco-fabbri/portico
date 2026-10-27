@@ -11,7 +11,7 @@
   {{if not .Data.Tenants}}<p class="muted">No tenants yet.</p>{{end}}
 </section>
 {{end}}
-{{define "rows"}}<tbody id="rows"{{if .Data.Polling}} hx-get="/?partial=rows" hx-trigger="every 10s" hx-swap="outerHTML"{{end}}>
+{{define "rows"}}<tbody id="rows"{{if .Data.Polling}} hx-get="/?partial=rows" hx-trigger="every 10s" hx-headers='{"X-Portico-Poll": "1"}' hx-disinherit="hx-headers" hx-swap="outerHTML"{{end}}>
 {{range .Data.Tenants}}<tr>
   <td><a class="strong" href="/tenants/{{.ID}}">{{.ID}}</a></td>
   <td>{{.DisplayName}}</td>

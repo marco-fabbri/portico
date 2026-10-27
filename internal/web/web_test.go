@@ -320,3 +320,68 @@ func (e *env) hx(method, path string, form url.Values) *httptest.ResponseRecorde
 	e.h.ServeHTTP(rec, r)
 	return rec
 }
+
+// Review before v0.1.0: a page that refreshes itself is not an
+// administrator at the keyboard. Its polls check the session without
+// moving its idle clock, so a tab left open still ends after the idle
+// limit.
+func TestPollsDoNotKeepTheSessionAlive(t *testing.T) {
+	e := newEnv(t, true, func(o *Options) { o.Sessions = auth.NewMemoryStore(time.Hour, 200*time.Millisecond) })
+	e.login(t)
+	poll := func() int {
+		r := httptest.NewRequest("GET", "https://127.0.0.1:8443/", nil)
+		r.AddCookie(e.cookie)
+		r.Header.Set("HX-Request", "true")
+		r.Header.Set(PollHeader, "1")
+		r.RemoteAddr = "10.0.0.9:4000"
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, r)
+		return rec.Code
+	}
+	time.Sleep(120 * time.Millisecond)
+	if c := poll(); c != 200 {
+		t.Fatalf("a poll within the idle limit: %d", c)
+	}
+	time.Sleep(120 * time.Millisecond)
+	if rec := e.do("GET", "/", nil, true); rec.Code == 200 {
+		t.Fatal("the poll kept the session alive past the idle limit")
+	}
+}
+
+// Every element that refreshes itself sends the poll header, and does
+// not hand it down to the buttons inside it.
+func TestPollingElementsSendThePollHeader(t *testing.T) {
+	entries, _ := templatesFS.ReadDir("templates")
+	sources := map[string]string{"exposure.go": exposureReadyBanner}
+	for _, en := range entries {
+		b, _ := templatesFS.ReadFile("templates/" + en.Name())
+		sources[en.Name()] = string(b)
+	}
+	tag := regexp.MustCompile(`<[^>]*hx-trigger="every [^>]*>`)
+	n := 0
+	for name, src := range sources {
+		for _, el := range tag.FindAllString(src, -1) {
+			n++
+			if !strings.Contains(el, `hx-headers='{"`+PollHeader+`": "1"}'`) || !strings.Contains(el, `hx-disinherit="hx-headers"`) {
+				t.Errorf("%s: %s", name, el)
+			}
+		}
+	}
+	if n < 7 {
+		t.Fatalf("found %d polling elements, want at least 7", n)
+	}
+}
+
+// A poll that meets an ended session sends the whole page to the login,
+// rather than the login page into the polled fragment.
+func TestAnExpiredPollSendsThePageToTheLogin(t *testing.T) {
+	e := newEnv(t, true)
+	r := httptest.NewRequest("GET", "https://127.0.0.1:8443/?partial=rows", nil)
+	r.Header.Set("HX-Request", "true")
+	r.Header.Set(PollHeader, "1")
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, r)
+	if rec.Header().Get("HX-Redirect") != "/login" || rec.Code != 200 || rec.Body.Len() != 0 {
+		t.Fatalf("%d HX-Redirect=%q body %q", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body.String())
+	}
+}
