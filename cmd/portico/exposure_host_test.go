@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"errors"
 	"io"
 	"io/fs"
@@ -124,7 +125,7 @@ func TestExposureApplyKeepsToTheDirectoryItOpened(t *testing.T) {
 	dir := filepath.Join(base, "exposure")
 	os.Mkdir(dir, 0o700)
 	os.WriteFile(filepath.Join(dir, exposure.RequestFile), []byte(`{"id":"r1","mode":"tunnel"}`), 0o600)
-	os.WriteFile(filepath.Join(dir, exposure.TokenFile), []byte("t"), 0o600)
+	os.WriteFile(filepath.Join(dir, exposure.TokenFile), []byte(base64.StdEncoding.EncodeToString([]byte(`{"a":"acct","t":"tun","s":"c2VjcmV0"}`))), 0o600)
 	h := &swapHost{hostSystem: &hostSystem{}, swap: func() {
 		if err := os.Rename(dir, dir+".away"); err != nil {
 			t.Fatal(err)
