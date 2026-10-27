@@ -5,42 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/marco-fabbri/portico/internal/nutanix"
-	"github.com/marco-fabbri/portico/internal/proxy"
 )
-
-// PrismInput is the Prism Central bootstrap request: an administrator's
-// one-time credentials (any account that can create users and manage
-// authorization policies, design §4.5), the connection, and the name of
-// the service account to create.
-type PrismInput struct {
-	Username string
-	Password string
-	// URL, TLSVerify and CAPEM replace the site's connection when URL is
-	// set; an empty URL uses the site's stored connection.
-	URL            string
-	TLSVerify      bool
-	CAPEM          string
-	ServiceAccount string // defaults to "portico"
-}
-
-// PrismResult is what the bootstrap reports; the key is in the returned
-// Settings only. The embedded CheckResult is the verification made with
-// the new key, whose lists fill the pickers.
-type PrismResult struct {
-	CheckResult
-	ServiceAccount      string    `json:"service_account,omitempty"`
-	ServiceAccountExtID string    `json:"service_account_ext_id,omitempty"`
-	KeyName             string    `json:"key_name,omitempty"`
-	KeyExpires          time.Time `json:"key_expires,omitzero"`
-	Created             []string  `json:"created"`
-	Stored              bool      `json:"stored"`
-}
 
 const (
 	defaultServiceAccount = "portico"
@@ -48,102 +18,6 @@ const (
 )
 
 var reServiceAccount = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
-
-// PrismCentral creates the service account of a site's Prism Central (or
-// finds it), issues it a new API key, puts it in the Project Manager
-// policy and verifies the key by listing clusters and containers (which
-// also checks the version). A failure after the key exists revokes it.
-// Refusals and unreachable hosts are results with OK false; a
-// precondition on the input, an unknown site included, is a *StateError.
-func (b *Bootstrapper) PrismCentral(ctx context.Context, s Settings, siteID string, in PrismInput) (PrismResult, Settings, error) {
-	site, ok := s.Site(siteID)
-	if !ok {
-		return PrismResult{}, s, &StateError{Msg: fmt.Sprintf("no site with id %q", siteID)}
-	}
-	if in.URL == "" {
-		in.URL, in.TLSVerify, in.CAPEM = site.URL, site.TLSVerify, site.CAPEM
-	}
-	name := in.ServiceAccount
-	if strings.TrimSpace(name) == "" {
-		name = defaultServiceAccount
-	}
-	if in.Username == "" || in.Password == "" {
-		return PrismResult{}, s, &StateError{Msg: "the Prism Central username and password are required"}
-	}
-	u, err := url.Parse(in.URL)
-	if in.URL == "" || err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
-		return PrismResult{}, s, &StateError{Msg: fmt.Sprintf("the Prism Central URL %q is not valid", in.URL)}
-	}
-	if u.User != nil {
-		return PrismResult{}, s, &StateError{Msg: "the Prism Central URL must not carry credentials"}
-	}
-	if !reServiceAccount.MatchString(name) {
-		return PrismResult{}, s, &StateError{Msg: "the service account name must be lower-case letters, digits, dots, dashes and underscores"}
-	}
-	res := PrismResult{Created: []string{}, ServiceAccount: name}
-	trust := proxy.SiteTrust{CAPEM: []byte(in.CAPEM), Verify: in.TLSVerify}
-	if in.URL == site.URL {
-		trust.Pin = site.TLSPin // the pin belongs to the stored address only
-	}
-	tlsCfg, err := proxy.PrismTLSFor(u.Hostname(), trust)
-	if err != nil {
-		return PrismResult{}, s, &StateError{Msg: "the CA certificate is not usable: " + err.Error()}
-	}
-	pc, err := nutanix.NewWithPassword(in.URL, in.Username, in.Password, tlsCfg, b.log)
-	if err != nil {
-		return PrismResult{}, s, &StateError{Msg: err.Error()}
-	}
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-
-	site.URL, site.TLSVerify, site.CAPEM, site.TLSPin = in.URL, in.TLSVerify, in.CAPEM, trust.Pin
-	acct, msg := b.serviceAccount(ctx, pc, s, site, name, false)
-	res.Created = acct.Created
-	if acct.User != nil {
-		res.ServiceAccountExtID = acct.User.ExtID
-	}
-	if msg != "" {
-		res.Message = msg
-		return res, s, nil
-	}
-	key, user, check := acct.Key, acct.User, acct.Check
-	res.KeyName, res.KeyExpires = key.Name, key.ExpiryTime
-	failed := func(msg string) (PrismResult, Settings, error) {
-		acct.discard()
-		// The revoked key is nobody's: the result does not name it.
-		res.KeyName, res.KeyExpires, res.Created = "", time.Time{}, acct.Created
-		res.OK, res.Message = false, msg
-		return res, s, nil
-	}
-	found := false
-	patch := func(d *Settings) {
-		i := d.siteIndex(siteID)
-		if i < 0 {
-			return
-		}
-		found = true
-		d.Sites[i].URL, d.Sites[i].TLSVerify, d.Sites[i].CAPEM, d.Sites[i].TLSPin = in.URL, in.TLSVerify, in.CAPEM, trust.Pin
-		d.Sites[i].APIKey = Secret(key.Key)
-		d.Sites[i].ServiceAccountExtID, d.Sites[i].APIKeyExtID = user.ExtID, key.ExtID
-	}
-	out := s
-	out.Sites = append([]Site(nil), s.Sites...)
-	patch(&out)
-	found = false
-	// A key that is not stored is a key nobody holds: revoke it.
-	stored, err := b.store(ctx, patch)
-	if err != nil {
-		res.CheckResult = CheckResult{Clusters: check.Clusters, Containers: check.Containers}
-		return failed("Prism Central bootstrap done but the settings were not stored, so the new key was revoked: " + err.Error())
-	}
-	if stored && !found {
-		res.CheckResult = CheckResult{Clusters: check.Clusters, Containers: check.Containers}
-		return failed("the site was removed while the bootstrap ran, so the new key was revoked")
-	}
-	res.CheckResult, res.Stored = check, stored
-	res.Message = fmt.Sprintf("Prism Central bootstrap done: created %s; %s", strings.Join(res.Created, ", "), check.Message)
-	return res, out, nil
-}
 
 // serviceAccountOutcome is what the service account step leaves: the
 // account, the key it issued (nil when the stored one was kept), the

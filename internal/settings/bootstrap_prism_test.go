@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -167,126 +166,91 @@ func (f *fakePCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func prismInput(url string) PrismInput {
-	return PrismInput{Username: "admin", Password: "pc-pw-1", URL: url, TLSVerify: false}
-}
-
-func TestPrismBootstrapCreatesAccountKeyAndPolicyMember(t *testing.T) {
-	pc := newFakePCAdmin(t)
-	b := NewBootstrapper(nil, nil)
+// serviceAccountOn runs the service account step that "Finish setup"
+// and Repair use against the double, with the administrator's password.
+func serviceAccountOn(ctx context.Context, t *testing.T, pc *fakePCAdmin, password string) (serviceAccountOutcome, string) {
+	t.Helper()
 	s := withSite(Defaults())
 	s.PortalHost = "prism.example.test"
-	res, out, err := b.PrismCentral(context.Background(), s, "site-a", prismInput(pc.srv.URL))
-	if err != nil || !res.OK || len(res.Created) != 3 || res.Created[0] != "service account portico" || res.Created[2] != "policy member" {
-		t.Fatalf("res=%+v err=%v", res, err)
+	site, _ := s.Site("site-a")
+	site.URL, site.TLSVerify = pc.srv.URL, false
+	client, err := nutanix.NewWithPassword(pc.srv.URL, "admin", password, nil, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if out.Sites[0].APIKey != Secret(pc.issuedKey) || out.Sites[0].URL != pc.srv.URL || out.Sites[0].TLSVerify {
-		t.Fatalf("out = %+v", out)
+	return NewBootstrapper(nil, nil).serviceAccount(ctx, client, s, site, "portico", false)
+}
+
+func TestServiceAccountCreatesAccountKeyAndPolicyMember(t *testing.T) {
+	pc := newFakePCAdmin(t)
+	out, msg := serviceAccountOn(context.Background(), t, pc, "pc-pw-1")
+	if msg != "" || len(out.Created) != 3 || out.Created[0] != "service account portico" || out.Created[2] != "policy member" {
+		t.Fatalf("out=%+v msg=%q", out, msg)
 	}
-	if len(res.Clusters) != 1 || res.Clusters[0].ExtID != "cl-1" || len(res.Containers) != 1 || res.ServiceAccount != "portico" || res.ServiceAccountExtID != "sa-1" || !strings.HasPrefix(res.KeyName, "portico-") || res.KeyExpires.IsZero() {
-		t.Fatalf("res = %+v", res)
+	if out.Key == nil || out.Key.Key != pc.issuedKey || out.Key.ExtID != "key-1" || !strings.HasPrefix(out.Key.Name, "portico-") || out.User.ExtID != "sa-1" {
+		t.Fatalf("key=%+v user=%+v", out.Key, out.User)
+	}
+	if len(out.Check.Clusters) != 1 || out.Check.Clusters[0].ExtID != "cl-1" || len(out.Check.Containers) != 1 {
+		t.Fatalf("check = %+v", out.Check)
 	}
 	if pc.user["username"] != "portico" || !pc.inPolicy {
 		t.Fatalf("fake state: user=%v inPolicy=%v", pc.user, pc.inPolicy)
 	}
 }
 
-func TestPrismBootstrapExistingAccountGetsNewKey(t *testing.T) {
+func TestServiceAccountExistingAccountGetsNewKey(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	pc.user = map[string]any{"extId": "sa-1", "username": "portico", "userType": "SERVICE_ACCOUNT"}
 	pc.inPolicy = true
-	res, _, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), withSite(Defaults()), "site-a", prismInput(pc.srv.URL))
-	if err != nil || !res.OK || len(res.Created) != 1 || !strings.HasPrefix(res.Created[0], "api key portico-") {
-		t.Fatalf("res=%+v err=%v", res, err)
+	out, msg := serviceAccountOn(context.Background(), t, pc, "pc-pw-1")
+	if msg != "" || len(out.Created) != 1 || !strings.HasPrefix(out.Created[0], "api key portico-") {
+		t.Fatalf("out=%+v msg=%q", out, msg)
 	}
 }
 
-func TestPrismBootstrapWrongCredentials(t *testing.T) {
+func TestServiceAccountWrongCredentials(t *testing.T) {
 	pc := newFakePCAdmin(t)
-	in := prismInput(pc.srv.URL)
-	in.Password = "wrong"
-	s := withSite(Defaults())
-	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), s, "site-a", in)
-	if err != nil || res.OK || res.Message != "Prism Central refused the credentials (401)" || len(pc.posts) != 0 || !reflect.DeepEqual(out, s) {
-		t.Fatalf("res=%+v err=%v posts=%v", res, err, pc.posts)
+	out, msg := serviceAccountOn(context.Background(), t, pc, "wrong")
+	if msg != "Prism Central refused the credentials (401)" || out.Key != nil || len(pc.posts) != 0 {
+		t.Fatalf("out=%+v msg=%q posts=%v", out, msg, pc.posts)
 	}
 }
 
-func TestPrismBootstrapPolicyMissingDeletesTheKey(t *testing.T) {
+func TestServiceAccountPolicyMissingRevokesTheKey(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	pc.noPolicy = true
-	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), withSite(Defaults()), "site-a", prismInput(pc.srv.URL))
-	if err != nil || res.OK || res.Message != `authorization policy "Project Manager_acp" not found` || pc.keyDeleted != 1 {
-		t.Fatalf("res=%+v err=%v deleted=%d", res, err, pc.keyDeleted)
+	out, msg := serviceAccountOn(context.Background(), t, pc, "pc-pw-1")
+	if msg != `authorization policy "Project Manager_acp" not found` || pc.keyDeleted != 1 || out.Key != nil {
+		t.Fatalf("out=%+v msg=%q deleted=%d", out, msg, pc.keyDeleted)
 	}
-	// The revoked key leaves no trace in the document or the result.
-	if out.Sites[0].APIKey != "" || res.KeyName != "" || !res.KeyExpires.IsZero() {
-		t.Fatalf("revoked key still in the result: %+v", res)
-	}
-	for _, c := range res.Created {
+	for _, c := range out.Created {
 		if strings.HasPrefix(c, "api key") {
-			t.Fatalf("created lists the revoked key: %v", res.Created)
-		}
-	}
-	if js, _ := json.Marshal(res); strings.Contains(string(js), "key_expires") {
-		t.Fatalf("zero key_expires rendered: %s", js)
-	}
-}
-
-// A URL with credentials inside (https://user:pw@host) is refused before
-// any call, and the refusal does not repeat it.
-func TestPrismBootstrapRefusesURLWithCredentials(t *testing.T) {
-	_, _, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), withSite(Defaults()), "site-a", PrismInput{Username: "admin", Password: "x", URL: "https://admin:pw-in-url@10.0.0.10:9440"})
-	var se *StateError
-	if !errors.As(err, &se) || !strings.Contains(se.Msg, "must not carry credentials") || strings.Contains(se.Msg, "pw-in-url") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestPrismBootstrapPreconditions(t *testing.T) {
-	pc := newFakePCAdmin(t)
-	b := NewBootstrapper(nil, nil)
-	var se *StateError
-	for name, in := range map[string]PrismInput{
-		"empty password": {Username: "admin", URL: pc.srv.URL},
-		"bad url":        {Username: "admin", Password: "x", URL: "not a url"},
-		"bad account":    {Username: "admin", Password: "x", URL: pc.srv.URL, ServiceAccount: "Bad Name"},
-	} {
-		if _, _, err := b.PrismCentral(context.Background(), withSite(Defaults()), "site-a", in); !errors.As(err, &se) {
-			t.Fatalf("%s: %v", name, err)
+			t.Fatalf("created lists the revoked key: %v", out.Created)
 		}
 	}
 }
 
 // A key created in Prism Central whose answer never reached Portico (a
 // timeout, a gateway error) would stay valid with nobody holding it:
-// the bootstrap looks it up by the name it chose and revokes it.
-func TestPrismBootstrapRevokesAKeyLostInTransit(t *testing.T) {
+// the step looks it up by the name it chose and revokes it.
+func TestServiceAccountRevokesAKeyLostInTransit(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	pc.keyLost = true
-	s := withSite(Defaults())
-	s.PortalHost = "prism.example.test"
-	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), s, "site-a", prismInput(pc.srv.URL))
-	if err != nil || res.OK || !strings.Contains(res.Message, "Prism Central") {
-		t.Fatalf("res=%+v err=%v", res, err)
-	}
-	if out.Sites[0].APIKey != "" || pc.keyDeleted != 1 {
-		t.Fatalf("key stored=%q deleted=%d", out.Sites[0].APIKey, pc.keyDeleted)
+	out, msg := serviceAccountOn(context.Background(), t, pc, "pc-pw-1")
+	if !strings.Contains(msg, "Prism Central") || out.Key != nil || pc.keyDeleted != 1 {
+		t.Fatalf("out=%+v msg=%q deleted=%d", out, msg, pc.keyDeleted)
 	}
 }
 
 // The revocation after a failure runs even when the request's context is
-// already gone (the deadline is what usually ends a bootstrap).
-func TestPrismBootstrapRevokesTheKeyWithACancelledContext(t *testing.T) {
+// already gone (the deadline is what usually ends a setup run).
+func TestServiceAccountRevokesTheKeyWithACancelledContext(t *testing.T) {
 	pc := newFakePCAdmin(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	pc.onPolicies = cancel
-	s := withSite(Defaults())
-	s.PortalHost = "prism.example.test"
-	res, _, err := NewBootstrapper(nil, nil).PrismCentral(ctx, s, "site-a", prismInput(pc.srv.URL))
-	if err != nil || res.OK {
-		t.Fatalf("res=%+v err=%v", res, err)
+	if _, msg := serviceAccountOn(ctx, t, pc, "pc-pw-1"); msg == "" {
+		t.Fatal("the step passed with its context cancelled")
 	}
 	if pc.keyDeleted != 1 {
 		t.Fatalf("key deleted %d times", pc.keyDeleted)
@@ -298,33 +262,4 @@ type failingStore struct{ store.Store }
 
 func (failingStore) SetSetting(context.Context, string, []byte) error {
 	return errors.New("disk full")
-}
-
-// A key that could not be stored is a key nobody holds: the bootstrap
-// revokes it and reports the failure instead of 200 with a key lost.
-func TestPrismBootstrapRevokesTheKeyWhenTheStoreFails(t *testing.T) {
-	pc := newFakePCAdmin(t)
-	svc := NewService(failingStore{newStore(t)}, sealerFor(t, 1))
-	s := withSite(Defaults())
-	s.PortalHost = "prism.example.test"
-	res, _, err := NewBootstrapper(nil, svc).PrismCentral(context.Background(), s, "site-a", prismInput(pc.srv.URL))
-	if err != nil || res.OK || res.Stored || !strings.Contains(res.Message, "not stored") {
-		t.Fatalf("res=%+v err=%v", res, err)
-	}
-	if pc.keyDeleted != 1 {
-		t.Fatalf("key deleted %d times", pc.keyDeleted)
-	}
-}
-
-func TestPrismBootstrapStoresAccountAndKeyIDs(t *testing.T) {
-	pc := newFakePCAdmin(t)
-	s := withSite(Defaults())
-	s.PortalHost = "prism.example.test"
-	res, out, err := NewBootstrapper(nil, nil).PrismCentral(context.Background(), s, "site-a", prismInput(pc.srv.URL))
-	if err != nil || !res.OK {
-		t.Fatalf("res=%+v err=%v", res, err)
-	}
-	if out.Sites[0].ServiceAccountExtID != "sa-1" || out.Sites[0].APIKeyExtID != "key-1" {
-		t.Fatalf("stored ids = %q %q", out.Sites[0].ServiceAccountExtID, out.Sites[0].APIKeyExtID)
-	}
 }
