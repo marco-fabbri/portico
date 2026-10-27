@@ -421,7 +421,7 @@ func (h *handler) bootstrapKeycloak(w http.ResponseWriter, r *http.Request) {
 	}
 	res, _, err := h.so.Bootstrapper.Keycloak(r.Context(), h.so.KeycloakURL, cur, settings.KeycloakInput{AdminUsername: in.AdminUsername, AdminPassword: in.AdminPassword, Realm: in.Realm, DisplayName: in.DisplayName})
 	if err == nil {
-		h.log.Info("bootstrap keycloak", "realm", in.Realm, "user", in.AdminUsername, "ok", res.OK, "created", res.Created)
+		h.log.Info("bootstrap keycloak", "realm", in.Realm, "ok", res.OK, "created", res.Created)
 	}
 	h.bootstrapAnswer(w, r, res, err)
 }
