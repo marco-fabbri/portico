@@ -253,7 +253,7 @@ func (r *siteRuntime) applyPassthrough(doc settings.Settings) {
 		r.deps.log.Error("pass-through not changed: the site's settings cannot be used", "site", site.ID, "err", err.Error())
 		return
 	}
-	up := proxy.NewUpstream(proxy.UpstreamOptions{Target: u, HostHeader: "", TLS: t, Log: r.deps.log})
+	up := proxy.NewUpstream(proxy.UpstreamOptions{Target: u, HostHeader: "", TLS: t, StripCookies: r.deps.strip, Log: r.deps.log})
 	r.passthrough.Swap(proxy.NewPassthrough(up, r.deps.log))
 	if r.ptIdle != nil {
 		r.ptIdle()
