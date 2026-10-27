@@ -201,8 +201,12 @@ func direct(h Host, d RequestDir, configPath, y string, wasTunnel bool) (string,
 	if err := h.WriteFile(configPath, []byte(text), 0o640); err != nil {
 		return err.Error(), false
 	}
-	// cloudflared may be absent (install.sh tolerates it): stopping it is best effort.
+	// cloudflared may be absent (install.sh tolerates it): stopping it is
+	// best effort, and its token goes with it.
 	h.Exec(nil, "systemctl", "disable", "--now", "cloudflared")
+	if err := h.Remove(TokenPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "the tunnel token cannot be removed: " + err.Error(), false
+	}
 	if _, err := h.Exec(nil, "systemctl", "restart", "portico"); err != nil {
 		return "portico did not restart: " + err.Error(), false
 	}
@@ -214,6 +218,11 @@ func tunnel(h Host, d RequestDir, configPath, y string, wasTunnel bool) (string,
 	if err != nil {
 		return "no token in the request: " + err.Error(), false
 	}
+	// The admin UI has checked the token; root checks it again, since the
+	// file comes from an unprivileged process.
+	if err := ValidateToken(strings.TrimSpace(string(token))); err != nil {
+		return "the token: " + err.Error(), false
+	}
 	text := y
 	if !wasTunnel {
 		if text, err = setMode(y, true); err != nil {
@@ -224,9 +233,9 @@ func tunnel(h Host, d RequestDir, configPath, y string, wasTunnel bool) (string,
 	if err := h.WriteFile(TokenPath, token, 0o600); err != nil {
 		return err.Error(), false
 	}
-	// cloudflared first: when it cannot run (not installed, bad token)
-	// Portico keeps the exposure it had.
-	if msg := startCloudflared(h); msg != "" {
+	// undo puts back the token and the connector as they were: Portico
+	// keeps the exposure it had.
+	undo := func(msg string) (string, bool) {
 		if oldErr == nil {
 			h.WriteFile(TokenPath, old, 0o600)
 		} else {
@@ -235,18 +244,24 @@ func tunnel(h Host, d RequestDir, configPath, y string, wasTunnel bool) (string,
 		if wasTunnel {
 			h.Exec(nil, "systemctl", "restart", "cloudflared")
 		} else {
+			h.WriteFile(configPath, []byte(y), 0o640)
 			h.Exec(nil, "systemctl", "disable", "--now", "cloudflared")
 		}
 		return msg + "; Portico keeps its current exposure", false
+	}
+	// cloudflared first: when it cannot run (not installed, bad token)
+	// Portico keeps the exposure it had.
+	if msg := startCloudflared(h); msg != "" {
+		return undo(msg)
 	}
 	if wasTunnel {
 		return "tunnel token replaced; cloudflared restarted", true
 	}
 	if err := h.WriteFile(configPath, []byte(text), 0o640); err != nil {
-		return err.Error(), false
+		return undo(err.Error())
 	}
 	if _, err := h.Exec(nil, "systemctl", "restart", "portico"); err != nil {
-		return "portico did not restart: " + err.Error(), false
+		return undo("portico did not restart: " + err.Error())
 	}
 	return "tunnel mode: Portico listens on the loopback for cloudflared; Portico restarted", true
 }

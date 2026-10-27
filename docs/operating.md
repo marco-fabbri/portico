@@ -222,7 +222,11 @@ deletes the request. Its result is in `result.json` beside it and in
   endpoint on `127.0.0.1:20241/ready`). A token Cloudflare does not
   accept keeps `cloudflared` retrying without stopping, so without a
   registered connection the token is withdrawn and Portico keeps the
-  exposure it had.
+  exposure it had. The same happens when the switch fails after
+  `cloudflared` has connected (the YAML cannot be written, Portico does
+  not restart): the old token, the old YAML and a stopped `cloudflared`.
+  Leaving the tunnel for direct mode stops `cloudflared` and deletes its
+  token.
 
 ## The Keycloak administrator
 

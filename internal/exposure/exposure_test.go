@@ -255,16 +255,17 @@ func TestValidateTokenRefusesAnythingButAConnectorToken(t *testing.T) {
 
 // fakeHost is the appliance as Apply sees it.
 type fakeHost struct {
-	files   map[string][]byte
-	links   map[string]bool // request-directory entries that are not regular files
-	modes   map[string]os.FileMode
-	execs   []string
-	execErr map[string]error
-	execOut map[string]string
+	files    map[string][]byte
+	writeErr map[string]error
+	links    map[string]bool // request-directory entries that are not regular files
+	modes    map[string]os.FileMode
+	execs    []string
+	execErr  map[string]error
+	execOut  map[string]string
 }
 
 func newFakeHost() *fakeHost {
-	return &fakeHost{files: map[string][]byte{}, links: map[string]bool{}, modes: map[string]os.FileMode{}, execErr: map[string]error{}, execOut: map[string]string{}}
+	return &fakeHost{files: map[string][]byte{}, writeErr: map[string]error{}, links: map[string]bool{}, modes: map[string]os.FileMode{}, execErr: map[string]error{}, execOut: map[string]string{}}
 }
 
 // OpenRequestDir maps the directory's entries onto the fake's paths.
@@ -302,6 +303,9 @@ func (h *fakeHost) ReadFile(p string) ([]byte, error) {
 }
 
 func (h *fakeHost) WriteFile(p string, b []byte, m os.FileMode) error {
+	if err := h.writeErr[p]; err != nil {
+		return err
+	}
 	h.files[p], h.modes[p] = append([]byte(nil), b...), m
 	return nil
 }
@@ -328,6 +332,10 @@ func (h *fakeHost) did(cmd string) bool {
 	}
 	return false
 }
+
+// testToken has the shape of a connector token, which root checks
+// again; whether Cloudflare knows it is the fake's business.
+var testToken = base64.StdEncoding.EncodeToString([]byte(`{"a":"acct","t":"3f1c0e0a-0000-4000-8000-000000000000","s":"c2VjcmV0"}`)) + "\n"
 
 const (
 	dir        = "/var/lib/portico/exposure"
@@ -389,13 +397,13 @@ func TestApplyModeChangeRestartsPortico(t *testing.T) {
 	// And back to the tunnel.
 	h = newFakeHost()
 	h.files[cfgPath] = []byte(directYAML)
-	h.files[dir+"/token"] = []byte("tok\n")
+	h.files[dir+"/token"] = []byte(testToken)
 	readyAfter(t, 1)
 	request(h, Request{ID: "r2", Mode: "tunnel"})
 	if r := Apply(h, dir, cfgPath); !r.OK || r.Mode != "tunnel" {
 		t.Fatalf("result %+v", r)
 	}
-	if string(h.files[TokenPath]) != "tok\n" || h.modes[TokenPath] != 0o600 {
+	if string(h.files[TokenPath]) != testToken || h.modes[TokenPath] != 0o600 {
 		t.Fatalf("token %q %o", h.files[TokenPath], h.modes[TokenPath])
 	}
 	y = string(h.files[cfgPath])
@@ -423,7 +431,7 @@ func TestApplyTunnelFailureKeepsExposure(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			h := newFakeHost()
 			h.files[cfgPath] = []byte(directYAML)
-			h.files[dir+"/token"] = []byte("bad\n")
+			h.files[dir+"/token"] = []byte(testToken)
 			c.set(h)
 			request(h, Request{ID: "r3", Mode: "tunnel"})
 			r := Apply(h, dir, cfgPath)
@@ -445,7 +453,7 @@ func TestApplyDeletesRequestFiles(t *testing.T) {
 	h.files[cfgPath] = []byte(directYAML)
 	h.files[dir+"/public.crt"] = []byte("not a certificate")
 	h.files[dir+"/public.key"] = []byte("not a key")
-	h.files[dir+"/token"] = []byte("tok\n")
+	h.files[dir+"/token"] = []byte(testToken)
 	request(h, Request{ID: "r4", Mode: "direct"})
 	r := Apply(h, dir, cfgPath)
 	if r.OK || r.ID != "r4" {
@@ -506,7 +514,7 @@ func readyAfter(t *testing.T, n int) *int {
 func TestApplyTunnelWaitsForARegisteredConnection(t *testing.T) {
 	h := newFakeHost()
 	h.files[cfgPath] = []byte(directYAML)
-	h.files[dir+"/token"] = []byte("tok\n")
+	h.files[dir+"/token"] = []byte(testToken)
 	looks := readyAfter(t, 8)
 	request(h, Request{ID: "r5", Mode: "tunnel"})
 	if r := Apply(h, dir, cfgPath); !r.OK || *looks != 8 {
@@ -514,7 +522,7 @@ func TestApplyTunnelWaitsForARegisteredConnection(t *testing.T) {
 	}
 	h = newFakeHost()
 	h.files[cfgPath] = []byte(directYAML)
-	h.files[dir+"/token"] = []byte("tok\n")
+	h.files[dir+"/token"] = []byte(testToken)
 	looks = readyAfter(t, 1000)
 	request(h, Request{ID: "r6", Mode: "tunnel"})
 	r := Apply(h, dir, cfgPath)
@@ -563,5 +571,72 @@ func TestApplyWritesTheResultBeforeDeletingTheRequest(t *testing.T) {
 	Apply(orderHost{h, t}, dir, cfgPath)
 	if _, ok := h.files[dir+"/request.json"]; ok {
 		t.Fatal("request left behind")
+	}
+}
+
+// Review before v0.1.0: root trusts nothing in the request, the token
+// included.
+func TestApplyTunnelRefusesWhatIsNotAToken(t *testing.T) {
+	h := newFakeHost()
+	h.files[cfgPath] = []byte(directYAML)
+	h.files[dir+"/token"] = []byte("cloudflared tunnel run --token abc\n")
+	request(h, Request{ID: "r7", Mode: "tunnel"})
+	r := Apply(h, dir, cfgPath)
+	if r.OK || !strings.Contains(r.Message, "token") {
+		t.Fatalf("result %+v", r)
+	}
+	if _, ok := h.files[TokenPath]; ok || len(h.execs) != 0 {
+		t.Fatalf("acted on a bad token: token written %v, execs %v", ok, h.execs)
+	}
+}
+
+// Review before v0.1.0: cloudflared registered, then the switch fails:
+// everything goes back, so cloudflared does not forward to a loopback
+// nobody listens on.
+func TestApplyTunnelFailureAfterTheConnectorUndoesIt(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		set  func(h *fakeHost)
+	}{
+		{"yaml not written", func(h *fakeHost) { h.writeErr[cfgPath] = errors.New("read-only file system") }},
+		{"portico not restarted", func(h *fakeHost) { h.execErr["systemctl restart portico"] = errors.New("exit status 1") }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newFakeHost()
+			h.files[cfgPath] = []byte(directYAML)
+			h.files[TokenPath] = []byte("old\n")
+			h.files[dir+"/token"] = []byte(testToken)
+			readyAfter(t, 1)
+			c.set(h)
+			request(h, Request{ID: "r8", Mode: "tunnel"})
+			r := Apply(h, dir, cfgPath)
+			if r.OK || !strings.Contains(r.Message, "keeps its current exposure") {
+				t.Fatalf("result %+v", r)
+			}
+			if !h.did("systemctl disable --now cloudflared") {
+				t.Fatalf("cloudflared left running: execs %v", h.execs)
+			}
+			if string(h.files[TokenPath]) != "old\n" {
+				t.Fatalf("token %q, want the old one back", h.files[TokenPath])
+			}
+			delete(h.writeErr, cfgPath)
+			if string(h.files[cfgPath]) != directYAML {
+				t.Fatalf("yaml:\n%s", h.files[cfgPath])
+			}
+		})
+	}
+}
+
+// Review before v0.1.0: leaving the tunnel takes its token away.
+func TestApplyDirectFromTunnelRemovesTheToken(t *testing.T) {
+	h := newFakeHost()
+	h.files[cfgPath] = []byte(tunnelYAML)
+	h.files[TokenPath] = []byte(testToken)
+	directRequest(t, h)
+	if r := Apply(h, dir, cfgPath); !r.OK {
+		t.Fatalf("result %+v", r)
+	}
+	if _, ok := h.files[TokenPath]; ok {
+		t.Fatal("tunnel token left on the appliance")
 	}
 }

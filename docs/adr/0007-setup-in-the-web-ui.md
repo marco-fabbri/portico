@@ -58,7 +58,7 @@ came next, under a name the page did not use.
   command for a maintenance task (measured on Keycloak 26.3).
 - One more root unit on the appliance, triggered by a file the service
   owns. `apply` trusts nothing in the request: it validates the pair
-  itself; it opens the request directory once, refusing it when it is
+  and the token itself; it opens the request directory once, refusing it when it is
   a link, and works through that handle, so swapping the directory for
   a link while `apply` runs does not move it elsewhere; in it, it reads
   only regular files, never through a link and at most 64 KiB each, and
