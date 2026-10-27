@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Lab: the image build host on Proxmox. Reads the Proxmox endpoint, node,
-# datastores and network from the NKP toolkit's tofu/proxmox/terraform.tfvars
-# (Marco's lab, same Proxmox) and the API token from there into the
-# environment only; writes lab/build-host/terraform.tfvars without it.
+# datastores and bridge from the NKP toolkit's tofu/proxmox/terraform.tfvars
+# (same Proxmox) and the API token from there into the environment only;
+# writes lab/build-host/terraform.tfvars without it. The VM sits on the
+# Nutanix VLAN (210), not the toolkit's: Prism Central downloads images
+# from it, and the firewall drops 210 to 220 (write-up 33).
 #   lab/build-host/deploy.sh            create or update the VM, then provision it
 #   lab/build-host/deploy.sh --destroy
 set -euo pipefail
@@ -10,7 +12,9 @@ cd "$(dirname "$0")/../.." || exit 1
 NKP="${NKP_TOOLKIT:-$HOME/nkp-preprovisioned-toolkit}/tofu/proxmox/terraform.tfvars"
 [ -r "$NKP" ] || { echo "no $NKP: give NKP_TOOLKIT or write lab/build-host/terraform.tfvars by hand" >&2; exit 1; }
 B=lab/build-host
-ADDRESS="${BUILD_HOST_IP:-10.23.220.90}"
+ADDRESS="${BUILD_HOST_IP:-10.23.210.192}"
+VLAN="${BUILD_HOST_VLAN:-210}"
+GATEWAY="${BUILD_HOST_GATEWAY:-10.23.210.254}"
 val() { sed -n "s/^$1 *= *\"\\{0,1\\}\\([^\"]*\\)\"\\{0,1\\}.*/\\1/p" "$NKP" | head -1; }
 export TF_VAR_proxmox_api_token
 TF_VAR_proxmox_api_token=$(val proxmox_api_token)
@@ -29,8 +33,8 @@ proxmox_node     = "$(val proxmox_node)"
 datastore_id     = "$(val datastore_id)"
 image_datastore  = "$(val image_datastore)"
 network_bridge   = "$(val network_bridge)"
-network_vlan_id  = $(val network_vlan_id)
-network_gateway  = "$(val network_gateway)"
+network_vlan_id  = $VLAN
+network_gateway  = "$GATEWAY"
 dns_servers      = $(sed -n 's/^dns_servers *= *//p' "$NKP" | head -1)
 address          = "$ADDRESS"
 ssh_public_key   = "$sshkey"
