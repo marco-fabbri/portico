@@ -64,6 +64,14 @@ and before the setup is recorded by hand along `docs/install.md`?
   (`10.23.220.90`, VLAN 220 behind Proxmox): "Failed to create the image
   as the provided URL timed out after streaming 0 bytes", while the Mac
   downloads the same URL. The build host is no image host for NTNX-01.
+- MEASURED: the cause is a policy between the two VLANs, not routing.
+  Both gateways (`10.23.210.254`, `10.23.220.254`) answer with the same
+  MAC (`00:09:0f:09:00:04`, a Fortinet prefix), so one firewall routes
+  both; each side reaches its gateway and the Internet (first hop the
+  gateway, second `93.43.51.2`), but from `10.23.210.191` the build host
+  answers neither ping nor TCP 22/8000, and from the build host
+  `10.23.210.254`, `.175` and `.191` answer no ping. The Mac reaches
+  both over the VPN.
 - MEASURED: the upload from the Mac over the VPN took 1 267 s for
   1.35 GB; the image became `COMPLETE` with 42 949 672 960 bytes (the
   disk's virtual size). After the import, `tofu plan` wanted to change
@@ -122,8 +130,9 @@ and before the setup is recorded by hand along `docs/install.md`?
 
 ## Implications for the design
 
-None. For the lab: an image host for NTNX-01 must be on VLAN 210 (or
-the image uploaded from the Mac as above); the release URL needs the
+None. For the lab: an image host for NTNX-01 must be on VLAN 210, or
+the firewall must allow Prism Central (`10.23.210.175`) to the build host
+on TCP 8000, or the image is uploaded from the Mac as above; the release URL needs the
 release published. `lab/appliance/deploy.sh` reads
 `LAB_IMAGE_USER`, `lab/tenants/api.sh` `LAB_ADMIN_CA`,
 `lab/sites/tenant-login.sh` `LAB_LOGIN_EMAIL` and `LAB_LOGIN_PWFILE`.
