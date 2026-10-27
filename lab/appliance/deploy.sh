@@ -1,24 +1,28 @@
 #!/usr/bin/env bash
-# Lab: the appliance image built by .github/workflows/image.yml on NTNX-01
-# (Milestone 3 acceptance). Downloads the workflow artifacts, serves the
-# qcow2 over HTTP from LAB_IMAGE_HOST (a host Prism Central can download
-# from, user lab: the VM of Milestones 0 to 2) for Prism Central's image
-# service, and runs deploy/tofu/nutanix with the lab values. Requires
-# `source lab/env.sh` and `gh` logged in. Lab only.
+# Lab: the appliance on NTNX-01 through deploy/tofu/nutanix with the lab
+# values. With --release V, Prism Central downloads the published image
+# from the GitHub release, as an MSP's would. Otherwise the image is a
+# workflow artifact of .github/workflows/image.yml (or a local file),
+# served over HTTP from LAB_IMAGE_HOST, a host Prism Central can download
+# from (user lab, python3); there is no default since the first VM that
+# did it was deleted on 2026-10-27. Requires `source lab/env.sh`, and `gh`
+# logged in for an artifact. Lab only.
+#   lab/appliance/deploy.sh --release V
 #   lab/appliance/deploy.sh [--run ID | --image PATH] [--version V]
 set -euo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 : "${PC_URL:?source lab/env.sh first}" "${PC_USER:?}" "${PC_PASS:?}"
-IMAGE_HOST="${LAB_IMAGE_HOST:-10.23.210.190}"
+IMAGE_HOST="${LAB_IMAGE_HOST:-}"
 # shellcheck source=lab/lib.sh
 source lab/lib.sh
-RUN=""; IMAGE=""; VERSION="0.0.0-dev"
+RUN=""; IMAGE=""; VERSION="0.0.0-dev"; RELEASE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --run) RUN=${2:?}; shift 2 ;;
     --image) IMAGE=${2:?}; shift 2 ;;
     --version) VERSION=${2:?}; shift 2 ;;
-    *) echo "usage: lab/appliance/deploy.sh [--run ID | --image PATH] [--version V]" >&2; exit 2 ;;
+    --release) VERSION=${2:?}; RELEASE=1; shift 2 ;;
+    *) echo "usage: lab/appliance/deploy.sh --release V | [--run ID | --image PATH] [--version V]" >&2; exit 2 ;;
   esac
 done
 APPLIANCE_IP="${LAB_APPLIANCE_IP:-10.23.210.191}"
@@ -28,8 +32,14 @@ CLUSTER_NAME="${LAB_CLUSTER_NAME:-NTNX-01}"
 A=lab/appliance
 umask 077
 
+if [ $RELEASE -eq 0 ] && [ -z "$IMAGE_HOST" ]; then
+  echo "no image host: give --release V to let Prism Central download from GitHub, or set LAB_IMAGE_HOST" >&2; exit 2
+fi
+
 # 1. The image: a workflow artifact (default: the latest successful build) or a local file.
-if [ -z "$IMAGE" ]; then
+if [ $RELEASE -eq 1 ]; then
+  IMAGE=""
+elif [ -z "$IMAGE" ]; then
   if [ -z "$RUN" ]; then
     RUN=$(gh run list --workflow image.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')
     [ -n "$RUN" ] || { echo "no successful image build; give --run ID or --image PATH" >&2; exit 1; }
@@ -42,20 +52,26 @@ if [ -z "$IMAGE" ]; then
   done
   IMAGE="$A/artifact/portico-$VERSION.qcow2"
 fi
-[ -s "$IMAGE" ] || { echo "image not found: $IMAGE" >&2; exit 1; }
-(cd "$(dirname "$IMAGE")" && sha256sum -c --quiet "$(basename "$IMAGE").sha256" 2>/dev/null) && echo "checksum ok" || echo "checksum file absent or mismatch: continuing with the artifact as downloaded"
+if [ $RELEASE -eq 0 ]; then
+  [ -s "$IMAGE" ] || { echo "image not found: $IMAGE" >&2; exit 1; }
+  if (cd "$(dirname "$IMAGE")" && sha256sum -c --quiet "$(basename "$IMAGE").sha256" 2>/dev/null); then echo "checksum ok"; else echo "checksum file absent or mismatch: continuing with the artifact as downloaded"; fi
+fi
 
 # 2. The address must be free (as lab/vm/create-vm.sh checks).
 if ping -c 2 -W 1 "$APPLIANCE_IP" >/dev/null 2>&1; then echo "refusing: $APPLIANCE_IP answers ping" >&2; exit 2; fi
 
-# 3. Serve the image from the image host: Prism Central downloads it from a URL.
-SSH=(ssh -o BatchMode=yes -o ConnectTimeout=5 "lab@$IMAGE_HOST")
-stage=$(remote_stage_dir "lab@$IMAGE_HOST")
-echo "copying $(du -h "$IMAGE" | cut -f1) to $IMAGE_HOST"
-scp -q -o BatchMode=yes "$IMAGE" "lab@$IMAGE_HOST:$stage/portico-$VERSION.qcow2"
-"${SSH[@]}" "sudo firewall-cmd -q --add-port=8000/tcp; cd '$stage' && (nohup python3 -m http.server 8000 >/dev/null 2>&1 & echo \$! > '$stage/http.pid')"
-echo "$stage" > "$A/.stage"
-IMAGE_URL="http://$IMAGE_HOST:8000/portico-$VERSION.qcow2"
+# 3. Serve the image from the image host: Prism Central downloads it from
+# a URL. A release needs none: the deployer's default URL is the release.
+IMAGE_URL=""
+if [ $RELEASE -eq 0 ]; then
+  SSH=(ssh -o BatchMode=yes -o ConnectTimeout=5 "lab@$IMAGE_HOST")
+  stage=$(remote_stage_dir "lab@$IMAGE_HOST")
+  echo "copying $(du -h "$IMAGE" | cut -f1) to $IMAGE_HOST"
+  scp -q -o BatchMode=yes "$IMAGE" "lab@$IMAGE_HOST:$stage/portico-$VERSION.qcow2"
+  "${SSH[@]}" "sudo firewall-cmd -q --add-port=8000/tcp; cd '$stage' && (nohup python3 -m http.server 8000 >/dev/null 2>&1 & echo \$! > '$stage/http.pid')"
+  echo "$stage" > "$A/.stage"
+  IMAGE_URL="http://$IMAGE_HOST:8000/portico-$VERSION.qcow2"
+fi
 
 # 4. The OpenTofu variables: nothing secret in the file, the password in the environment.
 host=${PC_URL#https://}; host=${host%%:*}
