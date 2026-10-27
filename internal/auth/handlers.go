@@ -234,6 +234,10 @@ func (a *Authenticator) Callback() http.Handler {
 // end-session endpoint, so the Keycloak session ends too.
 func (a *Authenticator) Logout() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if FromAnotherSite(r) {
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
 		var idToken string
 		if c, err := r.Cookie(SessionCookie); err == nil && c.Value != "" {
 			if s, ok := a.store.Get(c.Value, time.Now()); ok {
@@ -287,6 +291,15 @@ func (a *Authenticator) Require(next http.Handler) http.Handler {
 		}
 		writeJSONError(w, http.StatusUnauthorized, "portico session required")
 	})
+}
+
+// FromAnotherSite reports a request the browser marks as sent from
+// another origin (a link, a form or a redirect elsewhere): a sign-out
+// from there would let any page end a tenant's session. Requests that
+// carry no Sec-Fetch-Site (older browsers, scripts) are not refused.
+func FromAnotherSite(r *http.Request) bool {
+	f := r.Header.Get("Sec-Fetch-Site")
+	return f != "" && f != "same-origin" && f != "none"
 }
 
 func isNavigation(r *http.Request) bool {

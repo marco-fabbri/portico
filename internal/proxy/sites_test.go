@@ -622,3 +622,25 @@ func TestNoSitePageOffersSignOut(t *testing.T) {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// Review before v0.1.0: leaving a site is a change too; from another
+// site's link it goes home and leaves the session as it was.
+func TestLeavingASiteFromAnotherSiteChangesNothing(t *testing.T) {
+	h := newSitesHarness(t).withLanding()
+	h.session("s1", "acme", "site-a")
+	h.store.SetSite("s1", "site-a", time.Now())
+	rec := h.do("GET", "/redirect?logout=https%3A%2F%2Fprism.test%2F", "s1", map[string]string{
+		"Accept":         "text/html",
+		"Sec-Fetch-Site": "cross-site",
+		"Cookie":         "NTNX_SESSION_ID=x",
+	}, nil)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/" {
+		t.Fatalf("%d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if c := setCookie(rec, "NTNX_SESSION_ID"); c != "" {
+		t.Errorf("a cookie was expired: %q", c)
+	}
+	if s, _ := h.store.Get("s1", time.Now()); s.Site != "site-a" {
+		t.Fatalf("the session left its site: %q", s.Site)
+	}
+}
