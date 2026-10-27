@@ -54,7 +54,9 @@ while [ $# -gt 0 ]; do
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
 done
-email="portico-probe-$slug@portico.test"; pwf="$S/probe-$slug-pw"
+# LAB_LOGIN_EMAIL and LAB_LOGIN_PWFILE sign in as another user of the
+# tenant (lab/portico/demo-tenants.sh writes <slug>-user-pw).
+email="${LAB_LOGIN_EMAIL:-portico-probe-$slug@portico.test}"; pwf="${LAB_LOGIN_PWFILE:-$S/probe-$slug-pw}"
 [ -s "$pwf" ] || { echo "no $pwf: run --ensure-probe $slug first" >&2; exit 1; }
 if [ -n "$keep" ]; then mkdir -p "$keep"; chmod 700 "$keep"; d="$keep"; else d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; fi
 jar="$d/jar"; : > "$jar"

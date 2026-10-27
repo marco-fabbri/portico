@@ -6,6 +6,8 @@
 # lab/portico/deploy.sh) goes to curl through a config file, never on the
 # command line. The admin listener presents the lab certificate for the
 # Prism host name, so the call resolves that name to the VM on port 8443.
+# LAB_ADMIN_CA names another CA file, e.g. a fresh appliance's own
+# self-signed certificate with LAB_PRISM_HOST=portico.
 set -euo pipefail
 : "${LAB_VM_IP:?source lab/env.sh first}" "${LAB_PRISM_HOST:?}"
 S="${PORTICO_SECRETS:-$HOME/portico-secrets}"
@@ -15,7 +17,7 @@ umask 077
 cfg=$(mktemp); trap 'rm -f "$cfg"' EXIT
 {
   printf 'user = "admin:%s"\n' "$(tr -d '\r\n' < "$S/portico-admin-pw")"
-  printf 'cacert = "%s"\n' "$S/lab-ca.crt"
+  printf 'cacert = "%s"\n' "${LAB_ADMIN_CA:-$S/lab-ca.crt}"
   printf 'resolve = "%s:8443:%s"\n' "$LAB_PRISM_HOST" "$LAB_VM_IP"
   printf 'silent\nshow-error\n'
   printf 'header = "Accept: application/json"\n'
