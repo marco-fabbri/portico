@@ -3,15 +3,27 @@
 # shellcheck source=lab/lib.sh
 source lab/lib.sh
 
-# vm_extid NAME -> extId or empty
-vm_extid() {
-  lab/pc.sh GET "/api/vmm/v4.0/ahv/config/vms?\$filter=name%20eq%20'$1'" 2>/dev/null | jq -r '.data[0].extId // empty'
+# extid_by_name PATH NAME -> extId of the first entity of the list at PATH
+# named NAME, or empty. The list is read page by page and matched here:
+# on pc.7.6 a $filter on the vmm lists answered 504 "upstream request
+# timeout" for minutes while the plain list answered (2026-10-27).
+extid_by_name() {
+  local path="$1" name="$2" page=0 body n id
+  while :; do
+    body=$(lab/pc.sh GET "$path?\$page=$page&\$limit=100" 2>/dev/null) || return 0
+    id=$(printf '%s' "$body" | jq -r --arg n "$name" '[.data[]? | select(.name == $n)][0].extId // empty')
+    if [ -n "$id" ]; then echo "$id"; return 0; fi
+    n=$(printf '%s' "$body" | jq -r '.data | length? // 0')
+    if [ "$n" -lt 100 ]; then return 0; fi
+    page=$((page + 1))
+  done
 }
 
+# vm_extid NAME -> extId or empty
+vm_extid() { extid_by_name /api/vmm/v4.0/ahv/config/vms "$1"; }
+
 # image_extid NAME -> extId or empty
-image_extid() {
-  lab/pc.sh GET "/api/vmm/v4.0/content/images?\$filter=name%20eq%20'$1'" 2>/dev/null | jq -r '.data[0].extId // empty'
-}
+image_extid() { extid_by_name /api/vmm/v4.0/content/images "$1"; }
 
 # render_cloud_init SSHKEY IP GATEWAY -> prints lab/vm/cloud-init.yaml with the
 # placeholders replaced. The replacement is quoted so that `|`, `&` and `\`
