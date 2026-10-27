@@ -129,6 +129,9 @@ func (s *Service) set(ctx context.Context, in Settings) error {
 	if err := in.ValidateFormat(); err != nil {
 		return &ValidationError{Err: err}
 	}
+	if err := s.prefixesKept(ctx, in); err != nil {
+		return err
+	}
 	// The sites are copied: sealing them in place would seal the
 	// caller's document and the one the hooks get.
 	sealed := in
@@ -156,6 +159,43 @@ func (s *Service) set(ctx context.Context, in Settings) error {
 		}
 	}
 	return nil
+}
+
+// prefixesKept refuses a change of the tenant prefixes while a tenant
+// exists: its project and group were named with the stored ones, and
+// login finds the tenant by its group's name, so a new prefix would
+// lock its users out and leave its project unknown to Portico.
+func (s *Service) prefixesKept(ctx context.Context, in Settings) error {
+	raw, err := s.st.GetSetting(ctx, SettingKey)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("settings: store: %w", err)
+	}
+	var cur Settings
+	if err := json.Unmarshal(raw, &cur); err != nil {
+		return nil // the stored document is replaced whole
+	}
+	or := func(v, def string) string {
+		if v == "" {
+			return def
+		}
+		return v
+	}
+	project := or(in.Tenants.ProjectPrefix, "portico") != or(cur.Tenants.ProjectPrefix, "portico")
+	group := or(in.Tenants.GroupPrefix, "tenant-") != or(cur.Tenants.GroupPrefix, "tenant-")
+	if !project && !group {
+		return nil
+	}
+	tenants, err := s.st.ListTenants(ctx)
+	if err != nil {
+		return fmt.Errorf("settings: store: %w", err)
+	}
+	if len(tenants) == 0 {
+		return nil
+	}
+	return &ValidationError{Err: fmt.Errorf("settings: tenants.project_prefix and tenants.group_prefix cannot change while tenants exist (%d): their projects and groups carry the current prefixes", len(tenants))}
 }
 
 // Update merges in onto the stored document: empty secret fields keep
