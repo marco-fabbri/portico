@@ -174,16 +174,21 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request, status int, nam
 		}
 		http.SetCookie(w, &http.Cookie{Name: noticeCookie, Value: "", Path: "/", MaxAge: -1, Secure: h.secure, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	}
-	t, ok := h.pages[name]
+	h.writeTemplate(w, status, name, "layout.html", p)
+}
+
+// writeTemplate writes one block of a page template, a whole page
+// ("layout.html") or a fragment. Rendered into a buffer: a template that
+// fails half-way would otherwise leave a 200 and a torn page.
+func (h *Handler) writeTemplate(w http.ResponseWriter, status int, pageName, block string, data any) {
+	t, ok := h.pages[pageName]
 	if !ok {
-		http.Error(w, "page not found: "+name, http.StatusInternalServerError)
+		http.Error(w, "page not found: "+pageName, http.StatusInternalServerError)
 		return
 	}
-	// Rendered into a buffer: a template that fails half-way would
-	// otherwise leave a 200 and a torn page in the browser.
 	var buf bytes.Buffer
-	if err := t.ExecuteTemplate(&buf, "layout.html", p); err != nil {
-		h.log.Error("template", "page", name, "err", err.Error())
+	if err := t.ExecuteTemplate(&buf, block, data); err != nil {
+		h.log.Error("template", "page", pageName, "block", block, "err", err.Error())
 		http.Error(w, "the page could not be rendered", http.StatusInternalServerError)
 		return
 	}

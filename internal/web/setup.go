@@ -212,10 +212,7 @@ func (h *Handler) renderRealm(w http.ResponseWriter, r *http.Request) {
 	if d.Reload && d.Phase == "ready" {
 		w.Header().Set("HX-Refresh", "true")
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.pages["setup"].ExecuteTemplate(w, "realm-status", d); err != nil {
-		h.log.Error("template", "page", "setup/realm", "err", err.Error())
-	}
+	h.writeTemplate(w, http.StatusOK, "setup", "realm-status", d)
 }
 
 func (h *Handler) setupRealm(w http.ResponseWriter, r *http.Request) {
@@ -273,11 +270,7 @@ func (h *Handler) setupCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.log.Info("settings check", "via", "ui", "target", target, "ok", res.OK)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	d := checkData{Target: target, Res: res}
-	if err := h.pages["setup"].ExecuteTemplate(w, "check", d); err != nil {
-		h.log.Error("template", "page", "setup/check", "err", err.Error())
-	}
+	h.writeTemplate(w, http.StatusOK, "setup", "check", checkData{Target: target, Res: res})
 }
 
 func (h *Handler) setupApply(w http.ResponseWriter, r *http.Request) {
@@ -376,9 +369,5 @@ func (h *Handler) setupBootstrap(w http.ResponseWriter, r *http.Request) {
 	if sess, ok := h.session(r); ok {
 		d.CSRF = sess.CSRF
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(swapStatus(r, status))
-	if err := h.pages["setup"].ExecuteTemplate(w, "bootstrap_"+target, d); err != nil {
-		h.log.Error("template", "page", "setup/bootstrap", "err", err.Error())
-	}
+	h.writeTemplate(w, swapStatus(r, status), "setup", "bootstrap_"+target, d)
 }
