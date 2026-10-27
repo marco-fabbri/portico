@@ -105,7 +105,7 @@ func newSettingsEnv(t *testing.T, stored bool) *settingsEnv {
 	e.pcAdmin = newFakePCAdmin(t)
 	so := &SettingsOptions{Service: svc, File: &file, Checker: settings.NewChecker(log), KeycloakURL: e.kcAdmin.srv.URL, Restart: func() { e.restarted++ }, Busy: func() int { return e.busy }}
 	e.so = so
-	e.h = BasicAuth(st, "portico", log)(New(tsvc, st, branding.NewService(st, log), so, log))
+	e.h = RequireAdmin(st, nil, nil, "portico", log)(New(tsvc, st, branding.NewService(st, log), so, log))
 	return e
 }
 
@@ -345,7 +345,7 @@ func TestPutDraftThenApplyRefusedUntilComplete(t *testing.T) {
 
 func TestTenantRoutesAnswer503InSetupMode(t *testing.T) {
 	e := newEnv(t)
-	e.h = BasicAuth(e.st, "portico", nil)(New(nil, e.st, e.brand, nil, nil))
+	e.h = RequireAdmin(e.st, nil, nil, "portico", nil)(New(nil, e.st, e.brand, nil, nil))
 	for _, c := range []struct{ method, path string }{{"GET", "/api/v1/tenants"}, {"POST", "/api/v1/tenants"}, {"GET", "/api/v1/tenants/x/visibility"}} {
 		rec, out := e.do(c.method, c.path, `{"slug":"x"}`, true)
 		if rec.Code != 503 || out["error"] != "Portico is in setup mode: complete the settings and apply them" {

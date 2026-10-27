@@ -30,7 +30,6 @@ func TestBackendSetReplaceConcurrent(t *testing.T) {
 					t.Error("site-a missing during a replace that keeps it")
 					return
 				}
-				_ = set.All()
 			}
 		}()
 	}
@@ -43,16 +42,6 @@ func TestBackendSetReplaceConcurrent(t *testing.T) {
 	}
 	close(stop)
 	wg.Wait()
-}
-
-func TestBackendSetAllSorted(t *testing.T) {
-	set := NewBackendSet(map[string]*SiteBackend{
-		"b": {ID: "b", Code: "B", Order: 2}, "a": {ID: "a", Code: "A", Order: 1}, "c": {ID: "c", Code: "C", Order: 1},
-	})
-	got := set.All()
-	if len(got) != 3 || got[0].ID != "a" || got[1].ID != "c" || got[2].ID != "b" {
-		t.Fatalf("order = %v %v %v", got[0].ID, got[1].ID, got[2].ID)
-	}
 }
 
 func TestInFlightRequestFinishesOnOldBackend(t *testing.T) {

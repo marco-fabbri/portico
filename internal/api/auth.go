@@ -5,7 +5,6 @@ import (
 	"crypto/subtle"
 	"errors"
 	"log/slog"
-	"net/http"
 	"time"
 
 	"github.com/marco-fabbri/portico/internal/store"
@@ -14,30 +13,6 @@ import (
 
 // adminAccount is the break-glass account name (design §4.2).
 const adminAccount = "admin"
-
-// BasicAuth protects a handler with HTTP Basic against the break-glass
-// account stored as a bcrypt hash. A missing or wrong credential gets 401
-// with a challenge; the password never reaches a log line.
-func BasicAuth(st store.Store, realm string, log *slog.Logger) func(http.Handler) http.Handler {
-	if log == nil {
-		log = slog.Default()
-	}
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			user, pass, ok := r.BasicAuth()
-			if !ok || !checkPassword(r.Context(), st, user, pass, log) {
-				w.Header().Set("WWW-Authenticate", `Basic realm="`+realm+`", charset="UTF-8"`)
-				writeError(w, http.StatusUnauthorized, "unauthorized")
-				return
-			}
-			if PasswordChangeRequired(r.Context(), st) {
-				writeError(w, http.StatusForbidden, "password change required: sign in to the admin UI once and set a new password")
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
 
 // FactoryPassword is the break-glass password every appliance starts with
 // (Nutanix's own convention, nutanix/4u): usable once, on the admin UI, to

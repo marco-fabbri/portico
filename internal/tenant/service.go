@@ -556,16 +556,6 @@ func (s *Service) RetrySite(ctx context.Context, id, siteID string) error {
 	return nil
 }
 
-// Provision runs the provisioning steps synchronously. It is what Create
-// and Retry run in the background.
-func (s *Service) Provision(ctx context.Context, id string) error {
-	if !s.acquire(id) {
-		return ErrBusy
-	}
-	defer s.release(id)
-	return s.provision(ctx, id, false)
-}
-
 // Retry restarts provisioning in the background on every placement that
 // is not active: a failed tenant (not after a failed deletion), or an
 // active tenant whose added site failed.
