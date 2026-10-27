@@ -32,7 +32,7 @@ instance): as root,
 curl -fsSLO https://github.com/marco-fabbri/portico/releases/download/v<version>/install-<version>.tar.gz
 curl -fsSLO https://github.com/marco-fabbri/portico/releases/download/v<version>/install-<version>.tar.gz.sha256
 sha256sum -c install-<version>.tar.gz.sha256
-tar -xzf install-<version>.tar.gz && cd deploy && ./install.sh --release <version>
+tar -xzf install-<version>.tar.gz && bash deploy/install.sh --release <version>
 ```
 
 The installer verifies the binary's checksum, installs everything above,

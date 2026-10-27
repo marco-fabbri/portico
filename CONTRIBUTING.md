@@ -36,6 +36,15 @@ welcome; this page says how the project works so a contribution fits.
    The CI runs `gofmt`, `go vet`, `go build`, `go test ./...` and the
    offline checks on the lab scripts (`lab/test_scripts.sh`, shellcheck).
 
+## Releases
+
+A release is an annotated tag `vX.Y.Z` on `main`; a rehearsal before it
+is `vX.Y.Z-rc.N` (SemVer pre-release, with the dot before the number).
+Both run the image workflow, which needs `docs/releases/vX.Y.Z.md` (an
+`-rc.N` tag shares its release's notes) and makes a draft release, a
+pre-release when the tag has a suffix. A maintainer reads the draft and
+publishes it.
+
 ## Running the checks locally
 
 ```
