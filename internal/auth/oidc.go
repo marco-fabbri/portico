@@ -115,20 +115,27 @@ func NewAuthenticator(cfg OIDCConfig, st Store, client *http.Client, log *slog.L
 
 // Provider returns the discovered provider, running discovery on the first
 // call and caching success. A failure is returned and retried next time, so
-// Portico keeps running when Keycloak starts later or goes down.
+// Portico keeps running when Keycloak starts later or goes down. Discovery
+// runs outside the lock: while Keycloak hangs, concurrent logins wait for
+// the timeout side by side, not one after the other.
 func (a *Authenticator) Provider(ctx context.Context) (*Provider, error) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.provider != nil {
-		return a.provider, nil
+	p := a.provider
+	a.mu.Unlock()
+	if p != nil {
+		return p, nil
 	}
 	p, err := Discover(ctx, a.client, a.cfg)
 	if err != nil {
 		return nil, err
 	}
-	a.provider = p
-	a.log.Info("oidc discovery done", "issuer", a.cfg.Issuer)
-	return p, nil
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.provider == nil {
+		a.provider = p
+		a.log.Info("oidc discovery done", "issuer", a.cfg.Issuer)
+	}
+	return a.provider, nil
 }
 
 func (a *Authenticator) oauth2Config(p *Provider) *oauth2.Config {

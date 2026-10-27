@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -585,5 +586,32 @@ func TestLogoutFromAnotherSiteKeepsTheSession(t *testing.T) {
 		if _, ok := st.Get("sid", time.Now()); ok {
 			t.Fatalf("%s: not signed out", site)
 		}
+	}
+}
+
+// Review before v0.1.0: while Keycloak accepts connections but does not
+// answer, discovery waits for the client timeout; held under the lock,
+// N logins waited N times that. They now wait once, side by side.
+func TestDiscoveryDoesNotQueueTheLogins(t *testing.T) {
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(slow.Close)
+	a := NewAuthenticator(OIDCConfig{Issuer: slow.URL, DiscoveryURL: slow.URL, ClientID: "portico", RedirectURL: "https://prism.test/.portico/callback"}, NewMemoryStore(time.Hour, time.Hour), slow.Client(), nil)
+	start := time.Now()
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := a.Provider(context.Background()); err == nil {
+				t.Error("discovery succeeded against a failing provider")
+			}
+		}()
+	}
+	wg.Wait()
+	if d := time.Since(start); d > 600*time.Millisecond {
+		t.Fatalf("five logins took %v: discovery ran one after the other", d)
 	}
 }

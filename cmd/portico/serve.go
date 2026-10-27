@@ -453,18 +453,23 @@ func cachedIdPLookup(pc *nutanix.Client, name string, ttl time.Duration) func(ct
 	var until time.Time
 	return func(ctx context.Context) (string, error) {
 		mu.Lock()
-		defer mu.Unlock()
 		if extID != "" && time.Now().Before(until) {
+			defer mu.Unlock()
 			return extID, nil
 		}
+		mu.Unlock()
+		// Outside the lock: a slow Prism Central delays each login once,
+		// not once per login queued behind it.
 		idps, err := pc.ListSAMLIdPs(ctx)
 		if err != nil {
 			return "", err
 		}
 		for _, i := range idps {
 			if i.Name == name {
+				mu.Lock()
 				extID, until = i.ExtID, time.Now().Add(ttl)
-				return extID, nil
+				mu.Unlock()
+				return i.ExtID, nil
 			}
 		}
 		return "", fmt.Errorf("SAML identity provider %q not found", name)
