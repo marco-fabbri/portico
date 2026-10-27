@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -72,7 +73,11 @@ func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
 	d := listData{}
 	for _, t := range ts {
 		row := tenantRow{Tenant: t}
-		ps, _ := h.st.ListPlacements(r.Context(), t.ID)
+		ps, err := h.st.ListPlacements(r.Context(), t.ID)
+		if err != nil {
+			h.render(w, r, http.StatusInternalServerError, "tenants", "Tenants", listData{}, "the tenants' sites could not be read: "+err.Error())
+			return
+		}
 		for _, p := range ps {
 			row.Sites = append(row.Sites, h.svc.SiteCode(p.SiteID))
 			d.Polling = d.Polling || placementInProgress(p.Status)
@@ -189,8 +194,10 @@ type placementView struct {
 }
 
 // detail gathers the detail page; withVisibility calls each site's Prism
-// Central for the visibility check.
-func (h *Handler) detail(r *http.Request, t *store.Tenant, withVisibility bool) detailData {
+// Central for the visibility check. When the tenant's sites cannot be
+// read the page has no sites and offers none to add: an error, not a
+// tenant on no site.
+func (h *Handler) detail(r *http.Request, t *store.Tenant, withVisibility bool) (detailData, error) {
 	d := detailData{Tenant: t, Polling: inProgress(t.Status), Retry: t.Status == store.StatusFailed && t.LastOp != store.OpDelete}
 	steps, _ := h.st.ListSteps(r.Context(), t.ID)
 	for _, s := range steps {
@@ -200,7 +207,10 @@ func (h *Handler) detail(r *http.Request, t *store.Tenant, withVisibility bool) 
 		}
 		d.Steps = append(d.Steps, stepRow{Step: s, Site: code})
 	}
-	ps, _ := h.st.ListPlacements(r.Context(), t.ID)
+	ps, err := h.st.ListPlacements(r.Context(), t.ID)
+	if err != nil {
+		return d, fmt.Errorf("the tenant's sites could not be read: %w", err)
+	}
 	on := map[string]bool{}
 	var vis map[string]*tenant.Visibility
 	if withVisibility && (t.Status == store.StatusActive || t.Status == store.StatusDisabled) {
@@ -225,7 +235,7 @@ func (h *Handler) detail(r *http.Request, t *store.Tenant, withVisibility bool) 
 			d.Addable = append(d.Addable, s)
 		}
 	}
-	return d
+	return d, nil
 }
 
 func (h *Handler) loadTenant(w http.ResponseWriter, r *http.Request) (*store.Tenant, bool) {
@@ -243,7 +253,12 @@ func (h *Handler) tenantDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The visibility check calls Prism Central: only when the objects exist.
-	h.render(w, r, http.StatusOK, "tenant", t.DisplayNameOr(), h.detail(r, t, true), "")
+	d, err := h.detail(r, t, true)
+	if err != nil {
+		h.render(w, r, http.StatusInternalServerError, "tenant", t.DisplayNameOr(), d, err.Error())
+		return
+	}
+	h.render(w, r, http.StatusOK, "tenant", t.DisplayNameOr(), d, "")
 }
 
 // tenantSteps is the steps fragment, polled every 5 s while in progress.
@@ -252,7 +267,12 @@ func (h *Handler) tenantSteps(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	d := h.detail(r, t, false)
+	d, err := h.detail(r, t, false)
+	if err != nil {
+		// HTMX keeps the steps it shows and polls again.
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if r.Header.Get("HX-Request") == "true" && !d.Polling {
 		// The run finished: tell HTMX to reload the whole page once.
 		w.Header().Set("HX-Refresh", "true")
@@ -333,7 +353,11 @@ func (h *Handler) tenantDelete(w http.ResponseWriter, r *http.Request) {
 
 // detailWithError re-renders the detail page with a banner.
 func (h *Handler) detailWithError(w http.ResponseWriter, r *http.Request, t *store.Tenant, status int, msg string) {
-	h.render(w, r, status, "tenant", t.DisplayNameOr(), h.detail(r, t, false), msg)
+	d, err := h.detail(r, t, false)
+	if err != nil {
+		msg += "; " + err.Error()
+	}
+	h.render(w, r, status, "tenant", t.DisplayNameOr(), d, msg)
 }
 
 // tenantAddSite connects the tenant to one more site (design sites §4.2).
