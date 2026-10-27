@@ -174,3 +174,53 @@ func TestLogoSVGWithActiveContentIsRejected(t *testing.T) {
 		t.Fatalf("Validate rejected an inert SVG: %v", err)
 	}
 }
+
+// Review before v0.1.0: the check was a substring search, which XML
+// character references, entities and other namespaces walk past. The
+// SVG is now parsed and only static drawing is accepted.
+func TestLogoSVGIsParsedNotSearched(t *testing.T) {
+	for name, bad := range map[string]string{
+		"char reference":   `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><a xlink:href="java&#115;cript:alert(1)"><rect/></a></svg>`,
+		"entity":           `<!DOCTYPE svg [<!ENTITY s "&#60;script>alert(1)&#60;/script>">]><svg xmlns="http://www.w3.org/2000/svg">&s;</svg>`,
+		"xhtml script":     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:h="http://www.w3.org/1999/xhtml"><h:script>alert(1)</h:script></svg>`,
+		"animated href":    `<svg xmlns="http://www.w3.org/2000/svg"><a href="#x"><set attributeName="href" to="javascript:alert(1)"/><rect/></a></svg>`,
+		"external use":     `<svg xmlns="http://www.w3.org/2000/svg"><use href="https://evil.example/x.svg#a"/></svg>`,
+		"external css url": `<svg xmlns="http://www.w3.org/2000/svg"><rect style="fill:url(https://evil.example/t)"/></svg>`,
+		"css import":       `<svg xmlns="http://www.w3.org/2000/svg"><style>@import url(https://evil.example/a.css);</style></svg>`,
+		"stylesheet pi":    `<?xml-stylesheet href="https://evil.example/a.css"?><svg xmlns="http://www.w3.org/2000/svg"/>`,
+		"not xml":          `<svg xmlns="http://www.w3.org/2000/svg"><rect></svg>`,
+	} {
+		b := Default()
+		b.PorticoLogo = false
+		b.LogoType, b.LogoData = "image/svg+xml", []byte(bad)
+		if err := b.Validate(); err == nil || !strings.Contains(err.Error(), "logo") {
+			t.Errorf("%s: accepted: %v", name, err)
+		}
+	}
+	// What editors export: a prolog, a comment, Inkscape's namespaces,
+	// gradients and clip paths referenced by #id, a class stylesheet, an
+	// embedded PNG.
+	good := `<?xml version="1.0" encoding="UTF-8"?>
+<!-- Generator: an editor -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" viewBox="0 0 120 40" width="120" height="40">
+  <sodipodi:namedview inkscape:zoom="1"/>
+  <title>MSP</title>
+  <defs>
+    <linearGradient id="g"><stop offset="0" stop-color="#8b1f5f"/><stop offset="1" stop-color="#222"/></linearGradient>
+    <clipPath id="c"><rect width="120" height="40"/></clipPath>
+    <style>.a{fill:url(#g);} .b { font-family: sans-serif; }</style>
+  </defs>
+  <g clip-path="url(#c)" inkscape:label="layer">
+    <path class="a" d="M0 0h40v40H0z"/>
+    <use xlink:href="#p"/>
+    <text class="b" x="50" y="25">MSP<tspan dx="2">one</tspan></text>
+    <image width="10" height="10" xlink:href="data:image/png;base64,iVBORw0KGgo="/>
+  </g>
+</svg>`
+	b := Default()
+	b.PorticoLogo = false
+	b.LogoType, b.LogoData = "image/svg+xml", []byte(good)
+	if err := b.Validate(); err != nil {
+		t.Fatalf("an editor's SVG was refused: %v", err)
+	}
+}
