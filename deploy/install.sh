@@ -160,8 +160,10 @@ if [ ! -e "$ROOT/var/lib/portico/keycloak.hostname.env" ]; then e=$(mktemp); put
 # consistent only with its writer stopped), the store and the master key
 # copied beside them, so a migration that goes wrong is undone by copying
 # them back. The copy stays on the appliance, like the key.
-# If the run aborts after that, cleanup starts the old binary again on the
-# untouched store instead of leaving every tenant locked out.
+# If the run aborts after that, cleanup starts Portico again instead of
+# leaving every tenant locked out: the old binary when the abort came
+# before the binary was replaced, the new one (which migrates the store)
+# after; docs/operating.md tells how to go back with the copy.
 tmp=""; STOPPED=0
 cleanup() {
   if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
