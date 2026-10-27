@@ -130,9 +130,12 @@ and before the setup is recorded by hand along `docs/install.md`?
 
 ## Implications for the design
 
-None. For the lab: an image host for NTNX-01 must be on VLAN 210, or
-the firewall must allow Prism Central (`10.23.210.175`) to the build host
-on TCP 8000, or the image is uploaded from the Mac as above; the release URL needs the
+None. For the lab: an image host for NTNX-01 must be on VLAN 210. The
+build host was on 220 only because `lab/build-host/deploy.sh` took the
+NKP toolkit's network along with its Proxmox settings; it now has its
+own (VLAN 210, `10.23.210.192`), and after the move `.191` downloaded a
+file from it over HTTP on port 8000. The Mac cannot serve images: from
+VLAN 210 its VPN addresses answer neither ping nor HTTP; the release URL needs the
 release published. `lab/appliance/deploy.sh` reads
 `LAB_IMAGE_USER`, `lab/tenants/api.sh` `LAB_ADMIN_CA`,
 `lab/sites/tenant-login.sh` `LAB_LOGIN_EMAIL` and `LAB_LOGIN_PWFILE`.
