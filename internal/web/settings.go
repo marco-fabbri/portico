@@ -45,11 +45,7 @@ func (h *Handler) renderBranding(w http.ResponseWriter, r *http.Request, status 
 	if s, ok := h.session(r); ok {
 		p.Admin, p.CSRF = "admin", s.CSRF
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	if err := h.pages["settings"].ExecuteTemplate(w, "layout.html", p); err != nil {
-		h.log.Error("template", "page", "settings", "err", err.Error())
-	}
+	h.writeTemplate(w, status, "settings", "layout.html", p)
 }
 
 func (h *Handler) brandingPage(w http.ResponseWriter, r *http.Request) {
