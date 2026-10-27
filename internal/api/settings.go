@@ -89,7 +89,7 @@ func (o *SettingsOptions) Apply(ctx context.Context) error {
 		return err
 	}
 	if o.Restart == nil {
-		return errRestartUnavailable
+		return ErrRestartUnavailable
 	}
 	if o.Busy != nil {
 		if n := o.Busy(); n > 0 {
@@ -109,7 +109,9 @@ func (o *SettingsOptions) Apply(ctx context.Context) error {
 // Restarting reports whether a restart was requested from this process.
 func (o *SettingsOptions) Restarting() bool { return o.restarting.Load() }
 
-var errRestartUnavailable = errors.New("restart is not available in this process")
+// ErrRestartUnavailable is Apply in a process that cannot restart
+// itself: 501, where any other failure is a 500.
+var ErrRestartUnavailable = errors.New("restart is not available in this process")
 
 // Check runs the named check with the candidate document. A site's
 // Prism Central is checked with CheckSite.
@@ -370,7 +372,7 @@ func (h *handler) applySettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.As(err, &busy):
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, errRestartUnavailable):
+	case errors.Is(err, ErrRestartUnavailable):
 		writeError(w, http.StatusNotImplemented, err.Error())
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, err.Error())

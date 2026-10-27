@@ -297,8 +297,10 @@ func (h *Handler) setupApply(w http.ResponseWriter, r *http.Request) {
 		h.renderSetup(w, r, http.StatusConflict, cur, source, err.Error())
 	case errors.As(err, &busy):
 		h.renderSetup(w, r, http.StatusConflict, cur, source, "Apply refused: "+err.Error())
-	case err != nil:
+	case errors.Is(err, api.ErrRestartUnavailable):
 		h.renderSetup(w, r, http.StatusNotImplemented, cur, source, err.Error())
+	case err != nil:
+		h.renderSetup(w, r, http.StatusInternalServerError, cur, source, err.Error())
 	default:
 		h.log.Info("settings apply: restart requested", "via", "ui")
 		h.render(w, r, http.StatusOK, "restarting", "Restarting", nil, "")

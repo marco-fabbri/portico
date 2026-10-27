@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -181,6 +183,25 @@ func TestSetupApplyWithoutStoredSettingsIsRefused(t *testing.T) {
 	rec := e.do("POST", "/setup/apply", e.form(), true)
 	if rec.Code != 409 || *restarted != 0 || !strings.Contains(rec.Body.String(), "save them first") {
 		t.Fatalf("apply without stored settings: %d restarted=%d", rec.Code, *restarted)
+	}
+}
+
+// Review before v0.1.0: 501 means the process cannot restart; any other
+// failure of Apply (here the Keycloak hostname file) is a 500, as in the
+// API.
+func TestSetupApplyStatusMatchesTheAPI(t *testing.T) {
+	e := newEnv(t, true)
+	withSetup(t, e, true)
+	notDir := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(notDir, nil, 0o600)
+	e.web.setup.HostnameFile = filepath.Join(notDir, "keycloak.hostname.env")
+	e.login(t)
+	if rec := e.do("POST", "/setup/apply", e.form(), true); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("hostname file not written: %d", rec.Code)
+	}
+	e.web.setup.HostnameFile, e.web.setup.Restart = "", nil
+	if rec := e.do("POST", "/setup/apply", e.form(), true); rec.Code != http.StatusNotImplemented {
+		t.Fatalf("no restart in this process: %d", rec.Code)
 	}
 }
 
