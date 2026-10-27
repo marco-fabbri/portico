@@ -263,6 +263,13 @@ func TestBootstrapKeycloakStoresAndHidesSecrets(t *testing.T) {
 	if !strings.Contains(e.log.String(), `"msg":"bootstrap keycloak"`) {
 		t.Fatalf("log lacks the bootstrap line: %s", e.log.String())
 	}
+	// The administrator's name is a one-time human credential too
+	// (review before v0.1.0).
+	for _, line := range strings.Split(e.log.String(), "\n") {
+		if strings.Contains(line, `"msg":"bootstrap keycloak"`) && strings.Contains(line, "kcadmin") {
+			t.Fatalf("the administrator's name reached the log: %s", line)
+		}
+	}
 	rec, out = e.do("GET", "/api/v1/settings", "")
 	kc, _ := out["keycloak"].(map[string]any)
 	if kc["realm"] != "msp" || kc["admin_client_secret_set"] != true || out["oidc"].(map[string]any)["client_secret_set"] != true || out["portal_host"] != "prism.example.test" {
