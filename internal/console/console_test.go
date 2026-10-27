@@ -140,6 +140,19 @@ func TestTwoInterfacesAreConfiguredOneAfterTheOther(t *testing.T) {
 	}
 }
 
+// Review before v0.1.0: a second interface that must stay unconfigured
+// is skipped with an empty address, and the menu comes back.
+func TestASecondInterfaceCanBeLeftAlone(t *testing.T) {
+	sys := newFakeSystem(Interface{Name: "eth0", Up: true}, Interface{Name: "eth1", Up: false})
+	out := run(t, sys, "1\nportico\n10.0.0.5\n24\n10.0.0.254\n\ny\n\n0\n")
+	if _, ok := sys.keyfiles["eth1"]; ok || len(sys.applied) != 1 {
+		t.Fatalf("eth1 configured: %+v applied %v", sys.keyfiles["eth1"], sys.applied)
+	}
+	if !strings.Contains(out, "eth1 left as it is") || !strings.Contains(out, "empty: leave eth1 as it is") {
+		t.Fatalf("output:\n%s", out)
+	}
+}
+
 func TestMenuShowsTheStatusLineAndLeavesOnZeroOrEOF(t *testing.T) {
 	sys := newFakeSystem(Interface{Name: "eth0", Up: true})
 	sys.health = `{"status":"setup"}`

@@ -122,7 +122,8 @@ log in soon after the first boot to replace the factory password.
    `cloudflared`, then "Open https://<address>:8443/ to continue the
    setup".
    - *1) Network*: hostname, address, prefix, gateway, DNS for each
-     interface; skip it when cloud-init already set them.
+     interface; skip it when cloud-init already set them. An empty
+     address leaves a second, unconfigured interface as it is.
    - *2) Admin password*: optional here; the web asks at the first
      login.
 

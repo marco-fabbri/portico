@@ -246,7 +246,22 @@ func (s *session) network() {
 				return
 			}
 		}
-		if c.Address, ok = s.askValid("IPv4 address", cur.Address, checkAddress); !ok {
+		// A second interface that has no address yet may stay as it is.
+		if n > 0 && cur.Address == "" {
+			check := func(v string) error {
+				if v == "" {
+					return nil
+				}
+				return checkAddress(v)
+			}
+			if c.Address, ok = s.askValid("IPv4 address (empty: leave "+i.Name+" as it is)", "", check); !ok {
+				return
+			}
+			if c.Address == "" {
+				fmt.Fprintf(s.out, "%s left as it is\n", i.Name)
+				continue
+			}
+		} else if c.Address, ok = s.askValid("IPv4 address", cur.Address, checkAddress); !ok {
 			return
 		}
 		def := ""
