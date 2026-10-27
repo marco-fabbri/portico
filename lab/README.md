@@ -26,8 +26,7 @@ here runs on the appliance.
   `deploy.sh --fresh` (Milestone 2e) installs the binary with no secret
   file and no import, so the service starts in setup mode and is
   bootstrapped from the setup page or by `bootstrap-acceptance.sh`
-  (the whole setup through the API, with timings; `--refusal-only` checks
-  that an existing identity provider is not adopted).
+  (the whole setup through the API, with timings).
   `reset-for-bootstrap.sh --yes` takes the lab back to the fresh state
   (store moved aside, IdP, service account and Keycloak realm deleted,
   stale secret files removed; prints its plan and refuses without

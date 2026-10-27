@@ -171,9 +171,12 @@ and what a reset of the lab to that fresh state involves.
 
 ## How to re-measure after an upgrade
 
+Step 1 went with the SAML bootstrap call, removed before 0.1.0: the
+one-step setup takes the provider name from the site, and
+`TestSetupForeignIdPStopsBeforeCreating` covers the refusal.
+
 ```
 source lab/env.sh
-lab/portico/bootstrap-acceptance.sh --refusal-only   # on a configured appliance
 lab/portico/reset-for-bootstrap.sh --yes             # destructive, prints the plan first
 lab/portico/deploy.sh --fresh                        # journal: setup mode
 lab/portico/bootstrap-acceptance.sh                  # every line ok, timings printed
