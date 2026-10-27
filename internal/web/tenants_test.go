@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"regexp"
 	"strings"
@@ -208,5 +209,28 @@ func TestTenantPagesInSetupModePointToSetup(t *testing.T) {
 	rec = e.do("GET", "/tenants/new", nil, true)
 	if rec.Code != 503 || !strings.Contains(rec.Body.String(), "setup mode") || !strings.Contains(rec.Body.String(), `href="/setup"`) {
 		t.Fatalf("tenants/new: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// placementsDown fails the reads of a tenant's sites.
+type placementsDown struct{ store.Store }
+
+func (placementsDown) ListPlacements(context.Context, string) ([]store.Placement, error) {
+	return nil, errors.New("database is locked")
+}
+
+// A store that cannot list a tenant's sites is an error on the page, not
+// a tenant on no site with every site offered to add again.
+func TestUnreadableSitesAreAnErrorNotNoSites(t *testing.T) {
+	e := newEnv(t, true)
+	e.login(t)
+	e.createTenant(t, "acme")
+	e.web.st = placementsDown{e.st}
+	rec := e.do("GET", "/tenants/acme", nil, true)
+	if body := rec.Body.String(); rec.Code != 500 || !strings.Contains(body, "the tenant&#39;s sites could not be read") || strings.Contains(body, `action="/tenants/acme/sites"`) {
+		t.Fatalf("detail: %d %s", rec.Code, body)
+	}
+	if rec := e.do("GET", "/", nil, true); rec.Code != 500 || !strings.Contains(rec.Body.String(), "the tenants&#39; sites could not be read") {
+		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
 	}
 }
