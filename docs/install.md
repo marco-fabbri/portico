@@ -170,6 +170,8 @@ log in soon after the first boot to replace the factory password.
      administrator's credentials.
    - *Tenants*: the project and group prefixes, the role in the
      project, the operation timeout; the defaults fit a first install.
+     The prefixes are fixed once the first tenant exists: its project
+     and group carry them.
    - "Apply and restart": the appliance leaves setup mode and the
      public path opens.
 6. **Branding** and the first **tenant** from the admin UI, placed on
