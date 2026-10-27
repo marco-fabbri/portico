@@ -9,8 +9,9 @@ import (
 // (deploy/quadlets/keycloak.container): KC_HOSTNAME for the identity host
 // and the dynamic backchannel, so the SAML descriptor and the OIDC issuer
 // carry the public name while Portico talks to Keycloak on the loopback.
-// Written atomically, world-readable (systemd reads it as root, nothing in
-// it is secret); keycloak-hostname.path restarts Keycloak when it changes.
+// Written atomically; the service's UMask=0077 leaves it 0600, which is
+// enough, as systemd reads it as root (nothing in it is secret).
+// keycloak-hostname.path restarts Keycloak when it changes.
 // An empty host writes nothing: the hosts card has not been saved yet.
 func WriteKeycloakHostname(path, idHost string) error {
 	if idHost == "" {
