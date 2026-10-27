@@ -360,10 +360,7 @@ func (h *Handler) fragment(w http.ResponseWriter, r *http.Request, pageName, blo
 	if s, ok := h.session(r); ok {
 		p.Admin, p.CSRF = "admin", s.CSRF
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.pages[pageName].ExecuteTemplate(w, block, p); err != nil {
-		h.log.Error("template", "page", pageName, "block", block, "err", err.Error())
-	}
+	h.writeTemplate(w, http.StatusOK, pageName, block, p)
 }
 
 // statusOf answers a tenant error with the API's status.

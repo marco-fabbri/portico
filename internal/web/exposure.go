@@ -115,11 +115,7 @@ func (h *Handler) renderExposure(w http.ResponseWriter, r *http.Request, status 
 	if errMsg != "" {
 		d.Error = errMsg
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(swapStatus(r, status))
-	if err := h.pages["setup"].ExecuteTemplate(w, "exposure-status", d); err != nil {
-		h.log.Error("template", "page", "setup/exposure", "err", err.Error())
-	}
+	h.writeTemplate(w, swapStatus(r, status), "setup", "exposure-status", d)
 }
 
 // swapStatus is the status of a fragment answer: HTMX 2 swaps only 2xx

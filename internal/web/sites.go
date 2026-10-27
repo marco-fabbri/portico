@@ -249,11 +249,7 @@ func (h *Handler) writeSiteFragment(w http.ResponseWriter, r *http.Request, stat
 	if sess, ok := h.session(r); ok {
 		f.CSRF = sess.CSRF
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(swapStatus(r, status))
-	if err := h.pages["site"].ExecuteTemplate(w, name, f); err != nil {
-		h.log.Error("template", "page", "site/"+name, "err", err.Error())
-	}
+	h.writeTemplate(w, swapStatus(r, status), "site", name, f)
 }
 
 func (h *Handler) siteCheck(w http.ResponseWriter, r *http.Request) {
