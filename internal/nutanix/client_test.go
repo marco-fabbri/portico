@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -239,5 +240,32 @@ func TestIsTransient(t *testing.T) {
 		if got := IsTransient(tc.err); got != tc.want {
 			t.Errorf("IsTransient(%v) = %v, want %v", tc.err, got, tc.want)
 		}
+	}
+}
+
+// Review before v0.1.0: Go forwards custom headers such as X-Ntnx-Api-Key
+// to a redirect's target, even over plain http. The v4 API never
+// redirects, so a redirect is answered as is and the key goes nowhere.
+func TestClientDoesNotFollowRedirects(t *testing.T) {
+	var leaked atomic.Bool
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Ntnx-Api-Key") != "" {
+			leaked.Store(true)
+		}
+	}))
+	t.Cleanup(elsewhere.Close)
+	pc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+r.URL.Path, http.StatusFound)
+	}))
+	t.Cleanup(pc.Close)
+	c, err := New(pc.URL, "the-service-key", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ListClusters(context.Background()); err == nil {
+		t.Fatal("a redirect was taken as an answer")
+	}
+	if leaked.Load() {
+		t.Fatal("the API key followed the redirect")
 	}
 }
