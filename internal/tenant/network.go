@@ -422,3 +422,142 @@ func readBack(ctx context.Context, pc PrismCentral, p *store.Placement, project 
 	}
 	return fmt.Sprintf("SNAT %s, floating IPs %s", p.SNATIP, strings.Join(ips, ", ")), nil
 }
+
+// porticoObjects reads the ready network objects the placement stores
+// and finds still in its project: their counts by content kind, the
+// unassociated floating IPs only, and the floating IPs a VM uses, named
+// "name (ip)".
+func porticoObjects(ctx context.Context, pc PrismCentral, p *store.Placement) (map[string]int, []string, error) {
+	counts := map[string]int{}
+	if p.VPCExtID != "" {
+		vpc, err := pc.GetVPC(ctx, p.VPCExtID)
+		switch {
+		case err == nil && vpc.ProjectExtID == p.ProjectExtID:
+			counts["vpcs"]++
+		case err != nil && !nutanix.IsNotFound(err):
+			return nil, nil, err
+		}
+	}
+	if p.SubnetExtID != "" {
+		sub, err := pc.GetSubnet(ctx, p.SubnetExtID)
+		switch {
+		case err == nil && sub.ProjectExtID == p.ProjectExtID:
+			counts["subnets"]++
+		case err != nil && !nutanix.IsNotFound(err):
+			return nil, nil, err
+		}
+	}
+	var associated []string
+	for _, f := range p.FloatingIPs {
+		got, err := pc.GetFloatingIP(ctx, f.ExtID)
+		switch {
+		case nutanix.IsNotFound(err):
+		case err != nil:
+			return nil, nil, err
+		case got.Associated:
+			associated = append(associated, fmt.Sprintf("%s (%s)", got.Name, addrString(got.IP)))
+		case got.ProjectExtID == p.ProjectExtID:
+			counts["floating-ips"]++
+		}
+	}
+	return counts, associated, nil
+}
+
+// networkRemoval is the ready network's part of Disconnect (design 4.4),
+// in reverse: Portico's floating IPs (none associated), the subnet, the
+// VPC with its route, the sharing and the external subnet, by stored
+// extId; what is gone already is "already absent".
+func (s *Service) networkRemoval(pc PrismCentral, p *store.Placement) []removalStep {
+	absent := func(what string) (string, error) { return what + " already absent", nil }
+	deleted := func(what string, err error) (string, error) {
+		switch {
+		case err == nil:
+			return what + " deleted", nil
+		case nutanix.IsNotFound(err):
+			return absent(what)
+		}
+		return "", err
+	}
+	return []removalStep{
+		{"net-floating-ips", func(ctx context.Context) (string, error) {
+			n := 0
+			for len(p.FloatingIPs) > 0 {
+				f := p.FloatingIPs[0]
+				got, err := pc.GetFloatingIP(ctx, f.ExtID)
+				switch {
+				case nutanix.IsNotFound(err):
+				case err != nil:
+					return "", err
+				case got.Associated:
+					return "", fmt.Errorf("floating IP %s (%s) is associated with a VM: Portico does not delete it", got.Name, addrString(got.IP))
+				default:
+					if err := pc.DeleteFloatingIP(ctx, f.ExtID); err != nil && !nutanix.IsNotFound(err) {
+						return "", err
+					}
+					n++
+				}
+				p.FloatingIPs = p.FloatingIPs[1:]
+			}
+			p.FloatingIPs = nil
+			if n == 0 {
+				return absent("floating IPs")
+			}
+			return fmt.Sprintf("%d floating IP(s) deleted", n), nil
+		}},
+		{"net-subnet", func(ctx context.Context) (string, error) {
+			if p.SubnetExtID == "" {
+				return absent("subnet")
+			}
+			d, err := deleted("subnet", pc.DeleteSubnet(ctx, p.SubnetExtID))
+			if err == nil {
+				p.SubnetExtID = ""
+			}
+			return d, err
+		}},
+		{"net-vpc", func(ctx context.Context) (string, error) {
+			if p.VPCExtID == "" {
+				return absent("VPC")
+			}
+			d, err := deleted("VPC", pc.DeleteVPC(ctx, p.VPCExtID))
+			if err == nil {
+				p.VPCExtID, p.SNATIP = "", ""
+			}
+			return d, err
+		}},
+		{"net-unshare", func(ctx context.Context) (string, error) {
+			if p.ExtSubnetExtID == "" || p.ProjectExtID == "" {
+				return absent("external subnet sharing")
+			}
+			sub, err := pc.GetSubnet(ctx, p.ExtSubnetExtID)
+			if nutanix.IsNotFound(err) {
+				return absent("external subnet sharing")
+			}
+			if err != nil {
+				return "", err
+			}
+			if !contains(sub.SharedWith, p.ProjectExtID) {
+				return absent("external subnet sharing")
+			}
+			if err := pc.UnshareSubnet(ctx, p.ExtSubnetExtID, p.ProjectExtID); err != nil && !nutanix.IsNotFound(err) {
+				return "", err
+			}
+			return "external subnet unshared", nil
+		}},
+		{"net-external-subnet", func(ctx context.Context) (string, error) {
+			if p.ExtSubnetExtID == "" {
+				return absent("external subnet")
+			}
+			d, err := deleted("external subnet", pc.DeleteSubnet(ctx, p.ExtSubnetExtID))
+			if err == nil {
+				p.ExtSubnetExtID, p.NetState, p.NetError = "", store.NetNone, ""
+			}
+			return d, err
+		}},
+	}
+}
+
+// hasNetwork reports whether the placement has, or had begun, a ready
+// network.
+func hasNetwork(p *store.Placement) bool {
+	return p.NetState != store.NetNone || p.ExtSubnetExtID != "" || p.VPCExtID != "" || p.SubnetExtID != "" || len(p.FloatingIPs) > 0
+}

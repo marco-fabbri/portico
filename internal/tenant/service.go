@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -110,10 +111,20 @@ type PrismCentral interface {
 type NotEmptyError struct {
 	Site, Project, URL string
 	Contents           nutanix.Contents
+	// Associated names Portico's floating IPs a VM still uses, "name (ip)":
+	// Portico never deletes one (tenant networking design 4.3).
+	Associated []string
 }
 
 func (e *NotEmptyError) Error() string {
-	return fmt.Sprintf("the project %s on %s still holds %s: empty it in Prism Central first", e.Project, e.Site, e.Contents)
+	var held []string
+	if !e.Contents.Empty() {
+		held = append(held, "still holds "+e.Contents.String())
+	}
+	if len(e.Associated) > 0 {
+		held = append(held, "has floating IP(s) associated with a VM: "+strings.Join(e.Associated, ", "))
+	}
+	return fmt.Sprintf("the project %s on %s %s: empty it in Prism Central first", e.Project, e.Site, strings.Join(held, " and "))
 }
 
 // Keycloak is the part of the Keycloak admin client the service uses.
@@ -509,6 +520,15 @@ func (s *Service) Contents(ctx context.Context, id, siteID string) (nutanix.Cont
 	if err != nil {
 		return nutanix.Contents{}, fmt.Errorf("%w on %s: %v", ErrCount, site.Code, err)
 	}
+	// Portico's own ready network does not count (design 4.4), except a
+	// floating IP a VM uses, which Disconnect names.
+	ours, _, err := porticoObjects(ctx, site.PC, p)
+	if err != nil {
+		return nutanix.Contents{}, fmt.Errorf("%w on %s: %v", ErrCount, site.Code, err)
+	}
+	for k, n := range ours {
+		c.Counts[k] = max(0, c.Counts[k]-n)
+	}
 	return c, nil
 }
 
@@ -542,10 +562,17 @@ func (s *Service) Disconnect(ctx context.Context, id, siteID string) error {
 		s.release(id)
 		return err
 	}
-	if !c.Empty() {
+	var associated []string
+	if site, err := s.site(siteID); err == nil {
+		if _, associated, err = porticoObjects(ctx, site.PC, p); err != nil {
+			s.release(id)
+			return fmt.Errorf("%w on %s: %v", ErrCount, site.Code, err)
+		}
+	}
+	if !c.Empty() || len(associated) > 0 {
 		s.release(id)
 		site, _ := s.site(siteID)
-		return &NotEmptyError{Site: site.Code, Project: p.ProjectID, URL: site.URL, Contents: c}
+		return &NotEmptyError{Site: site.Code, Project: p.ProjectID, URL: site.URL, Contents: c, Associated: associated}
 	}
 	p.Status, p.LastError = store.PlacementRemoving, ""
 	if err := s.st.UpdatePlacement(ctx, p); err != nil {
