@@ -2,7 +2,8 @@
 # Build, show or remove the ready network of one tenant on one site, the
 # way Portico would (write-up 34): a VPC in the tenant's project attached to
 # the site's NAT external subnet, an internal overlay subnet with the VPC's
-# DHCP, and one floating IP. Lab only.
+# DHCP, a default route to the external subnet, and one floating IP.
+# Lab only.
 #   source lab/env.sh && lab/network/tenant-network.sh create|show|delete PROJECT CIDR
 # PROJECT must be a portico-* project (lab/projects/create.sh). CIDR is the
 # tenant's /24, e.g. 10.100.1.0/24. Optional: EXT_SUBNET (external-nat),
@@ -48,6 +49,22 @@ share_ext() {
   if [ -n "$task" ]; then echo "$1 external subnet: $(wait_task "$task")" >&2; else echo "$1 external subnet: refused, $(tail -1 "$tmp/err")" >&2; fi
 }
 
+# default_route VPC_EXTID EXT_EXTID PROJECT_EXTID: a VPC created through the
+# API has only its local routes; without 0.0.0.0/0 to the external subnet
+# nothing leaves it, neither SNAT nor floating IP replies (measured).
+default_route() {
+  local rt task
+  rt=$(lab/pc.sh GET "$NET/route-tables" 2>/dev/null | jq -r --arg v "$1" '.data[]? | select(.vpcReference == $v) | .extId' | head -1)
+  [ -n "$rt" ] || { echo "default route: no route table for the VPC" >&2; return 1; }
+  if lab/pc.sh GET "$NET/route-tables/$rt/routes" 2>/dev/null | jq -e '.data[]? | select(.destination.ipv4.prefixLength == 0)' >/dev/null; then return 0; fi
+  jq -n --arg v "$1" --arg e "$2" --arg p "$3" --arg rt "$rt" '{
+    name: "default", routeType: "STATIC", vpcReference: $v, routeTableReference: $rt, projectExtId: $p,
+    destination: {ipv4: {ip: {value: "0.0.0.0"}, prefixLength: 0}},
+    nexthop: {nexthopType: "EXTERNAL_SUBNET", nexthopReference: $e}}' >"$tmp/route"
+  task=$(lab/pc.sh POST "$NET/route-tables/$rt/routes" "$tmp/route" 2>"$tmp/err" | jq -r '.data.extId // empty')
+  if [ -n "$task" ]; then echo "default route: $(wait_task "$task")" >&2; else echo "default route: refused, $(tail -1 "$tmp/err")" >&2; return 1; fi
+}
+
 # remove PATH EXTID LABEL
 remove() {
   local etag task
@@ -84,6 +101,7 @@ case "$action" in
         commonDhcpOptions: {domainNameServers: [{ipv4: {value: $d}}]}}' >"$tmp/vpc"
       vpc=$(create vpcs "$vpc_name" "$tmp/vpc") || exit 1
     fi
+    default_route "$vpc" "$ext" "$pj" || exit 1
     if [ -z "$(by_name subnets "$subnet_name")" ]; then
       jq -n --arg n "$subnet_name" --arg p "$pj" --arg v "$vpc" --arg net "$net" \
         --argjson pre "$prefix" --arg gw "$base.1" --arg s "$base.10" --arg e "$base.250" '{
@@ -99,7 +117,11 @@ case "$action" in
       create floating-ips "$fip_name" "$tmp/fip" >/dev/null || exit 1
     fi
     show ;;
-  show) show ;;
+  show) show
+    v=$(by_name vpcs "$vpc_name")
+    [ -n "$v" ] && rt=$(lab/pc.sh GET "$NET/route-tables" 2>/dev/null | jq -r --arg v "$v" '.data[]? | select(.vpcReference == $v) | .extId' | head -1) \
+      && lab/pc.sh GET "$NET/route-tables/$rt/routes" 2>/dev/null | jq -r '.data[]? | "route \(.destination.ipv4.ip.value)/\(.destination.ipv4.prefixLength) \(.routeType) -> \(.nexthop.nexthopType)"'
+    ;;
   delete)
     f=$(by_name floating-ips "$fip_name"); [ -n "$f" ] && remove floating-ips "$f" "$fip_name"
     s=$(by_name subnets "$subnet_name"); [ -n "$s" ] && remove subnets "$s" "$subnet_name"
