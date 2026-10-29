@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -229,12 +230,18 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// this document now and from every later save (usability 4.9).
 	tenants := tenant.NewService(st, nil, kcClient, tenant.Config{
 		ProjectPrefix: cfg.Tenants.ProjectPrefix, GroupPrefix: cfg.Tenants.GroupPrefix, RoleName: cfg.Tenants.Role,
-		OperationTimeout: cfg.Tenants.OperationTimeout,
+		OperationTimeout: cfg.Tenants.OperationTimeout, AddressPool: addressPool(runDoc),
 	}, log)
 	if n, err := tenants.RecoverInterrupted(ctx); err != nil {
 		return fmt.Errorf("tenant recovery: %w", err)
 	} else if n > 0 {
 		log.Warn("tenants interrupted by the previous run marked failed", "count", n)
+	}
+	// Tenants from before 0.2.0 get their /24 (tenant networking design 4.2).
+	if n, err := tenants.AssignSubnets(ctx); err != nil {
+		return fmt.Errorf("tenant subnets: %w", err)
+	} else if n > 0 {
+		log.Info("tenant subnets assigned", "count", n)
 	}
 	setup.Busy = tenants.Running
 	// Live state of the sites (design sites §4.1): the probe every 30 s
@@ -252,6 +259,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		// A site change is served at once; what the runtime cannot build
 		// is logged, and the save stands.
 		runtime.Apply(ctx, s)
+		tenants.SetAddressPool(addressPool(s))
 		return nil
 	})
 	go runtime.reload(ctx, settingsSvc, sitesReload)
@@ -484,4 +492,14 @@ func shutdown(listeners []listener, log *slog.Logger) {
 			log.Warn("shutdown", "listener", l.name, "err", err.Error())
 		}
 	}
+}
+
+// addressPool is the document's tenant address pool, the default when it
+// is not a prefix.
+func addressPool(s settings.Settings) netip.Prefix {
+	p, err := netip.ParsePrefix(s.Tenants.AddressPool)
+	if err != nil {
+		return tenant.DefaultAddressPool
+	}
+	return p.Masked()
 }

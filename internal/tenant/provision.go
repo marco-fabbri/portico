@@ -278,7 +278,17 @@ func (s *Service) provisionPlacement(ctx context.Context, t *store.Tenant, pr pr
 		}
 	}
 	p.Status, p.LastError = store.PlacementActive, ""
-	return s.st.UpdatePlacement(ctx, p)
+	if err := s.st.UpdatePlacement(ctx, p); err != nil {
+		return err
+	}
+	// The ready network comes after: its failure is its own state, the
+	// connection stays active (tenant networking design 4.3).
+	if pr.site.Network.Enabled && p.NetState == store.NetNone {
+		if err := s.buildNetwork(ctx, t, p, pr.site); err != nil {
+			s.log.Warn("ready network failed", "tenant", t.ID, "site", p.SiteID, "err", err.Error())
+		}
+	}
+	return nil
 }
 
 // samlGroupStep finds the tenant's SAML group on the site's identity
