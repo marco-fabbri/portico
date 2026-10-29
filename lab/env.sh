@@ -1,26 +1,33 @@
 #!/usr/bin/env bash
 # Lab environment for Portico. Source it: `source lab/env.sh`.
-# Lab only. Reads the Prism password from ~/portico-secrets/prism-pw and
-# never prints it. Safe under `set -u` and `set -x`.
+# Lab only. Reads the Prism password from ~/portico-secrets and never
+# prints it: prism-pw for NTNX-01, nyc1-pw when PC_URL is NYC1's Prism
+# Central (the two sites have different admin passwords). Safe under
+# `set -u` and `set -x`.
 
 PORTICO_SECRETS="${PORTICO_SECRETS:-$HOME/portico-secrets}"
+export PC_URL="${PC_URL:-https://10.23.210.175:9440}"
+case "$PC_URL" in
+  https://10.23.210.185:9440*) _portico_pw=nyc1-pw ;;
+  *) _portico_pw=prism-pw ;;
+esac
 
-if [ ! -r "$PORTICO_SECRETS/prism-pw" ]; then
-  echo "lab/env.sh: secrets file not found or not readable: $PORTICO_SECRETS/prism-pw" >&2
+if [ ! -r "$PORTICO_SECRETS/$_portico_pw" ]; then
+  echo "lab/env.sh: secrets file not found or not readable: $PORTICO_SECRETS/$_portico_pw" >&2
+  unset _portico_pw
   # shellcheck disable=SC2317  # `exit` runs only when the file is executed, not sourced
   return 1 2>/dev/null || exit 1
 fi
 
-export PC_URL="${PC_URL:-https://10.23.210.175:9440}"
 export PE_URL="${PE_URL:-https://10.23.210.170:9440}"
 export PC_USER="${PC_USER:-admin}"
 # Read the password with tracing off, then restore the caller's setting.
 case $- in *x*) _portico_xtrace=1 ;; *) _portico_xtrace= ;; esac
 { set +x; } 2>/dev/null
-PC_PASS="$(tr -d '\r\n' < "$PORTICO_SECRETS/prism-pw")"
+PC_PASS="$(tr -d '\r\n' < "$PORTICO_SECRETS/$_portico_pw")"
 export PC_PASS
 [ -n "$_portico_xtrace" ] && set -x
-unset _portico_xtrace
+unset _portico_xtrace _portico_pw
 
 # The appliance is the Portico of the lab (write-ups 21 to 27): its
 # address, SSH user, portal names, realm, identity provider name, project
