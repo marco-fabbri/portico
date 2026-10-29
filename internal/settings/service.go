@@ -103,6 +103,7 @@ func (s *Service) Get(ctx context.Context) (Settings, error) {
 	if adoptLegacy(raw, &out) && !s.legacyLogged.Swap(true) {
 		slog.Default().Info("settings: the single Prism Central of the stored document is now site " + LegacySiteID)
 	}
+	upgradeTenants(&out)
 	for _, f := range secretFields(&out) {
 		if *f.ptr == "" {
 			continue

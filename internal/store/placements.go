@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -27,6 +29,24 @@ const (
 	PlacementRemoveFailed PlacementStatus = "remove-failed"
 )
 
+// NetState is the state of a placement's ready network, apart from the
+// placement's own status: a network still building or failed never takes
+// the site away from the tenant (tenant networking design 4.3).
+type NetState string
+
+const (
+	NetNone     NetState = "none"
+	NetBuilding NetState = "building"
+	NetReady    NetState = "ready"
+	NetFailed   NetState = "failed"
+)
+
+// FloatingIP is one floating IP Portico created for the tenant on a site.
+type FloatingIP struct {
+	ExtID string `json:"ext_id"`
+	IP    string `json:"ip"`
+}
+
 // Placement is a tenant on one site: the Projects 2.0 objects Portico
 // created in that site's Prism Central (design §4.4, sites §4.2).
 type Placement struct {
@@ -37,20 +57,35 @@ type Placement struct {
 	SAMLGroupExtID, RoleMembershipExtID         string
 	IdPShared                                   bool
 	LastError                                   string
-	CreatedAt, UpdatedAt                        time.Time
+	// The ready network: its state and the objects Portico created, by
+	// extId (design 4.3: Disconnect, Retry and the monitor use them).
+	NetState                              NetState
+	NetError                              string
+	TransitPrefix                         string // the tenant's /28 of the routed prefix
+	ExtSubnetExtID, VPCExtID, SubnetExtID string
+	FloatingIPs                           []FloatingIP
+	SNATIP                                string
+	CreatedAt, UpdatedAt                  time.Time
 }
 
 const placementColumns = `tenant_id, site_id, status, cluster_ext_id, storage_container_ext_id, project_id, project_ext_id,
-	resource_group_ext_id, saml_group_ext_id, role_membership_ext_id, idp_shared, last_error, created_at, updated_at`
+	resource_group_ext_id, saml_group_ext_id, role_membership_ext_id, idp_shared, last_error,
+	net_state, net_error, transit_prefix, ext_subnet_ext_id, vpc_ext_id, subnet_ext_id, floating_ips, snat_ip, created_at, updated_at`
 
 func scanPlacement(row interface{ Scan(...any) error }) (*Placement, error) {
 	var p Placement
 	var shared int
-	var created, updated string
+	var created, updated, fips string
 	err := row.Scan(&p.TenantID, &p.SiteID, &p.Status, &p.ClusterExtID, &p.StorageContainerExtID, &p.ProjectID, &p.ProjectExtID,
-		&p.ResourceGroupExtID, &p.SAMLGroupExtID, &p.RoleMembershipExtID, &shared, &p.LastError, &created, &updated)
+		&p.ResourceGroupExtID, &p.SAMLGroupExtID, &p.RoleMembershipExtID, &shared, &p.LastError,
+		&p.NetState, &p.NetError, &p.TransitPrefix, &p.ExtSubnetExtID, &p.VPCExtID, &p.SubnetExtID, &fips, &p.SNATIP, &created, &updated)
 	if err != nil {
 		return nil, err
+	}
+	if fips != "" {
+		if err := json.Unmarshal([]byte(fips), &p.FloatingIPs); err != nil {
+			return nil, fmt.Errorf("placement %s/%s: floating IPs: %w", p.TenantID, p.SiteID, err)
+		}
 	}
 	p.IdPShared = shared != 0
 	p.CreatedAt, p.UpdatedAt = parseTime(created), parseTime(updated)
@@ -62,9 +97,11 @@ func scanPlacement(row interface{ Scan(...any) error }) (*Placement, error) {
 func (s *SQLite) CreatePlacement(ctx context.Context, p *Placement) error {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	p.CreatedAt, p.UpdatedAt = now, now
-	_, err := s.db.ExecContext(ctx, `INSERT INTO tenant_placements (`+placementColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	p.NetState = p.netState()
+	_, err := s.db.ExecContext(ctx, `INSERT INTO tenant_placements (`+placementColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.TenantID, p.SiteID, string(p.Status), p.ClusterExtID, p.StorageContainerExtID, p.ProjectID, p.ProjectExtID,
 		p.ResourceGroupExtID, p.SAMLGroupExtID, p.RoleMembershipExtID, boolInt(p.IdPShared), p.LastError,
+		string(p.netState()), p.NetError, p.TransitPrefix, p.ExtSubnetExtID, p.VPCExtID, p.SubnetExtID, fipsJSON(p.FloatingIPs), p.SNATIP,
 		formatTime(p.CreatedAt), formatTime(p.UpdatedAt))
 	if isUniqueViolation(err) {
 		return ErrExists
@@ -73,6 +110,21 @@ func (s *SQLite) CreatePlacement(ctx context.Context, p *Placement) error {
 		s.chmodFiles()
 	}
 	return err
+}
+
+func (p *Placement) netState() NetState {
+	if p.NetState == "" {
+		return NetNone
+	}
+	return p.NetState
+}
+
+func fipsJSON(f []FloatingIP) string {
+	if len(f) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(f)
+	return string(b)
 }
 
 // GetPlacement returns the tenant's placement on the site.
@@ -116,9 +168,12 @@ func (s *SQLite) UpdatePlacement(ctx context.Context, p *Placement) error {
 	p.UpdatedAt = time.Now().UTC().Truncate(time.Microsecond)
 	res, err := s.db.ExecContext(ctx, `UPDATE tenant_placements SET status=?, cluster_ext_id=?, storage_container_ext_id=?,
 		project_id=?, project_ext_id=?, resource_group_ext_id=?, saml_group_ext_id=?, role_membership_ext_id=?, idp_shared=?,
-		last_error=?, updated_at=? WHERE tenant_id = ? AND site_id = ?`,
+		last_error=?, net_state=?, net_error=?, transit_prefix=?, ext_subnet_ext_id=?, vpc_ext_id=?, subnet_ext_id=?,
+		floating_ips=?, snat_ip=?, updated_at=? WHERE tenant_id = ? AND site_id = ?`,
 		string(p.Status), p.ClusterExtID, p.StorageContainerExtID, p.ProjectID, p.ProjectExtID, p.ResourceGroupExtID,
-		p.SAMLGroupExtID, p.RoleMembershipExtID, boolInt(p.IdPShared), p.LastError, formatTime(p.UpdatedAt), p.TenantID, p.SiteID)
+		p.SAMLGroupExtID, p.RoleMembershipExtID, boolInt(p.IdPShared), p.LastError,
+		string(p.netState()), p.NetError, p.TransitPrefix, p.ExtSubnetExtID, p.VPCExtID, p.SubnetExtID, fipsJSON(p.FloatingIPs), p.SNATIP,
+		formatTime(p.UpdatedAt), p.TenantID, p.SiteID)
 	if err != nil {
 		return err
 	}
