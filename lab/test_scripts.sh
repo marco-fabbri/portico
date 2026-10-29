@@ -277,5 +277,27 @@ if grep -q 'sha256sum "install-$VER.tar.gz" > "install-$VER.tar.gz.sha256"' "$wf
 notes=$(grep -n 'release notes .* missing' "$wf" | head -1 | cut -d: -f1); packer=$(grep -n 'name: Packer build (install, then provision)' "$wf" | cut -d: -f1)
 if [ -n "$notes" ] && [ -n "$packer" ] && [ "$notes" -lt "$packer" ]; then ok "a tag without notes fails before the build"; else ko "a tag without notes is not refused before the build"; fi
 
+# v0.1.1: GitHub retires Node.js 20 for actions; each action is pinned on a
+# major that runs on Node 24 (read from its action.yml), with its exact version
+# in the comment.
+old_node=""
+while read -r a min; do
+  while read -r v; do
+    if [[ "$v" != *.*.* ]] || [ "${v%%.*}" -lt "$min" ]; then old_node="$old_node $a@v$v"; fi
+  done < <(grep -hoE "uses: $a@[0-9a-f]{40} # v[0-9]+[.0-9]*" .github/workflows/*.yml | sed 's/.*# v//')
+done <<'TABLE'
+actions/checkout 5
+actions/setup-go 6
+actions/upload-artifact 6
+actions/download-artifact 7
+hashicorp/setup-packer 3
+opentofu/setup-opentofu 2
+softprops/action-gh-release 3
+TABLE
+if [ -z "$old_node" ]; then ok "every action runs on Node 24, pinned with its exact version"; else ko "actions on Node 20 or without an exact version:$old_node"; fi
+# v0.1.1: at the first boot NetworkManager made a DHCP "Wired connection 1"
+# for eth0 before cloud-init wrote its profile, and network-online waited 60 s.
+if grep -q '^no-auto-default=\*' image/scripts/cleanup.sh && grep -q '/etc/NetworkManager/conf.d/' image/scripts/cleanup.sh; then ok "the image turns off NetworkManager's default wired profile"; else ko "the image keeps NetworkManager's default wired profile"; fi
+
 if shellcheck -x lab/*.sh lab/*/*.sh deploy/install.sh; then ok "shellcheck"; else ko "shellcheck"; fi
 if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi

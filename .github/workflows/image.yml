@@ -27,8 +27,8 @@ jobs:
       # A tag names the version; a manual run gives it; a branch build is 0.0.0-dev.
       VERSION: ${{ github.event.inputs.version || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || '0.0.0-dev' }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
           cache: true
@@ -59,7 +59,7 @@ jobs:
           sudo apt-get install -y -q qemu-system-x86 qemu-utils
           sudo chmod 666 /dev/kvm
           ls -la /dev/kvm
-      - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789 # v3
+      - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789 # v3.4.0
         with:
           version: "1.11.2"
       - name: Packer build (install, then provision)
@@ -69,7 +69,7 @@ jobs:
           # The plugin getter asks the GitHub API; unauthenticated it is rate limited.
           PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ../image/build.sh "$VER" "$PWD/../dist/portico"
-      - uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         with:
           tofu_version: "1.8.5"
           # The action's wrapper does not pass stdin on: tofu console
@@ -96,7 +96,7 @@ jobs:
           # write the standard "<sum>  <name>" that sha256sum -c accepts.
           (cd release && sha256sum "portico-$VER.qcow2" > "portico-$VER.qcow2.sha256" && sha256sum "portico-$VER-oscap.html" > "portico-$VER-oscap.html.sha256" && sha256sum "install-$VER.tar.gz" > "install-$VER.tar.gz.sha256" && sha256sum -c ./*.sha256)
           ls -la release; cat "release/portico-$VER.qcow2.sha256"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: portico-${{ env.VER }}
           path: release/
@@ -111,12 +111,12 @@ jobs:
       contents: write
     steps:
       # The release text comes from the tagged tree.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Release notes
         run: |
           v="${GITHUB_REF_NAME#v}"
           echo "NOTES=docs/releases/v${v%%-*}.md" >> "$GITHUB_ENV"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: portico-*
           path: release
@@ -124,7 +124,7 @@ jobs:
       - name: Checksums
         run: cd release && ls -la && sha256sum -c ./*.sha256
       # A draft: Marco reads it on GitHub and publishes it himself.
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}

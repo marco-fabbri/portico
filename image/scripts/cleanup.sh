@@ -12,6 +12,13 @@ cloud-init clean --logs --seed
 # Anaconda wrote a DHCP profile for the build network; the appliance gets
 # its network from the console wizard or from cloud-init's bootcmd.
 rm -f /etc/NetworkManager/system-connections/*.nmconnection
+# Nor a profile of NetworkManager's own: at the first boot it starts before
+# cloud-init writes eth0's profile, makes a DHCP "Wired connection 1" for it,
+# and network-online waits 60 s for a lease that never comes (write-up 30).
+cat > /etc/NetworkManager/conf.d/90-portico-no-auto-default.conf <<'NM'
+[main]
+no-auto-default=*
+NM
 echo portico > /etc/hostname
 rm -rf /var/log/anaconda /root/anaconda-ks.cfg /root/original-ks.cfg /root/ks-post.log /root/.bash_history
 journalctl --rotate >/dev/null 2>&1 || true
