@@ -273,6 +273,28 @@ must Portico ask the MSP for?
     was `unshare` ("Subnet ... is attached to a VPC"). After the VM was
     deleted the same run removed everything, the VPC with its static
     route, and the external subnet was shared with no project.
+- MEASURED (as `admin`, NTNX-01, 20:35–20:45 UTC, Marco's OK): NVD-2219's
+  shared transit model, `lab/network/transit.sh`:
+  - The MSP's side: a VPC of type `TRANSIT` on `external-nat` (it took
+    `.204` and `.205`), its static default route to `external-nat` (the
+    API adds none here either), and a NAT overlay external subnet
+    `portico-transit-oen` (`isExternal`, `isNatEnabled`,
+    `100.64.0.0/24`) in it; each one call and one task.
+  - The tenant's side, `EXT_SUBNET=portico-transit-oen
+    lab/network/tenant-network.sh create portico-transitprobe
+    10.100.2.0/24`: the same five steps succeeded unchanged (share,
+    VPC, default route to the overlay external subnet, overlay subnet,
+    floating IP). The tenant VPC took one address of the overlay pool
+    (`100.64.0.114`) instead of two of the VLAN, and the floating IP is
+    `100.64.0.99`, an address inside the transit model, not reachable
+    from the VLAN.
+  - Publishing the VM takes a **second floating IP, on the transit
+    VPC**: one of `external-nat` associated with the private IP
+    `100.64.0.99` in the transit VPC (`PrivateIpAssociation`), status
+    `ASSOCIATED_TO_PRIVATE_IP`, `10.23.210.215`. Over SSH on it from the
+    Mac the VM had its DHCP address `10.100.2.156` and reached the
+    Internet (200 in 0.49 s) through both NATs.
+  - Removal in reverse left only `MGMT` and `external-nat`.
 - MEASURED (read only, both sites): the networking controller's API has
   no field for the Flow mode (`controllers` lists version, status,
   health per cluster and node, the VLAN stack, nothing about Integrated
@@ -382,7 +404,12 @@ MSP only confirms or picks.
   through SNAT and is reached on its floating IP (measured).
 - Prism Central deletes a floating IP associated with a VM without a
   word, so Portico must check the association itself before deleting
-  one. Each step is idempotent by name, so it fits the tenant
+  one.
+- The transit model needs nothing else from the tenant's steps: the
+  same calls work with the overlay external subnet in place of the VLAN
+  one. Its cost is on the publishing side: a tenant's floating IP is an
+  overlay address, and a second floating IP of the VLAN on the MSP's
+  transit VPC makes it reachable; that one belongs to no tenant project. Each step is idempotent by name, so it fits the tenant
   steps Portico already records and retries.
 - Portico reads the addresses Prism Central assigns (two per VPC, one per
   floating IP) instead of predicting them: the order is not fixed.
