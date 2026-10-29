@@ -166,7 +166,7 @@ func Default() Config {
 		Policy:       Policy{AllowPrefixes: append([]string(nil), DefaultAllowPrefixes...)},
 		Log:          Log{Level: "info"},
 		Store:        Store{Path: "/var/lib/portico/portico.db", MasterKeyFile: "/var/lib/portico/master.key"},
-		Tenants:      Tenants{ProjectPrefix: "portico", GroupPrefix: "tenant-", Role: "Project Admin", OperationTimeout: 10 * time.Minute},
+		Tenants:      Tenants{ProjectPrefix: "portico", GroupPrefix: "tenant-", Role: "Portico Tenant", OperationTimeout: 10 * time.Minute},
 	}
 }
 

@@ -57,7 +57,13 @@ type Tenant struct {
 	KeycloakGroupID           string
 	LastError                 string
 	LastOp                    string // OpProvision or OpDelete
-	CreatedAt, UpdatedAt      time.Time
+	// Subnet is the tenant's /24, the same on every site, stored once
+	// assigned (tenant networking design 4.2); SubnetException says the
+	// MSP chose it instead of the pool.
+	Subnet               string
+	SubnetException      bool
+	FIPAllowance         int // floating IPs per site, 0 to netplan.MaxAllowance
+	CreatedAt, UpdatedAt time.Time
 }
 
 // DisplayNameOr returns the display name, or the id when it is empty.
