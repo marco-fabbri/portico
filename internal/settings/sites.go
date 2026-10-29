@@ -44,6 +44,19 @@ type Site struct {
 	// Defaults offered when a tenant is placed on the site.
 	ClusterExtID          string `json:"cluster_ext_id"`
 	StorageContainerExtID string `json:"storage_container_ext_id"`
+	// Network is the site's ready network (tenant networking design 4.1).
+	Network SiteNetwork `json:"network"`
+}
+
+// SiteNetwork is what the MSP picks on the site's Networking card: the
+// transit VPC tenants attach to, the DNS servers of tenant subnets, the
+// confirmation that Flow runs in the Integrated mode, and the switch for
+// new connections.
+type SiteNetwork struct {
+	TransitVPCExtID     string   `json:"transit_vpc_ext_id,omitempty"`
+	DNS                 []string `json:"dns,omitempty"`
+	IntegratedConfirmed bool     `json:"integrated_confirmed,omitempty"`
+	Enabled             bool     `json:"enabled,omitempty"`
 }
 
 // Trust is how Portico trusts the site's Prism Central.

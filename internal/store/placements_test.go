@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -45,7 +46,7 @@ func TestPlacementCRUD(t *testing.T) {
 	}
 	want := *a
 	got.CreatedAt, got.UpdatedAt, want.CreatedAt, want.UpdatedAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}
-	if *got != want {
+	if !reflect.DeepEqual(*got, want) {
 		t.Fatalf("GetPlacement = %+v, want %+v", *got, want)
 	}
 	list, err := s.ListPlacements(ctx, "acme")

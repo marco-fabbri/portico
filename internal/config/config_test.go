@@ -120,7 +120,7 @@ func TestDefaultsForTenants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Tenants.ProjectPrefix != "portico" || cfg.Tenants.GroupPrefix != "tenant-" || cfg.Tenants.Role != "Project Admin" || cfg.Tenants.OperationTimeout != 10*time.Minute {
+	if cfg.Tenants.ProjectPrefix != "portico" || cfg.Tenants.GroupPrefix != "tenant-" || cfg.Tenants.Role != "Portico Tenant" || cfg.Tenants.OperationTimeout != 10*time.Minute {
 		t.Errorf("Tenants defaults = %+v", cfg.Tenants)
 	}
 	if cfg.Store.Path != "/var/lib/portico/portico.db" {

@@ -55,6 +55,9 @@ type Settings struct {
 		GroupPrefix      string        `json:"group_prefix"`
 		Role             string        `json:"role"`
 		OperationTimeout time.Duration `json:"operation_timeout"`
+		// AddressPool is the private prefix the tenants' /24s come from
+		// (tenant networking design 4.2).
+		AddressPool string `json:"address_pool"`
 	} `json:"tenants"`
 }
 
@@ -156,9 +159,30 @@ func Defaults() Settings {
 	var s Settings
 	s.Keycloak.AdminClientID = "portico-admin"
 	s.OIDC.ClientID = "portico"
-	s.Tenants.ProjectPrefix, s.Tenants.GroupPrefix, s.Tenants.Role = "portico", "tenant-", "Project Admin"
+	s.Tenants.ProjectPrefix, s.Tenants.GroupPrefix, s.Tenants.Role = "portico", "tenant-", DefaultTenantRole
 	s.Tenants.OperationTimeout = 10 * time.Minute
+	s.Tenants.AddressPool = DefaultAddressPool
 	return s
+}
+
+// DefaultTenantRole is the role tenant groups get in their project: Project
+// Admin without the floating IP creation and deletion (tenant networking
+// design 4.3), created on each site by its setup run.
+const DefaultTenantRole = "Portico Tenant"
+
+// DefaultAddressPool is the tenant address pool of a fresh document.
+const DefaultAddressPool = "10.100.0.0/16"
+
+// upgradeTenants fills what a document written before 0.2.0 lacks: the
+// pool, and the tenant role. Project Admin was 0.1.0's default, not a
+// choice, so it moves to Portico Tenant; another role is kept.
+func upgradeTenants(s *Settings) {
+	if s.Tenants.AddressPool == "" {
+		s.Tenants.AddressPool = DefaultAddressPool
+	}
+	if s.Tenants.Role == "Project Admin" {
+		s.Tenants.Role = DefaultTenantRole
+	}
 }
 
 // Missing lists the required fields that are empty, in document order.
