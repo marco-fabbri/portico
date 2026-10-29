@@ -91,6 +91,9 @@ func New(svc *tenant.Service, st store.Store, brand *branding.Service, so *Setti
 	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites/{site}/retry", h.running(h.retrySite))
 	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites/{site}/suspend", h.running(h.suspendSite))
 	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites/{site}/resume", h.running(h.resumeSite))
+	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites/{site}/network", h.running(h.createNetwork))
+	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites/{site}/network/retry", h.running(h.retryNetwork))
+	mux.HandleFunc("PUT "+Prefix+"tenants/{id}/floating-ips", h.running(h.setAllowance))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})
@@ -219,7 +222,7 @@ func TenantStatus(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, tenant.ErrCount):
 		return http.StatusServiceUnavailable
-	case errors.Is(err, tenant.ErrInvalidSlug), errors.Is(err, tenant.ErrUnknownSite), errors.Is(err, tenant.ErrNoPlacementTarget):
+	case errors.Is(err, tenant.ErrInvalidSlug), errors.Is(err, tenant.ErrUnknownSite), errors.Is(err, tenant.ErrNoPlacementTarget), errors.Is(err, tenant.ErrInvalidAllowance):
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError
@@ -476,6 +479,45 @@ func (h *handler) retrySite(w http.ResponseWriter, r *http.Request) {
 	}
 	h.log.Info("tenant connection retry started", "tenant", id, "site", site)
 	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "site": site})
+}
+
+func (h *handler) createNetwork(w http.ResponseWriter, r *http.Request) {
+	h.networkAction(w, r, "ready network creation started", h.svc.CreateNetwork)
+}
+
+func (h *handler) retryNetwork(w http.ResponseWriter, r *http.Request) {
+	h.networkAction(w, r, "ready network retry started", h.svc.RetryNetwork)
+}
+
+// networkAction starts a background run on one connection's ready network.
+func (h *handler) networkAction(w http.ResponseWriter, r *http.Request, done string, fn func(ctx context.Context, id, siteID string) error) {
+	id, site := r.PathValue("id"), r.PathValue("site")
+	if err := fn(r.Context(), id, site); err != nil {
+		h.failConnection(w, site, err)
+		return
+	}
+	h.log.Info(done, "tenant", id, "site", site)
+	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "site": site})
+}
+
+// setAllowance sets the tenant's floating IPs per site and brings its
+// ready networks to it.
+func (h *handler) setAllowance(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Allowance *int `json:"allowance"`
+	}
+	if err := decode(r, &body); err != nil || body.Allowance == nil {
+		writeError(w, http.StatusBadRequest, `the body must be {"allowance": n}`)
+		return
+	}
+	id := r.PathValue("id")
+	kept, err := h.svc.SetAllowance(r.Context(), id, *body.Allowance)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	h.log.Info("tenant floating ip allowance set", "tenant", id, "allowance", *body.Allowance, "kept", kept)
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "allowance": *body.Allowance, "kept": kept})
 }
 
 func (h *handler) failConnection(w http.ResponseWriter, site string, err error) {
