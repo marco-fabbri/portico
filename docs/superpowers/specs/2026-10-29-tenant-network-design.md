@@ -362,9 +362,9 @@ tenant page shows them, and the MSP tells the tenant).
 2. Measured: the transit model with one overlay external subnet per
    tenant, two tenants, the first one's Disconnect with the second
    active, on a NAT transit VPC (write-up 34); the routed form of the
-   NVD with one tenant, inbound through a static route. To measure: its
-   Internet access through the MSP's router, and two tenants with the
-   Disconnect on it.
+   NVD with two tenants, inbound through a static route, and the
+   second one's Disconnect with the first active. To measure: its
+   Internet access through the MSP's router.
 3. Measured for `Project Admin` (a local user of one project): VM on
    `<project>-net`, floating IP association, and floating IPs of its
    own. To measure: the **Portico Tenant** role (Project Admin without
