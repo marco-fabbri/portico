@@ -65,6 +65,16 @@ type PC struct {
 	GateDelete  *Gate                       // held by DeleteUserGroup when set
 	RGCluster   map[string]string           // resource group extId → the cluster it was created on
 	Contents    map[string]nutanix.Contents // project extId → what it holds; empty when absent
+	// The networking side (network.go): subnets, VPCs, routes by VPC and
+	// floating IPs. DropProject makes the next creates of the named
+	// object come back without their project, as Prism Central once did
+	// (write-up 34).
+	Subnets     []nutanix.Subnet
+	VPCs        []nutanix.VPC
+	VPCRoutes   map[string][]nutanix.Route
+	FloatingIPs []nutanix.FloatingIP
+	DropProject map[string]int
+	pools       map[string]*pool // overlay external subnet extId → its addresses
 	seq         int
 	calls       map[string]int // method → calls, successful or not
 	failNth     map[string]failAt
