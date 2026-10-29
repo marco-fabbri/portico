@@ -340,6 +340,36 @@ must Portico ask the MSP for?
   `unshare` succeeded, the project was deleted, and A's overlay external
   subnet was removed; the transit VPC stayed for B and went with B's
   subnet.
+- MEASURED (NTNX-01, 2026-10-29 evening, as `admin`): NVD-2219's routed
+  form of the shared transit model, where the NAT is in each tenant's
+  overlay external subnet and the transit VPC is routed:
+  - A no-NAT VLAN external subnet next to `external-nat` on VLAN 210 was
+    refused, `NETWORKING-10056` "Managed subnet exists with VLAN ID 0 on
+    same DVS": one managed subnet per VLAN and virtual switch on a
+    cluster. `external-nat` (unused) was deleted and `external-routed`
+    created in its place (`EXT_NAT=false lab/network/external-subnet.sh
+    external-routed 10.23.210.200 10.23.210.219`).
+  - The transit VPC with a fixed address was refused until it asked for
+    one active gateway: "The number of external IP addresses must be
+    equal to active gateway nodes"; with `activeGatewayCount` 1 it took
+    `10.23.210.200`, the externally routable prefix `10.23.211.0/24`
+    and its default route (`EXT_SUBNET=external-routed
+    TRANSIT_IP=10.23.210.200 ERP=10.23.211.0/24 lab/network/transit.sh
+    create`).
+  - The tenant's overlay external subnet `10.23.211.16/28` (gateway
+    `.17`, pool `.18` to `.30`), then the tenant's five steps on it: the
+    VPC took `10.23.211.29` for SNAT, the floating IP `10.23.211.18`.
+  - The first create of the tenant's internal subnet returned
+    `SUCCEEDED` but the subnet had no `projectExtId` although the request
+    carried it; the VM create then failed "given subnet ... is not
+    found". Deleted and created again, the subnet had its project and the
+    VM was created. One create out of three in this write-up behaved so.
+  - With a static route `10.23.211.0/24 via 10.23.210.200` on the build
+    host only, the VM was reached over SSH on `10.23.211.18` from the
+    build host, with its DHCP address `10.100.11.39`: **one floating IP**
+    publishes the VM, as in the NVD. Its Internet access failed, as
+    expected while the upstream router has no route back to the prefix
+    and no NAT rule for it.
 - MEASURED (read only, both sites): the networking controller's API has
   no field for the Flow mode (`controllers` lists version, status,
   health per cluster and node, the VLAN stack, nothing about Integrated
@@ -471,6 +501,14 @@ MSP only confirms or picks.
   creates is not needed for that. It also lets the tenant create floating
   IPs of its own; limiting them takes a tenant role without
   `Create_Floating_Ip`, or a check in Portico's monitor.
+- Portico reads back the `projectExtId` of every object it creates:
+  Prism Central once created a subnet without its project although the
+  request carried it, and reported success (measured).
+- The NVD's routed transit is what Portico builds: a no-NAT VLAN external
+  subnet for the transit VPC, a routed prefix the MSP's router sends to
+  the transit VPC's fixed address, a `/28` of it per tenant, one floating
+  IP per published VM. The NAT transit VPC with a second floating IP
+  works too (measured) but is not the NVD's model.
 - Portico reads the addresses Prism Central assigns (two per VPC, one per
   floating IP) instead of predicting them: the order is not fixed.
 - The same tenant `/24` works on every site, so one MSP address pool with

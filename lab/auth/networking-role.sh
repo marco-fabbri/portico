@@ -1,26 +1,28 @@
 #!/usr/bin/env bash
 # Give the `portico` service account what Project Manager lacks for a
-# tenant's ready network (write-up 34): sharing the site's external subnet
-# with a tenant's project, and the floating IP operations.
+# tenant's ready network (write-up 34): the tenant's overlay external
+# subnet in the transit VPC, sharing it with the tenant's project, the
+# floating IP operations and the VPC route table ones.
 #   source lab/env.sh && lab/auth/networking-role.sh create|show|delete
-# create: a custom role "Portico Networking" with Share_Subnet,
-# Unshare_Subnet, the four floating IP operations and the VPC route table
-# ones a default route needs (Project Manager has none of them, measured),
-# and an authorization policy that binds it to `portico`, with the subnet
-# operations limited to the external subnet (EXT_SUBNET, default
-# external-nat). An existing role gets the operations of this list. Optional:
-# FIP_SCOPE=all (default) or a project name, to limit the floating IP
-# operations to one project. Lab only.
+# create: a custom role "Portico Networking" with the subnet operations a
+# tenant's subnet in the transit VPC needs (view, create, delete, share,
+# unshare), the four floating IP operations, View_VPC and the VPC route
+# table ones a default route needs (Project Manager has none of the last,
+# measured), and an authorization policy that binds it to `portico`. An
+# existing role gets the operations of this list. Optional: SUBNET_SCOPE=all
+# (default: the tenants' subnets are created at each Connect) or a subnet
+# name, to limit the subnet operations to it; FIP_SCOPE=all (default) or a
+# project name, the same for floating IPs. Lab only.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 : "${PC_URL:?source lab/env.sh first}"
 # shellcheck source=lab/projects/lib.sh
 source lab/projects/lib.sh
 SA_NAME="portico"; ROLE_NAME="Portico Networking"; POLICY_NAME="Portico Networking_portico"
-OPS=(Share_Subnet Unshare_Subnet View_Floating_Ip Create_Floating_Ip Update_Floating_Ip Delete_Floating_Ip
+OPS=(View_Subnet Create_Subnet Delete_Subnet Share_Subnet Unshare_Subnet View_VPC View_Floating_Ip Create_Floating_Ip Update_Floating_Ip Delete_Floating_Ip
   View_VPC_Route_Table View_Route_Table_Route Create_Route_Table_Route Delete_Route_Table_Route)
 NET=/api/networking/v4.4/config
-ext_name="${EXT_SUBNET:-external-nat}"
+subnet_scope="${SUBNET_SCOPE:-all}"
 fip_scope="${FIP_SCOPE:-all}"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
@@ -40,7 +42,12 @@ remove() {
 case "${1:-}" in
   create)
     sa=$(sa_extid); [ -n "$sa" ] || { echo "no service account $SA_NAME: run lab/auth/create-service-account.sh" >&2; exit 1; }
-    ext=$(subnet_extid "$ext_name"); [ -n "$ext" ] || { echo "no subnet $ext_name" >&2; exit 1; }
+    if [ "$subnet_scope" = all ]; then
+      subnet_filter='{"subnet":{"*":{"eq":"*"}}}'
+    else
+      s=$(subnet_extid "$subnet_scope"); [ -n "$s" ] || { echo "no subnet $subnet_scope" >&2; exit 1; }
+      subnet_filter=$(jq -cn --arg s "$s" '{subnet:{uuid:{anyof:[$s]}}}')
+    fi
     ops=()
     for o in "${OPS[@]}"; do
       id=$(op_extid "$o"); [ -n "$id" ] || { echo "no operation $o on this Prism Central" >&2; exit 1; }
@@ -57,7 +64,7 @@ case "${1:-}" in
         echo "update role: $(tr -d '\n' <"$tmp/code") ${#ops[@]} operations"
       fi
     else
-      jq -n --arg n "$ROLE_NAME" '{displayName:$n, description:"Portico: share the external subnet with tenant projects, manage floating IPs", operations:$ARGS.positional}' --args "${ops[@]}" > "$tmp/role.json"
+      jq -n --arg n "$ROLE_NAME" '{displayName:$n, description:"Portico: tenant subnets in the transit VPC, sharing, floating IPs, default routes", operations:$ARGS.positional}' --args "${ops[@]}" > "$tmp/role.json"
       code=$(post "$IAM1/authz/roles" "$tmp/role.json" "$tmp/resp") || { echo "create role: $code $(jq -c '.data.error // .' "$tmp/resp")" >&2; exit 1; }
       role=$(jq -r '.data.extId' "$tmp/resp"); echo "create role: $code $role"
     fi
@@ -69,13 +76,13 @@ case "${1:-}" in
     fi
     pol=$(policy_extid)
     [ -z "$pol" ] || remove "$IAM1/authz/authorization-policies/$pol" "previous policy"
-    jq -n --arg n "$POLICY_NAME" --arg r "$role" --arg u "$sa" --arg s "$ext" --argjson f "$fip_filter" '{
+    jq -n --arg n "$POLICY_NAME" --arg r "$role" --arg u "$sa" --argjson sf "$subnet_filter" --argjson f "$fip_filter" '{
         displayName:$n, description:"Portico: networking for tenant ready networks",
         authorizationPolicyType:"USER_DEFINED", role:$r,
         identities:[{identityFilter:{user:{uuid:{anyof:[$u]}}}}],
-        entities:[{entityFilter:{subnet:{uuid:{anyof:[$s]}}}}, {entityFilter:$f}, {entityFilter:{vpc_route_table:{"*":{"eq":"*"}}}}]}' > "$tmp/pol.json"
+        entities:[{entityFilter:$sf}, {entityFilter:$f}, {entityFilter:{vpc:{"*":{"eq":"*"}}}}, {entityFilter:{vpc_route_table:{"*":{"eq":"*"}}}}]}' > "$tmp/pol.json"
     code=$(post "$IAM1/authz/authorization-policies" "$tmp/pol.json" "$tmp/resp") || { echo "create policy: $code $(jq -c '.data.error // .' "$tmp/resp")" >&2; exit 1; }
-    echo "create policy: $code $(jq -r '.data.extId' "$tmp/resp") (floating IPs: $fip_scope)"
+    echo "create policy: $code $(jq -r '.data.extId' "$tmp/resp") (subnets: $subnet_scope, floating IPs: $fip_scope)"
     ;;
   show)
     pol=$(policy_extid)

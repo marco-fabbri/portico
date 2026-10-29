@@ -12,6 +12,12 @@
 # (portico-transit-oen): one overlay external subnet per tenant is made by
 # running create with another name and CIDR; delete removes OEN_NAME, and
 # the transit VPC once no overlay external subnet is left in it.
+# NVD-2219's routed form: EXT_SUBNET a no-NAT VLAN external subnet,
+# TRANSIT_IP the transit VPC's fixed address on it (the next hop of the
+# upstream router's route; Prism Central wants as many fixed addresses as
+# active gateways, so one gateway), ERP the routed prefix the overlay external
+# subnets are cut from (e.g. 10.23.211.0/24, one /28 per tenant); a
+# tenant's floating IP is then reachable without publish.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 : "${PC_URL:?source lab/env.sh first}"
@@ -20,7 +26,12 @@ source lab/lib.sh
 NET=/api/networking/v4.4/config
 ext_name="${EXT_SUBNET:-external-nat}"
 cidr="${OEN_CIDR:-100.64.0.0/24}"
-net="${cidr%/*}"; prefix="${cidr#*/}"; base="${net%.*}"
+net="${cidr%/*}"; prefix="${cidr#*/}"
+# gateway: first address of the CIDR; pool: second to the one before broadcast
+ip2n() { local a b c d; IFS=. read -r a b c d <<<"$1"; echo $(( (a << 24) + (b << 16) + (c << 8) + d )); }
+n2ip() { echo "$(( $1 >> 24 & 255 )).$(( $1 >> 16 & 255 )).$(( $1 >> 8 & 255 )).$(( $1 & 255 ))"; }
+first=$(ip2n "$net"); last=$(( first + (1 << (32 - prefix)) - 1 ))
+gw=$(n2ip $(( first + 1 ))); pool_s=$(n2ip $(( first + 2 ))); pool_e=$(n2ip $(( last - 1 )))
 vpc_name="portico-transit"; oen_name="${OEN_NAME:-portico-transit-oen}"; pub_name="portico-transit-pub"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
@@ -46,7 +57,7 @@ route_table() { lab/pc.sh GET "$NET/route-tables" 2>/dev/null | jq -r --arg v "$
 show() {
   local v o p rt
   v=$(by_name vpcs "$vpc_name"); o=$(by_name subnets "$oen_name"); p=$(by_name floating-ips "$pub_name")
-  [ -n "$v" ] && lab/pc.sh GET "$NET/vpcs/$v" 2>/dev/null | jq -r '.data | "vpc \(.name) type=\(.vpcType) external=\([.externalSubnets[]? | "\(.subnetReference) ips=\([.externalIps[]?.ipv4.value] | join(","))"] | join(";"))"'
+  [ -n "$v" ] && lab/pc.sh GET "$NET/vpcs/$v" 2>/dev/null | jq -r '.data | "vpc \(.name) type=\(.vpcType) erp=\([.externallyRoutablePrefixes[]? | "\(.ipv4.ip.value)/\(.ipv4.prefixLength)"] | join(",")) external=\([.externalSubnets[]? | "\(.subnetReference) ips=\([.externalIps[]?.ipv4.value] | join(","))"] | join(";"))"'
   [ -n "$v" ] && rt=$(route_table "$v") && [ -n "$rt" ] && lab/pc.sh GET "$NET/route-tables/$rt/routes" 2>/dev/null | jq -r '.data[]? | "route \(.destination.ipv4.ip.value)/\(.destination.ipv4.prefixLength) \(.routeType) -> \(.nexthop.nexthopType)"'
   [ -n "$o" ] && lab/pc.sh GET "$NET/subnets/$o" 2>/dev/null | jq -r '.data | "subnet \(.name) type=\(.subnetType) external=\(.isExternal) nat=\(.isNatEnabled) cidr=\(.ipConfig[0].ipv4.ipSubnet.ip.value)/\(.ipConfig[0].ipv4.ipSubnet.prefixLength) shared=\(.sharedWithProjects // [] | join(","))"'
   [ -n "$p" ] && lab/pc.sh GET "$NET/floating-ips/$p" 2>/dev/null | jq -r '.data | "floating-ip \(.name) ip=\(.floatingIp.ipv4.value // "-") status=\(.associationStatus // "-")"'
@@ -58,8 +69,10 @@ case "${1:-}" in
     ext=$(by_name subnets "$ext_name"); [ -n "$ext" ] || { echo "no external subnet $ext_name" >&2; exit 1; }
     v=$(by_name vpcs "$vpc_name")
     if [ -z "$v" ]; then
-      jq -n --arg n "$vpc_name" --arg e "$ext" '{name:$n, vpcType:"TRANSIT", externalSubnets:[{subnetReference:$e}]}' > "$tmp/vpc"
-      v=$(create vpcs "$vpc_name" "$tmp/vpc") || exit 1
+      jq -n --arg n "$vpc_name" --arg e "$ext" --arg ip "${TRANSIT_IP:-}" --arg erp "${ERP:-}" '{name:$n, vpcType:"TRANSIT",
+        externalSubnets:[{subnetReference:$e} + (if $ip == "" then {} else {externalIps:[{ipv4:{value:$ip}}], activeGatewayCount:1} end)]}
+        + (if $erp == "" then {} else {externallyRoutablePrefixes:[{ipv4:{ip:{value:($erp|split("/")[0])}, prefixLength:($erp|split("/")[1]|tonumber)}}]} end)' > "$tmp/vpc"
+      v=$(create vpcs "$vpc_name" "$tmp/vpc"); [ -n "$v" ] || exit 1
     fi
     rt=$(route_table "$v")
     if ! lab/pc.sh GET "$NET/route-tables/$rt/routes" 2>/dev/null | jq -e '.data[]? | select(.destination.ipv4.prefixLength == 0)' >/dev/null; then
@@ -69,7 +82,7 @@ case "${1:-}" in
       if [ -n "$task" ]; then echo "default route: $(wait_task "$task")" >&2; else echo "default route: refused, $(tail -1 "$tmp/err")" >&2; exit 1; fi
     fi
     if [ -z "$(by_name subnets "$oen_name")" ]; then
-      jq -n --arg n "$oen_name" --arg v "$v" --arg net "$net" --argjson pre "$prefix" --arg gw "$base.1" --arg s "$base.10" --arg e "$base.250" '{
+      jq -n --arg n "$oen_name" --arg v "$v" --arg net "$net" --argjson pre "$prefix" --arg gw "$gw" --arg s "$pool_s" --arg e "$pool_e" '{
         name:$n, subnetType:"OVERLAY", vpcReference:$v, isExternal:true, isNatEnabled:true,
         ipConfig:[{ipv4:{ipSubnet:{ip:{value:$net}, prefixLength:$pre}, defaultGatewayIp:{value:$gw},
           poolList:[{startIp:{value:$s}, endIp:{value:$e}}]}}]}' > "$tmp/oen"
