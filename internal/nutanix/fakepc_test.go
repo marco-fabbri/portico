@@ -75,12 +75,13 @@ func (f *fakePC) handle(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "metadata": map[string]any{"totalAvailableResults": 1}})
 	}
 	p := r.URL.Path
-	if items, ok := f.lists[p]; ok {
+	if items, ok := f.lists[p]; ok && r.Method == "GET" {
 		w.WriteHeader(200)
 		json.NewEncoder(w).Encode(map[string]any{"data": items, "metadata": map[string]any{"totalAvailableResults": len(items)}})
 		return
 	}
 	if obj, ok := f.objs[p]; ok && r.Method == "GET" {
+		w.Header().Set("ETag", f.etag)
 		reply(200, obj)
 		return
 	}
@@ -93,6 +94,8 @@ func (f *fakePC) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case strings.HasPrefix(p, PathNetworking+"/") && (r.Method == "POST" || r.Method == "DELETE") && !strings.Contains(p, "/$actions/"):
+		reply(202, map[string]any{"extId": "task-net"})
 	case strings.HasPrefix(p, PathTasks+"/"):
 		f.mu.Lock()
 		f.polls++
