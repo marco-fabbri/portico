@@ -396,3 +396,85 @@ func (c *Client) CreateFloatingIP(ctx context.Context, name, projectExtID, exter
 func (c *Client) DeleteFloatingIP(ctx context.Context, extID string) error {
 	return c.deleteWithTask(ctx, PathNetworking+"/floating-ips/"+extID)
 }
+
+// Controller is the Flow Virtual Networking controller of a Prism Central;
+// Status is controllerStatus, UP when it runs.
+type Controller struct {
+	Status, Version string
+}
+
+// Controllers lists the networking controllers; none means Flow Virtual
+// Networking is not enabled. The API shows no Flow mode (write-up 34).
+func (c *Client) Controllers(ctx context.Context) ([]Controller, error) {
+	var raw []struct {
+		Status  string `json:"controllerStatus"`
+		Version string `json:"controllerVersion"`
+	}
+	if err := c.listAll(ctx, PathNetworking+"/controllers", nil, &raw); err != nil {
+		return nil, err
+	}
+	out := make([]Controller, 0, len(raw))
+	for _, r := range raw {
+		out = append(out, Controller{Status: r.Status, Version: r.Version})
+	}
+	return out, nil
+}
+
+// PathDomainManagers is Prism Central's own configuration, with its
+// network (write-up 34).
+const PathDomainManagers = "/api/prism/v4.2/config/domain-managers"
+
+type ipv4Value struct {
+	IPv4 struct {
+		Value        string `json:"value"`
+		PrefixLength int    `json:"prefixLength"`
+	} `json:"ipv4"`
+}
+
+// PrismGateway returns Prism Central's default gateway and its own address
+// with the prefix of its subnet, from its first external network.
+func (c *Client) PrismGateway(ctx context.Context) (netip.Addr, netip.Prefix, error) {
+	var raw []struct {
+		Network struct {
+			ExternalNetworks []struct {
+				DefaultGateway ipv4Value   `json:"defaultGateway"`
+				SubnetMask     ipv4Value   `json:"subnetMask"`
+				IPAddresses    []ipv4Value `json:"ipAddresses"`
+			} `json:"externalNetworks"`
+		} `json:"network"`
+	}
+	if err := c.listAll(ctx, PathDomainManagers, nil, &raw); err != nil {
+		return netip.Addr{}, netip.Prefix{}, err
+	}
+	if len(raw) == 0 || len(raw[0].Network.ExternalNetworks) == 0 {
+		return netip.Addr{}, netip.Prefix{}, notFound("Prism Central's external network")
+	}
+	n := raw[0].Network.ExternalNetworks[0]
+	gw := parseAddr(n.DefaultGateway.IPv4.Value)
+	var own netip.Prefix
+	if len(n.IPAddresses) > 0 {
+		if ip := parseAddr(n.IPAddresses[0].IPv4.Value); ip.IsValid() {
+			own = netip.PrefixFrom(ip, maskBits(n.SubnetMask.IPv4.Value, n.IPAddresses[0].IPv4.PrefixLength))
+		}
+	}
+	return gw, own, nil
+}
+
+// maskBits turns a dotted mask into its length, or falls back.
+func maskBits(mask string, fallback int) int {
+	m := parseAddr(mask)
+	if !m.Is4() {
+		return fallback
+	}
+	b := m.As4()
+	n := 0
+	for _, x := range b {
+		for i := 7; i >= 0; i-- {
+			if x&(1<<i) == 0 {
+				return n
+			}
+			n++
+		}
+	}
+	return n
+}

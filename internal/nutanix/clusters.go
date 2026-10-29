@@ -2,6 +2,7 @@ package nutanix
 
 import (
 	"context"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"time"
@@ -17,6 +18,10 @@ type Cluster struct {
 	IsAOS          bool   // false for the Prism Central cluster itself
 	IsPrismCentral bool   // the Prism Central's own entry
 	Version        string // config.buildInfo.version, e.g. "pc.7.6.0.6"
+	// Addresses are the cluster's own: virtual IP, Data Services IP, and
+	// each node's CVM and host (write-up 34: a Prism Central gateway set
+	// to one of them breaks the Flow enablement).
+	Addresses []netip.Addr
 }
 
 // StorageContainer is a storage container of some cluster.
@@ -46,6 +51,16 @@ func (c *Client) ListClusters(ctx context.Context) ([]Cluster, error) {
 				Version string `json:"version"`
 			} `json:"buildInfo"`
 		} `json:"config"`
+		Network struct {
+			ExternalAddress       ipv4Value `json:"externalAddress"`
+			ExternalDataServiceIP ipv4Value `json:"externalDataServiceIp"`
+		} `json:"network"`
+		Nodes struct {
+			NodeList []struct {
+				ControllerVMIP ipv4Value `json:"controllerVmIp"`
+				HostIP         ipv4Value `json:"hostIp"`
+			} `json:"nodeList"`
+		} `json:"nodes"`
 	}
 	if err := c.listAll(ctx, PathClusterMgmt+"/config/clusters", nil, &raw); err != nil {
 		return nil, err
@@ -53,6 +68,15 @@ func (c *Client) ListClusters(ctx context.Context) ([]Cluster, error) {
 	out := make([]Cluster, 0, len(raw))
 	for _, r := range raw {
 		cl := Cluster{ExtID: r.ExtID, Name: r.Name, Version: r.Config.BuildInfo.Version}
+		addrs := []string{r.Network.ExternalAddress.IPv4.Value, r.Network.ExternalDataServiceIP.IPv4.Value}
+		for _, n := range r.Nodes.NodeList {
+			addrs = append(addrs, n.ControllerVMIP.IPv4.Value, n.HostIP.IPv4.Value)
+		}
+		for _, s := range addrs {
+			if a := parseAddr(s); a.IsValid() {
+				cl.Addresses = append(cl.Addresses, a)
+			}
+		}
 		for _, f := range r.Config.ClusterFunction {
 			switch f {
 			case "AOS":
