@@ -8,7 +8,10 @@
 # publish: a floating IP of the VLAN external subnet on the transit VPC,
 # associated with PRIVATE_IP of the overlay external subnet (a tenant's
 # floating IP there), so the tenant's VM is reached from the VLAN.
-# Optional: EXT_SUBNET (external-nat), OEN_CIDR (100.64.0.0/24).
+# Optional: EXT_SUBNET (external-nat), OEN_CIDR (100.64.0.0/24), OEN_NAME
+# (portico-transit-oen): one overlay external subnet per tenant is made by
+# running create with another name and CIDR; delete removes OEN_NAME, and
+# the transit VPC once no overlay external subnet is left in it.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 : "${PC_URL:?source lab/env.sh first}"
@@ -18,7 +21,7 @@ NET=/api/networking/v4.4/config
 ext_name="${EXT_SUBNET:-external-nat}"
 cidr="${OEN_CIDR:-100.64.0.0/24}"
 net="${cidr%/*}"; prefix="${cidr#*/}"; base="${net%.*}"
-vpc_name="portico-transit"; oen_name="portico-transit-oen"; pub_name="portico-transit-pub"
+vpc_name="portico-transit"; oen_name="${OEN_NAME:-portico-transit-oen}"; pub_name="portico-transit-pub"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
 by_name() { lab/pc.sh GET "$NET/$1" 2>/dev/null | jq -r --arg n "$2" '.data[]? | select(.name == $n) | .extId'; }
@@ -88,7 +91,8 @@ case "${1:-}" in
   delete)
     p=$(by_name floating-ips "$pub_name"); [ -z "$p" ] || remove floating-ips "$p" "$pub_name"
     o=$(by_name subnets "$oen_name"); [ -z "$o" ] || remove subnets "$o" "$oen_name"
-    v=$(by_name vpcs "$vpc_name"); [ -z "$v" ] || remove vpcs "$v" "$vpc_name"
+    v=$(by_name vpcs "$vpc_name")
+    if [ -n "$v" ] && [ -z "$(lab/pc.sh GET "$NET/subnets" 2>/dev/null | jq -r --arg v "$v" '.data[]? | select(.vpcReference == $v) | .extId')" ]; then remove vpcs "$v" "$vpc_name"; fi
     show ;;
   *) echo "usage: $0 create|show|delete | publish|unpublish PRIVATE_IP" >&2; exit 2 ;;
 esac

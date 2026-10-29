@@ -295,6 +295,51 @@ must Portico ask the MSP for?
     Mac the VM had its DHCP address `10.100.2.156` and reached the
     Internet (200 in 0.49 s) through both NATs.
   - Removal in reverse left only `MGMT` and `external-nat`.
+- MEASURED (NTNX-01, 2026-10-29, as a tenant): `lab/projects/probe-user.sh
+  create portico-netprobe` made a local user who is Project Admin of that
+  project only (role membership with `ProjectsScopeTemplate`), and the
+  tenant's calls ran as that user:
+  - Lists of VPCs, subnets and floating IPs show only the project's own
+    objects plus the external subnet shared with it; other projects'
+    objects and `MGMT` are not listed.
+  - The user created the VM on the project's subnet and associated the
+    project's floating IP with its NIC (`VmNicAssociation`): Project
+    Admin is enough for both, no custom tenant role is needed.
+  - The user can also **create and delete floating IPs of its own** on
+    the shared external subnet: the number Portico assigns is not a
+    limit by itself.
+  - The cluster list is refused (403), so a VM create needs the cluster
+    given (`CLUSTER` in `lab/network/probe-vm.sh`); the route table is
+    listed only with `$filter=vpcReference eq '...'` (without the filter
+    the list is empty).
+  - `probe-user.sh delete` removed the role membership, the user and its
+    password file.
+- MEASURED (NTNX-01, 2026-10-29, as `admin`): two tenants on **one shared
+  external subnet** cannot be disconnected one at a time. With
+  `portico-twoprobe-a` and `-b` each holding a ready network on
+  `external-nat`, removing A's floating IP, subnet and VPC succeeded, but:
+  - `unshare` for A was refused, `NETWORKING-10068` "Failed to
+    Share/Unshare Subnet with projects as the referenced resource is
+    still in use - Subnet ... is attached to a VPC": B's VPC, in another
+    project, is enough to block it;
+  - `lab/projects/delete.sh` for A was then refused: the project still
+    has a resource group and a shared subnet
+    (`associatedEntities` `{"resource groups":1,"shared subnets":1}`),
+    and deleting the resource group directly fails "not empty: 10018";
+  - a `PUT` of the subnet with A removed from `sharedWithProjects` is
+    accepted and ignored.
+  Only after B's VPC was gone did A's `unshare` and project delete
+  succeed. The same lock probably explains the old project
+  `portico-lab-tenant-a`, still shared on `MGMT`.
+- MEASURED (NTNX-01, 2026-10-29, as `admin`): with **one overlay external
+  subnet per tenant** in the transit VPC the lock is gone.
+  `OEN_NAME=portico-oen-a OEN_CIDR=100.64.1.0/24 lab/network/transit.sh
+  create`, the same for `-b` on `100.64.2.0/24`, then each tenant's five
+  steps with `EXT_SUBNET` set to its own subnet (all succeeded). The
+  Disconnect of A with B active removed A's floating IP, subnet and VPC,
+  `unshare` succeeded, the project was deleted, and A's overlay external
+  subnet was removed; the transit VPC stayed for B and went with B's
+  subnet.
 - MEASURED (read only, both sites): the networking controller's API has
   no field for the Flow mode (`controllers` lists version, status,
   health per cluster and node, the VLAN stack, nothing about Integrated
@@ -365,14 +410,15 @@ MSP only confirms or picks.
 | AHV versions of the site's clusters | per site | read | must be the same compatible version |
 | external subnet for tenant traffic | per site | read, MSP picks | NAT external subnet; the MSP creates it in Prism Central |
 | its VLAN, CIDR, gateway | per site | read | from the picked subnet, shown for confirmation; the VLAN is the one the AHV host sees (`0` when the uplink is untagged) |
-| sharing of the external subnet with the tenant's project | per tenant and site | done by Portico | required before the VPC (`NETWORKING-10056` otherwise); `$actions/share`, and `unshare` at Disconnect |
+| sharing of the external subnet with the tenant's project | per tenant and site | done by Portico | required before the VPC (`NETWORKING-10056` otherwise); `$actions/share`, and `unshare` at Disconnect, which fails while any other VPC uses the same external subnet (measured) |
+| overlay external subnet of the tenant (transit model) | per tenant and site | done by Portico | one per tenant in the MSP's transit VPC, so the tenant's Disconnect is not blocked by the others; its `/24` from a transit pool, e.g. `100.64.<n>.0/24` |
 | service account's networking role | per site | prerequisite or created by Portico | Project Manager is not enough: it lacks `Share_Subnet`/`Unshare_Subnet` on the external subnet (owned by `_internal`) and the floating IP operations (measured); a custom role with them is to be measured |
 | its IP pool (SNAT and floating IPs) | per site | read | two addresses per VPC on a one-node cluster (measured), one per floating IP; pools of sites on the same VLAN must not overlap; Portico can warn when the pool runs low |
 | DNS servers for tenant subnets | per site | asked | given to the tenant subnet's DHCP |
 | tenant address pool | MSP setting | asked | e.g. `10.100.0.0/16`, one `/24` per tenant, the same on every site |
 | tenant number | per tenant | assigned by Portico | assigned at creation, never reused |
 | tenant subnet exception | per tenant | asked, optional | when the default `/24` collides with the customer's own network |
-| floating IPs per tenant | per tenant | asked | number allowed; quota |
+| floating IPs per tenant | per tenant | asked | number allowed; a Project Admin can create its own floating IPs on the shared external subnet (measured), so the number is enforced by Portico or by the tenant's role, not by the assignment alone |
 | Prism Central gateway and Internet access | per site | read, checked | the gateway from `domain-managers` must be the subnet's router; a wrong one (NTNX-02 had the Data Services IP) breaks Flow enablement, which downloads packages, while everything else on the VLAN works |
 | Prism Central capacity | per site | prerequisite | Flow Virtual Networking adds 2 vCPU and 3 GB per VM on a small Prism Central, Flow Network Security about 2 GB more (8 vCPU, 33 GiB measured after both) |
 | stretch of the tenant subnet between sites (optional) | per tenant | asked | off by default; needs the same tenant `/24` on both sites (measured: it works) |
@@ -411,6 +457,20 @@ MSP only confirms or picks.
   overlay address, and a second floating IP of the VLAN on the MSP's
   transit VPC makes it reachable; that one belongs to no tenant project. Each step is idempotent by name, so it fits the tenant
   steps Portico already records and retries.
+- An external subnet shared by several tenants cannot be given back by one
+  of them while another tenant's VPC uses it, and the project cannot be
+  deleted meanwhile (measured). With the VLAN external subnet shared by
+  every tenant, only the last tenant could ever be disconnected. In the
+  transit model Portico gives each tenant its own overlay external
+  subnet in the transit VPC: the Disconnect removes it with the tenant,
+  and the others are untouched (measured). The direct VLAN model would
+  need one VLAN external subnet per tenant, which costs a VLAN or a pool
+  slice each; it stays possible but is not the recommended one.
+- Project Admin is enough for the tenant to run VMs on the ready network
+  and associate its floating IP (measured), so the tenant role Portico
+  creates is not needed for that. It also lets the tenant create floating
+  IPs of its own; limiting them takes a tenant role without
+  `Create_Floating_Ip`, or a check in Portico's monitor.
 - Portico reads the addresses Prism Central assigns (two per VPC, one per
   floating IP) instead of predicting them: the order is not fixed.
 - The same tenant `/24` works on every site, so one MSP address pool with
@@ -446,7 +506,16 @@ MSP only confirms or picks.
    `lab/projects/delete.sh`. Compare the steps, the codes and the time with
    the results above. In between, `lab/network/probe-vm.sh create|check|delete
    portico-netprobe` checks the data path (DHCP, SNAT, floating IP).
-4. As the service account: `lab/auth/create-service-account.sh` for a key,
+4. As the tenant: `lab/projects/probe-user.sh create portico-netprobe`, the
+   tenant's calls with `PC_USER=portico-probe-user` and the generated
+   password file (lists, VM with `CLUSTER`, floating IP association and
+   creation), then `probe-user.sh delete`.
+5. Two tenants: `lab/network/transit.sh create` with `OEN_NAME` and
+   `OEN_CIDR` for each, the tenants' `create` with their own `EXT_SUBNET`,
+   then the first tenant's `delete` and `lab/projects/delete.sh` while the
+   second is active; both must succeed. Repeat with both tenants on
+   `external-nat` to see whether the lock is still there.
+6. As the service account: `lab/auth/create-service-account.sh` for a key,
    `lab/auth/networking-role.sh create` (it refuses if an operation was
    renamed by the upgrade), the same run with `PC_API_KEY` set, then
    `lab/auth/networking-role.sh delete` and the key revoked.

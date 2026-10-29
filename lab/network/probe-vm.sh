@@ -6,7 +6,8 @@
 # PROJECT has a ready network from lab/network/tenant-network.sh. The VM
 # `<project>-vm` (1 vCPU, 1 GiB, IMAGE, default rocky-9-genericcloud) gets
 # the user `probe` with SSH_KEY_FILE (default ~/.ssh/id_rsa.pub), and the
-# floating IP `<project>-fip` is associated with its NIC. `check` connects
+# floating IP `<project>-fip` is associated with its NIC. CLUSTER (extId)
+# picks the cluster when the caller cannot list them. `check` connects
 # to the floating IP from this host, or through LAB_JUMP (user@host on the
 # VLAN). Lab only.
 set -uo pipefail
@@ -46,7 +47,8 @@ case "$action" in
     s=$(by_name subnets "$subnet_name"); [ -n "$s" ] || { echo "no subnet $subnet_name" >&2; exit 1; }
     f=$(by_name floating-ips "$fip_name"); [ -n "$f" ] || { echo "no floating IP $fip_name" >&2; exit 1; }
     img=$(image_extid "${IMAGE:-rocky-9-genericcloud}"); [ -n "$img" ] || { echo "no image" >&2; exit 1; }
-    cl=$(lab/pc.sh GET /api/clustermgmt/v4.0/config/clusters 2>/dev/null | jq -r '.data[] | select(.config.clusterFunction|index("AOS")) | .extId' | head -1)
+    # A tenant's role cannot list clusters (403, measured): CLUSTER gives it.
+    cl="${CLUSTER:-$(lab/pc.sh GET /api/clustermgmt/v4.0/config/clusters 2>/dev/null | jq -r '.data[] | select(.config.clusterFunction|index("AOS")) | .extId' | head -1)}"
     vm=$(vm_extid "$vm_name")
     if [ -z "$vm" ]; then
       printf '#cloud-config\nusers:\n  - name: probe\n    sudo: ALL=(ALL) NOPASSWD:ALL\n    ssh_authorized_keys:\n      - %s\n' "$(<"$key_file")" | base64 | tr -d '\n' > "$tmp/ud"
