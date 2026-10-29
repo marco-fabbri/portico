@@ -57,15 +57,21 @@ A tenant:
 ```json
 {"id": "acme", "display_name": "ACME Cloud", "status": "active", "contacts": "ops@acme.example",
  "keycloak_group_id": "…", "last_error": "", "created_at": "…", "updated_at": "…",
+ "subnet": "10.100.0.0/24", "subnet_exception": false, "floating_ips": 1,
  "placements": [{"site": "az-it-mi1", "code": "AZ-IT-MI1", "status": "active",
    "cluster_ext_id": "…", "storage_container_ext_id": "…", "project_id": "portico-acme",
    "project_ext_id": "…", "resource_group_ext_id": "…", "saml_group_ext_id": "…",
-   "role_membership_ext_id": "…", "idp_shared": true, "last_error": ""}]}
+   "role_membership_ext_id": "…", "idp_shared": true, "last_error": "",
+   "network": {"state": "ready", "error": "", "transit_prefix": "10.23.211.16/28",
+     "snat_ip": "10.23.211.29", "ext_subnet_ext_id": "…", "vpc_ext_id": "…", "subnet_ext_id": "…",
+     "floating_ips": [{"ext_id": "…", "ip": "10.23.211.18"}]}}]}
 ```
 
 Tenant statuses: `creating`, `active`, `failed` (with `last_error`, naming
 the sites that failed), `disabled`, `deleting`. Placement statuses:
-`creating`, `active`, `failed`, `removing`.
+`creating`, `active`, `failed`, `removing`. Network states: `none` (the
+site's ready network was off, or the connection is from before 0.2.0),
+`building`, `ready`, `failed` (with `error`).
 
 ## Settings
 

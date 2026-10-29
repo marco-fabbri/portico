@@ -37,9 +37,12 @@ the appliance in front of customers.
   mode, see [Certificates](#certificates)), or a Cloudflare tunnel with
   its connector token (tunnel mode).
 - **An account used once per site**: a Prism Central administrator
-  that can create users and authorization policies. With it Portico
-  creates its own `portico` service account and the SAML trust; Portico
-  never stores a human administrator's credentials.
+  that can create users, roles and authorization policies. With it
+  Portico creates its own `portico` service account, its roles and the
+  SAML trust; Portico never stores a human administrator's credentials.
+- **For tenant networks, optionally**: Flow Virtual Networking on the
+  site and a transit VPC you build once (see
+  [Tenant networks](#tenant-networks)).
 
 ## Certificates
 
@@ -103,6 +106,70 @@ the console binds it to the internal one. With a single interface (a
 cloud instance, one public address) it answers on that address: forward
 only 443 to the appliance (security group, NAT, upstream firewall), and
 log in soon after the first boot to replace the factory password.
+
+## Tenant networks
+
+From 0.2.0 a site can give every tenant connected to it a **ready
+network**: its own VPC with a `/24` subnet, outbound access through the
+MSP's network, and floating IPs that publish its VMs. It follows the
+routed form of the shared transit VPC in Nutanix's NVD-2219: the MSP
+builds one transit VPC per site, once; Portico builds each tenant's part
+of it. A site without it keeps working; its tenants get no network.
+
+### Prism Central prerequisites
+
+Each one is read by the site's **Networking** card, which says what is
+missing:
+
+- **Flow Virtual Networking** enabled, its controller `UP`, in the
+  **Integrated** mode (the card asks you to confirm it: Prism Central's
+  API does not say which mode runs). Flow Network Security as well, as
+  in the NVD.
+- **Prism Central's gateway** is the subnet's router, not an address of
+  the cluster (its virtual IP, Data Services IP, a CVM or a host): Flow
+  downloads its packages through it.
+- **Capacity**: Flow Virtual Networking adds about 2 vCPU and 3 GB per
+  Prism Central VM, Flow Network Security about 2 GB more; an extra
+  small Prism Central is not supported.
+- **The networking rights of Portico's service account.** Finish setup
+  and Repair create them: the **Portico Networking** role and its
+  policy, and the **Portico Tenant** role tenants get in their project.
+  A site set up before 0.2.0 needs one Repair.
+
+### The transit VPC, once per site
+
+1. **A no-NAT VLAN external subnet** on the network the VPC traffic
+   leaves through, with a pool of free addresses (Prism Central keeps
+   one managed subnet per VLAN and virtual switch: a NAT external subnet
+   already on that VLAN must go first).
+2. **A transit VPC** (type `TRANSIT`) on it with **one fixed address**
+   and one active gateway, a **default route** `0.0.0.0/0` to the
+   external subnet, and a **routed prefix** of your address space as
+   its externally routable prefix. Each tenant takes a `/28` of it, so
+   a `/24` serves 16 tenants.
+3. **On your router**, a route of the routed prefix to the transit VPC's
+   fixed address (static, or through a BGP gateway), and the outbound
+   NAT of that prefix to the Internet.
+
+Example, as measured (write-up 34): `external-routed` on VLAN 210 with
+the pool `10.23.210.200`-`.219`, the transit VPC `portico-transit` at
+`10.23.210.200` with the routed prefix `10.23.211.0/24`, and on the
+router `10.23.211.0/24 via 10.23.210.200`.
+
+### Switching it on
+
+On the site's page, the **Networking** card: pick the transit VPC, give
+the DNS servers the tenant subnets hand out, confirm the Integrated
+mode, and switch it on. The switch stays off until every check passes.
+New connections to the site then get their network; a tenant connected
+earlier gets it with **Create ready network** on its page.
+
+The tenant address pool (the setup page's Tenants card, `10.100.0.0/16`
+by default) gives each tenant a `/24`, the same on every site; it cannot
+change once a tenant holds one. A tenant can have a subnet exception
+(the new-tenant form's Advanced section) when its default `/24` collides
+with the customer's own network, and from 0 to 12 floating IPs per site
+(1 by default).
 
 ## The appliance image
 

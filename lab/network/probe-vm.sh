@@ -6,7 +6,8 @@
 # PROJECT has a ready network from lab/network/tenant-network.sh. The VM
 # `<project>-vm` (1 vCPU, 1 GiB, IMAGE, default rocky-9-genericcloud) gets
 # the user `probe` with SSH_KEY_FILE (default ~/.ssh/id_rsa.pub), and the
-# floating IP `<project>-fip` is associated with its NIC. CLUSTER (extId)
+# floating IP `<project>-fip` (FIP_NAME names another, e.g. Portico's
+# `<project>-fip-1`) is associated with its NIC. CLUSTER (extId)
 # picks the cluster when the caller cannot list them. `check` connects
 # to the floating IP from this host, or through LAB_JUMP (user@host on the
 # VLAN). Lab only.
@@ -23,7 +24,7 @@ project="${2:?usage: probe-vm.sh create|check|delete PROJECT}"
 [[ "$project" == portico-* ]] || { echo "refusing: project name must start with portico-: $project" >&2; exit 2; }
 NET=/api/networking/v4.4/config
 VMM=/api/vmm/v4.0/ahv/config
-vm_name="$project-vm"; subnet_name="$project-net"; fip_name="$project-fip"
+vm_name="$project-vm"; subnet_name="$project-net"; fip_name="${FIP_NAME:-$project-fip}"
 key_file="${SSH_KEY_FILE:-$HOME/.ssh/id_rsa.pub}"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 

@@ -37,8 +37,11 @@ model. Small MSPs have no turnkey answer.
 
 ### Explicitly deferred (step 2 and later)
 
-- Richer web UI and MSP features (quotas, networks, image catalog per tenant,
-  tenant self-service, usage reporting).
+- Richer web UI and MSP features (quotas, image catalog per tenant,
+  tenant self-service, usage reporting). Networks per tenant moved to
+  0.2.0 for the **ready network**, one VPC, subnet and floating IPs per
+  tenant and site (`2026-10-29-tenant-network-design.md`); further
+  networks, the subnet stretch and VPN stay deferred.
 - Non-interactive API access for tenants (Portico-issued API keys).
 - Brokering each tenant to its own directory via Keycloak. Entra ID and
   other SAML/OIDC providers need no network path. An on-premises Active
@@ -293,7 +296,14 @@ serves every site; design `2026-10-20-sites-design.md` §4.2):
   provider for that customer's directory,
 - a role mapping in Prism Central: group → role within the project (never a
   global role),
-- metadata (display name, contacts, status).
+- metadata (display name, contacts, status),
+- since 0.2.0, its network plan: a `/24` from the MSP's address pool (or a
+  subnet exception) and the floating IPs per site; on a site whose ready
+  network is on, the connection gains the network steps (overlay external
+  subnet on a `/28` of the transit VPC's routed prefix, sharing, VPC,
+  default route, subnet, floating IPs, read-back) and stores those
+  objects by `extId` with a network state of its own
+  (`2026-10-29-tenant-network-design.md` 4.3).
 
 Creating a tenant performs these steps idempotently (measured calls in
 write-up 05: project with `id` slug, resource group with cluster and
@@ -363,7 +373,11 @@ administrator. It works through a dedicated **service account** named
 with an **API key** sent as `X-ntnx-api-key` (write-up 07). The account is
 a member of the predefined `Project Manager_acp` authorization policy,
 which was measured sufficient for the whole tenant cycle plus probe-user
-creation; no custom role in step 1. This mirrors SP Central's
+creation; no custom role in step 1. Since 0.2.0 the site setup also
+creates the **Portico Networking** role and its policy for the account
+(subnets, VPCs, route tables, floating IPs, sharing), and the **Portico
+Tenant** role tenants get in their project, Project Admin without the
+floating IP operations (`2026-10-29-tenant-network-design.md` 4.5). This mirrors SP Central's
 `sp_svc_acc_<uuid>` pattern. Each site offers two paths (sites
 usability design 4.1, 2026-10-23):
 
