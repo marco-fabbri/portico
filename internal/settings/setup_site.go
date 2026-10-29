@@ -49,8 +49,10 @@ const SetupDeadline = 2 * time.Minute
 
 // setupOperations are the Prism Central operations the setup's creations
 // use (write-up 26, measured on pc.7.6): the service account, its key,
-// the policy membership and the identity provider.
-var setupOperations = []string{"Create_User", "Create_User_Key", "Update_Authorization_Policy", "Create_Saml_Identity_Provider"}
+// the policy membership, the identity provider, and the roles and policy
+// of tenant ready networks (tenant networking design 4.5).
+var setupOperations = []string{"Create_User", "Create_User_Key", "Update_Authorization_Policy", "Create_Saml_Identity_Provider",
+	"Create_Role", "Update_Role", "Delete_Role", "Create_Authorization_Policy", "Delete_Authorization_Policy"}
 
 // SetupReady says whether the document is ready to set up sites: the
 // public names and the Keycloak realm with its admin client.
@@ -79,8 +81,8 @@ func CheckSetupInput(in SetupInput) error {
 }
 
 // SetupSite sets a site up in one run (design sites 4.1): certificate,
-// version, rights, identity provider, service account, SAML trust,
-// defaults, live. A failure stops the run at that step, except the
+// version, rights, identity provider, service account, networking rights,
+// SAML trust, defaults, live. A failure stops the run at that step, except the
 // defaults: what was done is stored, and a run again goes on from there
 // (every step is idempotent). The credentials live in the Prism Central
 // client of this call only. The error is for invalid input, an unknown
@@ -169,7 +171,7 @@ func (r *setupRun) patch(fn func(*Site)) error {
 }
 
 func (r *setupRun) run() {
-	for _, step := range []func() bool{r.certificate, r.version, r.rights, r.identityProvider, r.serviceAccount, r.samlTrust} {
+	for _, step := range []func() bool{r.certificate, r.version, r.rights, r.identityProvider, r.serviceAccount, r.networkingRights, r.samlTrust} {
 		if !step() {
 			return
 		}
@@ -336,6 +338,14 @@ func (r *setupRun) serviceAccount() bool {
 		msg += "; the key stored before stays valid in Prism Central and is no longer held by Portico; revoke it there"
 	}
 	return r.line(step, "ok", msg)
+}
+
+// networkingRights: the Portico Networking and Portico Tenant roles and
+// the policy binding the first to the service account (tenant networking
+// design 4.5).
+func (r *setupRun) networkingRights() bool {
+	status, msg := r.b.networkingRights(r.ctx, r.pc, r.site.URL, r.name, r.site.ServiceAccountExtID)
+	return r.line("networking-rights", status, msg)
 }
 
 // samlTrust: Portico's identity provider (created, or the one found) and

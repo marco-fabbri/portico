@@ -113,7 +113,7 @@ type Keycloak interface {
 type Config struct {
 	ProjectPrefix    string        // project name and id = ProjectPrefix + "-" + slug, on every site
 	GroupPrefix      string        // Keycloak and SAML group = GroupPrefix + slug
-	RoleName         string        // role bound inside the project, "Project Admin" by default
+	RoleName         string        // role bound inside the project, DefaultRole by default
 	OperationTimeout time.Duration // context of a background run
 	// RetryPauses are the waits before a step is run again after a
 	// transient Prism Central answer (nutanix.IsTransient); its length is
@@ -134,7 +134,7 @@ func (c Config) withDefaults() Config {
 		c.GroupPrefix = "tenant-"
 	}
 	if c.RoleName == "" {
-		c.RoleName = "Project Admin"
+		c.RoleName = DefaultRole
 	}
 	if c.OperationTimeout <= 0 {
 		c.OperationTimeout = 10 * time.Minute
