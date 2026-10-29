@@ -231,6 +231,47 @@ must Portico ask the MSP for?
     `Update_Floating_Ip`, `Delete_Floating_Ip`. Whether a custom role
     with these, scoped to the external subnets and the tenants' projects,
     is enough is the next measurement.
+- MEASURED (as `admin`, NTNX-01, 19:55–20:10 UTC): a VM on the ready
+  network, `lab/network/probe-vm.sh create|check|delete portico-netprobe`
+  (Rocky 9 GenericCloud, 1 vCPU, 1 GiB, user `probe` with an SSH key
+  through cloud-init, the floating IP associated with its NIC through
+  `PUT .../floating-ips/{extId}` with a `VmNicAssociation`):
+  - The VM got `10.100.1.22` from the subnet's pool (IP address
+    management of Prism Central) and its default route and DNS from the
+    VPC's DHCP. The floating IP showed `ASSOCIATED_TO_VNIC`.
+  - **Nothing left the VPC.** A capture on the VM's tap interface on the
+    AHV host showed a ping to the floating IP arrive translated
+    (`10.23.210.192 > 10.100.1.22`) and the VM answer it, but no answer
+    left the host's uplink; the VM's DNS queries to `1.1.1.1` got no
+    answer. The VPC's route table held only its local route
+    (`10.100.1.0/24`): **a VPC created through the v4 API gets no default
+    route**, unlike the UI, which offers one when an external subnet is
+    attached.
+  - With a static route `0.0.0.0/0` → `EXTERNAL_SUBNET` (`external-nat`),
+    `POST .../route-tables/{extId}/routes`, the ping answered at once;
+    over SSH on the floating IP, from the build host and from the Mac,
+    the VM had its address, its route through `.1`, `1.1.1.1` as name
+    server, and `https://dl.rockylinux.org/` answered 200 in 0.65 s
+    through the VPC's SNAT. `tenant-network.sh` now adds the route right
+    after the VPC.
+  - With the VM still on the subnet, `tenant-network.sh delete`: the
+    floating IP **was deleted although associated with the VM** (Prism
+    Central does not protect it); the subnet and the VPC were refused
+    (`NETWORKING-10068` "1 subnets still configured" for the VPC), and so
+    was `unshare` ("Subnet ... is attached to a VPC"). After the VM was
+    deleted the same run removed everything, the VPC with its static
+    route, and the external subnet was shared with no project.
+- MEASURED (read only, both sites): the networking controller's API has
+  no field for the Flow mode (`controllers` lists version, status,
+  health per cluster and node, the VLAN stack, nothing about Integrated
+  or Standalone). Prism Central's gateway is read from
+  `GET /api/prism/v4.2/config/domain-managers`,
+  `network.externalNetworks[].defaultGateway`, now `.254` on both; the
+  cluster's own addresses from `GET /api/clustermgmt/v4.0/config/clusters`
+  (`externalAddress`, `externalDataServiceIp`, and per node the CVM and
+  host addresses). NYC1's old gateway `.183` is its cluster's
+  `externalDataServiceIp`: a check "the gateway is not one of the
+  cluster's addresses" would have caught it.
 - MEASURED: Marco enabled Flow Network Security on NTNX-01 at 05:37 UTC:
   `kPrismCentralResize`, then `kMicrosegEnablementAsync` and
   `kEnableMicroseg`, all succeeded within a minute; the Prism Central VM
@@ -320,10 +361,16 @@ MSP only confirms or picks.
   Flow mode: those are platform choices of the MSP, as in SP Central.
   Portico reads them, explains what is missing, and keeps the ready network
   off on a site that lacks them.
-- The ready network of one tenant on one site is four v4 calls, each one
-  task: share the external subnet with the tenant's project, the VPC, the
-  overlay subnet, one floating IP; 27 s measured. Removal is the reverse
-  plus `unshare`. Each step is idempotent by name, so it fits the tenant
+- The ready network of one tenant on one site is five v4 calls, each one
+  task: share the external subnet with the tenant's project, the VPC, its
+  default route to the external subnet (without it nothing leaves the
+  VPC, measured), the overlay subnet, one floating IP; 27 to 30 s
+  measured. Removal is the reverse plus `unshare`; the route goes with
+  the VPC. A VM on it gets its address by DHCP, reaches the Internet
+  through SNAT and is reached on its floating IP (measured).
+- Prism Central deletes a floating IP associated with a VM without a
+  word, so Portico must check the association itself before deleting
+  one. Each step is idempotent by name, so it fits the tenant
   steps Portico already records and retries.
 - Portico reads the addresses Prism Central assigns (two per VPC, one per
   floating IP) instead of predicting them: the order is not fixed.
@@ -358,7 +405,8 @@ MSP only confirms or picks.
 3. As `admin`: `lab/projects/create.sh`, then `lab/network/tenant-network.sh
    create|show|delete portico-netprobe 10.100.1.0/24`, then
    `lab/projects/delete.sh`. Compare the steps, the codes and the time with
-   the results above.
+   the results above. In between, `lab/network/probe-vm.sh create|check|delete
+   portico-netprobe` checks the data path (DHCP, SNAT, floating IP).
 4. As the service account: `lab/auth/create-service-account.sh` for a key,
    `lab/auth/networking-role.sh create` (it refuses if an operation was
    renamed by the upgrade), the same run with `PC_API_KEY` set, then
