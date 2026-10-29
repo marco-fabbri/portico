@@ -239,6 +239,19 @@ drawn across the logo on the Keycloak login page.
   scopes them, and which role the service account needs. The tenant
   networking design keeps the tenant's VPC and subnet identical in name
   and address on every site so the mapping is one to one.
+  Optional per tenant (Marco, 2026-10-29): stretch the tenant's subnet
+  between its two sites with Layer 2 subnet extension and move VMs with
+  cross-cluster live migration (CCLM, or on-demand CCLM), keeping their
+  addresses. The same tenant `/24` on both sites makes this possible
+  without renumbering (measured on both sites on 2026-10-29).
+  Prerequisites from the Flow Virtual Networking and DR guides 7.6,
+  which Portico checks or asks for before offering it: the two Prism
+  Centrals paired as availability zones, a Network Gateway appliance per
+  extension and a `0.0.0.0/0` static route in the tenant's VPC, the same
+  AHV version and compatible CPUs on both sites, the DR ports open, and
+  the bandwidth between the sites: under 5 ms round trip and enough for
+  peak writes when CCLM runs on synchronous replication. Portico cannot create the bandwidth; it
+  measures or asks for it, and leaves the option off when it is missing.
 - Site page variant C: sites grouped by region, for an MSP with many
   sites (mockup of 2026-10-20).
 - API versions chosen per site, for sites on different Prism Central
