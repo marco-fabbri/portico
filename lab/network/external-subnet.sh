@@ -7,7 +7,8 @@
 #   source lab/env.sh && lab/network/external-subnet.sh NAME POOL_START POOL_END
 # Other site: PC_URL=https://10.23.210.185:9440 and PC_PASS from nyc1-pw.
 # Optional: EXT_VLAN (0: untagged on the host), EXT_NET (10.23.210.0),
-# EXT_PREFIX (24), EXT_GATEWAY (10.23.210.254), EXT_BASE (MGMT).
+# EXT_PREFIX (24), EXT_GATEWAY (10.23.210.254), EXT_BASE (MGMT), EXT_NAT (true;
+# false makes the routed, no-NAT external subnet of NVD-2219's transit VPC).
 set -euo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 : "${PC_URL:?source lab/env.sh first}"
@@ -37,10 +38,10 @@ else
   fi
   jq -n --arg name "$name" --argjson vlan "$vlan" --arg cluster "$cluster" \
     --arg vswitch "$vswitch" --arg net "$net" --argjson prefix "$prefix" \
-    --arg gw "$gateway" --arg start "$start" --arg end "$end" '{
+    --arg gw "$gateway" --arg start "$start" --arg end "$end" --arg nat "${EXT_NAT:-true}" '{
       name: $name, subnetType: "VLAN", networkId: $vlan,
       clusterReference: $cluster, virtualSwitchReference: $vswitch,
-      isExternal: true, isNatEnabled: true,
+      isExternal: true, isNatEnabled: ($nat == "true"),
       ipConfig: [{ipv4: {
         ipSubnet: {ip: {value: $net}, prefixLength: $prefix},
         defaultGatewayIp: {value: $gw},
