@@ -222,7 +222,8 @@ func TenantStatus(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, tenant.ErrCount):
 		return http.StatusServiceUnavailable
-	case errors.Is(err, tenant.ErrInvalidSlug), errors.Is(err, tenant.ErrUnknownSite), errors.Is(err, tenant.ErrNoPlacementTarget), errors.Is(err, tenant.ErrInvalidAllowance):
+	case errors.Is(err, tenant.ErrInvalidSlug), errors.Is(err, tenant.ErrUnknownSite), errors.Is(err, tenant.ErrNoPlacementTarget), errors.Is(err, tenant.ErrInvalidAllowance),
+		errors.Is(err, tenant.ErrInvalidSubnet):
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError
@@ -279,6 +280,8 @@ func (h *handler) createTenant(w http.ResponseWriter, r *http.Request) {
 		DisplayName string                 `json:"display_name"`
 		Contacts    string                 `json:"contacts"`
 		Sites       []placementRequestJSON `json:"sites"`
+		Subnet      string                 `json:"subnet"`
+		Allowance   *int                   `json:"floating_ips"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
@@ -288,7 +291,8 @@ func (h *handler) createTenant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, tenant.ErrInvalidSlug.Error())
 		return
 	}
-	req := tenant.CreateRequest{Slug: in.Slug, DisplayName: strings.TrimSpace(in.DisplayName), Contacts: strings.TrimSpace(in.Contacts)}
+	req := tenant.CreateRequest{Slug: in.Slug, DisplayName: strings.TrimSpace(in.DisplayName), Contacts: strings.TrimSpace(in.Contacts),
+		Subnet: strings.TrimSpace(in.Subnet), FIPAllowance: in.Allowance}
 	// No "sites" key: the service's default (the only site when there is
 	// one); "sites": [] creates a tenant connected to no site.
 	if in.Sites != nil {

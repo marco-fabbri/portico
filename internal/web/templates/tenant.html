@@ -25,8 +25,14 @@
     <dt>Slug</dt><dd>{{$t.ID}}</dd>
     <dt>Contacts</dt><dd>{{$t.Contacts}}</dd>
     <dt>Keycloak group</dt><dd class="muted">{{$t.KeycloakGroupID}}</dd>
+    <dt>Subnet</dt><dd>{{with $t.Subnet}}<code>{{.}}</code>{{if $t.SubnetException}} <span class="muted small">exception</span>{{end}}{{else}}<span class="muted">none yet</span>{{end}}</dd>
     <dt>Updated</dt><dd>{{$t.UpdatedAt.Format "2006-01-02 15:04:05"}}</dd>
   </dl>
+  <form method="post" action="/tenants/{{$t.ID}}/floating-ips" class="inline-form">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <label>Floating IPs per site <input type="number" name="allowance" min="0" max="12" value="{{$t.FIPAllowance}}"></label>
+    <div class="actions"><button type="submit">Save</button></div>
+  </form>
 </section>
 
 <section class="card" id="card-sites">
@@ -71,6 +77,19 @@
     <dt>Role membership</dt><dd class="muted">{{.RoleMembershipExtID}}</dd>
     <dt>IdP shared</dt><dd>{{if .IdPShared}}yes{{else}}no{{end}}</dd>
   </dl>
+  <h3>Ready network <span class="status status-{{.NetState}}">{{.NetState}}</span></h3>
+  {{if .NetError}}<div class="banner error">{{.NetError}}</div>{{end}}
+  {{if .TransitPrefix}}<dl>
+    <dt>Subnet</dt><dd>{{with $t.Subnet}}<code>{{.}}</code>{{end}}</dd>
+    <dt>Routed range</dt><dd><code>{{.TransitPrefix}}</code></dd>
+    <dt>Outbound address</dt><dd>{{with .SNATIP}}<code>{{.}}</code>{{else}}<span class="muted">not read yet</span>{{end}}</dd>
+    <dt>Floating IPs</dt><dd>{{range $i, $f := .FloatingIPs}}{{if $i}}, {{end}}<code>{{$f.IP}}</code>{{else}}<span class="muted">none</span>{{end}}</dd>
+  </dl>{{else if eq .NetState "none"}}<p class="muted">{{if .NetOn}}This connection has no ready network yet.{{else}}The site's ready network is off.{{end}}</p>{{end}}
+  {{if eq .NetState "failed"}}
+  <form method="post" action="/tenants/{{$t.ID}}/sites/{{.SiteID}}/network/retry" class="inline"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><button type="submit" class="primary">Retry network</button></form>
+  {{else if and (eq .NetState "none") .NetOn (eq .Status "active")}}
+  <form method="post" action="/tenants/{{$t.ID}}/sites/{{.SiteID}}/network" class="inline"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><button type="submit" class="primary">Create ready network</button></form>
+  {{end}}
   <h3>Visibility</h3>
   {{if .Visibility}}
     {{if .Visibility.OK}}<p class="ok">OK: the group holds one project-scoped role in this project and nothing else.</p>
