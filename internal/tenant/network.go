@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"sort"
 	"strings"
 
@@ -271,7 +272,8 @@ func (s *Service) buildNetwork(ctx context.Context, t *store.Tenant, p *store.Pl
 			return fmt.Sprintf("%s %s (%s)", name, prefix, sub.ExtID), nil
 		}},
 		{"net-floating-ips", func(ctx context.Context) (string, error) {
-			return s.floatingIPs(ctx, pc, t, p, project)
+			_, detail, err := matchAllowance(ctx, pc, p, project, t.FIPAllowance)
+			return detail, err
 		}},
 		{"net-read-back", func(ctx context.Context) (string, error) {
 			return readBack(ctx, pc, p, project)
@@ -334,48 +336,89 @@ func findVPC(ctx context.Context, pc PrismCentral, extID, name string) (*nutanix
 	return nil, nil
 }
 
-// floatingIPs makes the tenant's allowance of floating IPs,
-// <project>-fip-1 to -N, from its external subnet, unassociated.
-func (s *Service) floatingIPs(ctx context.Context, pc PrismCentral, t *store.Tenant, p *store.Placement, project string) (string, error) {
+// matchAllowance brings the connection's floating IPs, <project>-fip-N,
+// to n: the stored ones Prism Central still has, any of those names it
+// made in a run cut off before they were stored, new ones with the
+// lowest free names, and fewer by deleting unassociated ones from the
+// highest name down (design 4.3). kept counts the associated ones it
+// could not delete.
+func matchAllowance(ctx context.Context, pc PrismCentral, p *store.Placement, project string, n int) (kept int, detail string, err error) {
 	all, err := pc.ListFloatingIPs(ctx)
 	if err != nil {
-		return "", err
+		return 0, "", err
 	}
-	byID, byName := map[string]nutanix.FloatingIP{}, map[string]nutanix.FloatingIP{}
+	stored := map[string]bool{}
+	for _, f := range p.FloatingIPs {
+		stored[f.ExtID] = true
+	}
+	index := func(name string) int {
+		var i int
+		if _, err := fmt.Sscanf(strings.TrimPrefix(name, project+"-fip-"), "%d", &i); err != nil || !strings.HasPrefix(name, project+"-fip-") {
+			return 0
+		}
+		return i
+	}
+	var have []nutanix.FloatingIP
 	for _, f := range all {
-		byID[f.ExtID], byName[f.Name] = f, f
+		if stored[f.ExtID] || (index(f.Name) > 0 && f.ProjectExtID == p.ProjectExtID) {
+			have = append(have, f)
+		}
 	}
-	var kept []store.FloatingIP
+	sort.Slice(have, func(i, j int) bool { return index(have[i].Name) < index(have[j].Name) })
+	save := func() {
+		p.FloatingIPs = p.FloatingIPs[:0]
+		for _, f := range have {
+			p.FloatingIPs = append(p.FloatingIPs, store.FloatingIP{ExtID: f.ExtID, IP: addrString(f.IP)})
+		}
+	}
+	defer save()
+	created, deleted := 0, 0
+	for next := 1; len(have) < n; next++ {
+		name := fmt.Sprintf("%s-fip-%d", project, next)
+		if slices.ContainsFunc(have, func(f nutanix.FloatingIP) bool { return f.Name == name }) {
+			continue
+		}
+		made, err := inProject(ctx, name, p.ProjectExtID,
+			func(ctx context.Context) (*nutanix.FloatingIP, error) {
+				return pc.CreateFloatingIP(ctx, name, p.ProjectExtID, p.ExtSubnetExtID)
+			},
+			func(f *nutanix.FloatingIP) string { return f.ProjectExtID }, func(f *nutanix.FloatingIP) string { return f.ExtID }, pc.DeleteFloatingIP)
+		if err != nil {
+			return 0, "", err
+		}
+		have = append(have, *made)
+		sort.Slice(have, func(i, j int) bool { return index(have[i].Name) < index(have[j].Name) })
+		created++
+	}
+	for i := len(have) - 1; i >= 0 && len(have) > n; i-- {
+		if have[i].Associated {
+			continue
+		}
+		if err := pc.DeleteFloatingIP(ctx, have[i].ExtID); err != nil && !nutanix.IsNotFound(err) {
+			return 0, "", err
+		}
+		have = slices.Delete(have, i, i+1)
+		deleted++
+	}
+	kept = len(have) - n
+	if kept < 0 {
+		kept = 0
+	}
 	var ips []string
-	for i := 1; i <= t.FIPAllowance; i++ {
-		name := fmt.Sprintf("%s-fip-%d", project, i)
-		f, ok := nutanix.FloatingIP{}, false
-		if i <= len(p.FloatingIPs) {
-			f, ok = byID[p.FloatingIPs[i-1].ExtID]
-		}
-		if !ok {
-			f, ok = byName[name]
-		}
-		if !ok {
-			made, err := inProject(ctx, name, p.ProjectExtID,
-				func(ctx context.Context) (*nutanix.FloatingIP, error) {
-					return pc.CreateFloatingIP(ctx, name, p.ProjectExtID, p.ExtSubnetExtID)
-				},
-				func(f *nutanix.FloatingIP) string { return f.ProjectExtID }, func(f *nutanix.FloatingIP) string { return f.ExtID }, pc.DeleteFloatingIP)
-			if err != nil {
-				p.FloatingIPs = kept
-				return "", err
-			}
-			f = *made
-		}
-		kept = append(kept, store.FloatingIP{ExtID: f.ExtID, IP: addrString(f.IP)})
+	for _, f := range have {
 		ips = append(ips, addrString(f.IP))
 	}
-	p.FloatingIPs = kept
-	if len(ips) == 0 {
-		return "no floating IP (allowance 0)", nil
+	detail = fmt.Sprintf("%d floating IP(s)", len(have))
+	if len(ips) > 0 {
+		detail += ": " + strings.Join(ips, ", ")
 	}
-	return fmt.Sprintf("%d floating IP(s): %s", len(ips), strings.Join(ips, ", ")), nil
+	if created > 0 || deleted > 0 {
+		detail += fmt.Sprintf(" (%d created, %d deleted)", created, deleted)
+	}
+	if kept > 0 {
+		detail += fmt.Sprintf("; %d associated with a VM kept above the allowance of %d", kept, n)
+	}
+	return kept, detail, nil
 }
 
 func addrString(a netip.Addr) string {
@@ -560,4 +603,134 @@ func (s *Service) networkRemoval(pc PrismCentral, p *store.Placement) []removalS
 // network.
 func hasNetwork(p *store.Placement) bool {
 	return p.NetState != store.NetNone || p.ExtSubnetExtID != "" || p.VPCExtID != "" || p.SubnetExtID != "" || len(p.FloatingIPs) > 0
+}
+
+// ErrInvalidAllowance refuses a floating IP allowance outside 0 to
+// netplan.MaxAllowance.
+var ErrInvalidAllowance = fmt.Errorf("tenant: the floating IP allowance must be between 0 and %d", netplan.MaxAllowance)
+
+// networkPlacement returns the tenant's connection to the site with its
+// site, in a status a ready network can be built on: active or suspended.
+func (s *Service) networkPlacement(ctx context.Context, id, siteID string) (*store.Tenant, *store.Placement, Site, error) {
+	t, err := s.st.GetTenant(ctx, id)
+	if err != nil {
+		return nil, nil, Site{}, err
+	}
+	p, err := s.st.GetPlacement(ctx, id, siteID)
+	if err != nil {
+		return nil, nil, Site{}, err
+	}
+	site, err := s.site(siteID)
+	if err != nil {
+		return nil, nil, Site{}, fmt.Errorf("%w: %q", ErrUnknownSite, siteID)
+	}
+	if p.Status != store.PlacementActive && p.Status != store.PlacementSuspended {
+		return nil, nil, Site{}, fmt.Errorf("%w: the connection to %s is %s", ErrState, site.Code, p.Status)
+	}
+	return t, p, site, nil
+}
+
+// RetryNetwork runs the ready network's steps again, alone, on a
+// connection whose network failed (design 4.3, Retry network).
+func (s *Service) RetryNetwork(ctx context.Context, id, siteID string) error {
+	t, p, site, err := s.networkPlacement(ctx, id, siteID)
+	if err != nil {
+		return err
+	}
+	if p.NetState != store.NetFailed {
+		return fmt.Errorf("%w: the ready network on %s is %s, not failed", ErrState, site.Code, p.NetState)
+	}
+	return s.startNetwork(t, p, site)
+}
+
+// CreateNetwork builds the ready network of a connection that has none,
+// on a site whose ready network is on (design 4.3, Create ready network).
+func (s *Service) CreateNetwork(ctx context.Context, id, siteID string) error {
+	t, p, site, err := s.networkPlacement(ctx, id, siteID)
+	if err != nil {
+		return err
+	}
+	if p.NetState != store.NetNone {
+		return fmt.Errorf("%w: the connection to %s already has a ready network (%s)", ErrState, site.Code, p.NetState)
+	}
+	if !site.Network.Enabled {
+		return fmt.Errorf("%w: the ready network of %s is off", ErrState, site.Code)
+	}
+	return s.startNetwork(t, p, site)
+}
+
+// startNetwork runs buildNetwork in the background under the tenant's
+// lock; it reads the rows again once it holds it.
+func (s *Service) startNetwork(t *store.Tenant, p *store.Placement, site Site) error {
+	if !s.acquire(t.ID) {
+		return ErrBusy
+	}
+	s.changed(t.ID)
+	s.background(t.ID, "network", func(ctx context.Context) error {
+		defer s.changed(t.ID)
+		t, err := s.st.GetTenant(ctx, t.ID)
+		if err != nil {
+			return err
+		}
+		p, err := s.st.GetPlacement(ctx, t.ID, p.SiteID)
+		if err != nil {
+			return err
+		}
+		return s.buildNetwork(ctx, t, p, site)
+	})
+	return nil
+}
+
+// SetAllowance stores the tenant's floating IP allowance and brings every
+// ready network to it, under the tenant's lock. kept counts the floating
+// IPs a VM uses that stay above the allowance.
+func (s *Service) SetAllowance(ctx context.Context, id string, n int) (int, error) {
+	if n < 0 || n > netplan.MaxAllowance {
+		return 0, ErrInvalidAllowance
+	}
+	t, err := s.st.GetTenant(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	if !s.acquire(id) {
+		return 0, ErrBusy
+	}
+	defer s.release(id)
+	defer s.changed(id)
+	t.FIPAllowance = n
+	if err := s.st.UpdateTenant(ctx, t); err != nil {
+		return 0, err
+	}
+	ps, err := s.st.ListPlacements(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	kept := 0
+	var failures []string
+	for i := range ps {
+		p := &ps[i]
+		if p.NetState != store.NetReady {
+			continue
+		}
+		site, err := s.site(p.SiteID)
+		if err != nil {
+			failures = append(failures, err.Error())
+			continue
+		}
+		err = s.record(ctx, id, p.SiteID, "net-floating-ips", func(ctx context.Context) (string, error) {
+			k, detail, err := matchAllowance(ctx, site.PC, p, s.projectName(id), n)
+			kept += k
+			return detail, err
+		})
+		if uerr := s.st.UpdatePlacement(context.WithoutCancel(ctx), p); uerr != nil && err == nil {
+			err = uerr
+		}
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("site %s: %v", site.Code, err))
+		}
+	}
+	if len(failures) > 0 {
+		return kept, errors.New(strings.Join(failures, "; "))
+	}
+	return kept, nil
 }
