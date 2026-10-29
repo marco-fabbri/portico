@@ -227,9 +227,18 @@ drawn across the logo on the Keycloak login page.
 
 ## Sites (Milestone 4)
 
-- Disaster recovery between sites (replication, protection policies,
-  recovery plans): the MSP configures it in Prism Central; Portico only
-  places the tenant on the DR site. Kept open by Marco on 2026-10-20.
+- Disaster recovery between sites, managed by Portico (Marco,
+  2026-10-29; until then the MSP configures it in Prism Central and
+  Portico only places the tenant on the DR site, as kept open on
+  2026-10-20): for a tenant placed on two sites, Portico creates and
+  shows the protection policy and the recovery plan between them
+  (replication schedule, retention, the network mapping of the tenant's
+  subnet onto its twin on the other site), and offers test failover and
+  failover from the tenant page. To be measured on two pc.7.6 sites:
+  which v4 data-protection endpoints create them, whether a project
+  scopes them, and which role the service account needs. The tenant
+  networking design keeps the tenant's VPC and subnet identical in name
+  and address on every site so the mapping is one to one.
 - Site page variant C: sites grouped by region, for an MSP with many
   sites (mockup of 2026-10-20).
 - API versions chosen per site, for sites on different Prism Central
