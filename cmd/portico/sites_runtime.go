@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"sync"
 	"time"
@@ -108,9 +109,22 @@ func probeError(err error) error {
 }
 
 // siteFingerprint changes when anything the parts are built from changes.
+// siteNetwork is the site's ready network as the tenant service uses it;
+// a DNS entry that is not an address is left out (the Networking card
+// refuses one).
+func siteNetwork(n settings.SiteNetwork) tenant.SiteNetwork {
+	out := tenant.SiteNetwork{Enabled: n.Enabled && n.TransitVPCExtID != "", TransitVPCExtID: n.TransitVPCExtID}
+	for _, d := range n.DNS {
+		if a, err := netip.ParseAddr(d); err == nil {
+			out.DNS = append(out.DNS, a)
+		}
+	}
+	return out
+}
+
 func siteFingerprint(s settings.Site) string {
 	b, _ := json.Marshal([]any{s.URL, string(s.APIKey), s.TLSVerify, s.TLSPin, s.CAPEM, s.SAMLIdPName, s.SAMLIdPExtID, s.SAMLEntityID,
-		s.ClusterExtID, s.StorageContainerExtID, s.Code, s.Name, s.Order})
+		s.ClusterExtID, s.StorageContainerExtID, s.Code, s.Name, s.Order, s.Network})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
@@ -211,7 +225,7 @@ func (r *siteRuntime) build(site settings.Site) (*siteParts, error) {
 		fp: siteFingerprint(site),
 		pc: c,
 		tenant: tenant.Site{ID: site.ID, Code: site.Code, Name: site.Name, URL: site.URL, PC: c, SAMLIdPName: site.SAMLIdPName, SAMLIdPExtID: site.SAMLIdPExtID,
-			ClusterExtID: site.ClusterExtID, StorageContainerExtID: site.StorageContainerExtID},
+			ClusterExtID: site.ClusterExtID, StorageContainerExtID: site.StorageContainerExtID, Network: siteNetwork(site.Network)},
 		probe: func(ctx context.Context) error {
 			_, err := c.PrismCentralVersion(ctx)
 			return probeError(err)

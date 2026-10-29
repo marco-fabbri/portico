@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"sort"
 	"sync"
 	"time"
@@ -55,6 +56,7 @@ type Site struct {
 	SAMLIdPName                         string
 	SAMLIdPExtID                        string // stored at setup; "" on a site set up before
 	ClusterExtID, StorageContainerExtID string
+	Network                             SiteNetwork
 }
 
 // PrismCentral is the part of the Prism Central client the service uses.
@@ -81,6 +83,25 @@ type PrismCentral interface {
 	ProjectContents(ctx context.Context, projectExtID string) (nutanix.Contents, error)
 	ListClusters(ctx context.Context) ([]nutanix.Cluster, error)
 	ListStorageContainers(ctx context.Context) ([]nutanix.StorageContainer, error)
+
+	// The ready network (tenant networking design 4.3).
+	ListSubnets(ctx context.Context) ([]nutanix.Subnet, error)
+	GetSubnet(ctx context.Context, extID string) (*nutanix.Subnet, error)
+	CreateOverlayExternalSubnet(ctx context.Context, name, vpcExtID string, p netip.Prefix, gw, first, last netip.Addr) (*nutanix.Subnet, error)
+	CreateOverlaySubnet(ctx context.Context, name, projectExtID, vpcExtID string, p netip.Prefix, gw, first, last netip.Addr) (*nutanix.Subnet, error)
+	ShareSubnet(ctx context.Context, subnetExtID, projectExtID string) error
+	UnshareSubnet(ctx context.Context, subnetExtID, projectExtID string) error
+	DeleteSubnet(ctx context.Context, extID string) error
+	ListVPCs(ctx context.Context) ([]nutanix.VPC, error)
+	GetVPC(ctx context.Context, extID string) (*nutanix.VPC, error)
+	CreateVPC(ctx context.Context, name, projectExtID, externalSubnetExtID string, dns []netip.Addr) (*nutanix.VPC, error)
+	DeleteVPC(ctx context.Context, extID string) error
+	Routes(ctx context.Context, vpcExtID string) (string, []nutanix.Route, error)
+	CreateDefaultRoute(ctx context.Context, vpcExtID, routeTableExtID, externalSubnetExtID, projectExtID string) error
+	ListFloatingIPs(ctx context.Context) ([]nutanix.FloatingIP, error)
+	GetFloatingIP(ctx context.Context, extID string) (*nutanix.FloatingIP, error)
+	CreateFloatingIP(ctx context.Context, name, projectExtID, externalSubnetExtID string) (*nutanix.FloatingIP, error)
+	DeleteFloatingIP(ctx context.Context, extID string) error
 }
 
 // NotEmptyError refuses a disconnect: the project still holds what
@@ -114,6 +135,7 @@ type Config struct {
 	ProjectPrefix    string        // project name and id = ProjectPrefix + "-" + slug, on every site
 	GroupPrefix      string        // Keycloak and SAML group = GroupPrefix + slug
 	RoleName         string        // role bound inside the project, DefaultRole by default
+	AddressPool      netip.Prefix  // the tenants' /24s come from it, DefaultAddressPool by default
 	OperationTimeout time.Duration // context of a background run
 	// RetryPauses are the waits before a step is run again after a
 	// transient Prism Central answer (nutanix.IsTransient); its length is
@@ -135,6 +157,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.RoleName == "" {
 		c.RoleName = DefaultRole
+	}
+	if !c.AddressPool.IsValid() {
+		c.AddressPool = DefaultAddressPool
 	}
 	if c.OperationTimeout <= 0 {
 		c.OperationTimeout = 10 * time.Minute
@@ -161,6 +186,10 @@ type Service struct {
 	kc      Keycloak
 	cfg     Config
 	log     *slog.Logger
+
+	// netMu serialises the address plan: the tenants' /24s and the
+	// connections' /28s are read and stored under it.
+	netMu sync.Mutex
 
 	mu      sync.Mutex
 	running map[string]bool
@@ -258,6 +287,9 @@ type PlacementRequest struct {
 type CreateRequest struct {
 	Slug, DisplayName, Contacts string
 	Sites                       []PlacementRequest
+	// Subnet, when set, is the tenant's /24 instead of the next one of the
+	// pool (tenant networking design 4.2, the exception).
+	Subnet string
 }
 
 // placementFor resolves a request against the configured sites.
@@ -359,13 +391,22 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*store.Tenant,
 		}
 		ps = append(ps, p)
 	}
-	t := &store.Tenant{ID: req.Slug, DisplayName: req.DisplayName, Contacts: req.Contacts, Status: store.StatusCreating, LastOp: store.OpProvision}
+	t := &store.Tenant{ID: req.Slug, DisplayName: req.DisplayName, Contacts: req.Contacts, Status: store.StatusCreating, LastOp: store.OpProvision,
+		FIPAllowance: DefaultAllowance}
 	// The lock comes first: a deletion releases it only after the row is
 	// gone, so a Create in that window must not insert an orphan row.
 	if !s.acquire(t.ID) {
 		return nil, ErrBusy
 	}
-	if err := s.st.CreateTenant(ctx, t); err != nil {
+	// The subnet is picked and the row inserted under the address plan's
+	// lock, so two creations never take the same /24.
+	s.netMu.Lock()
+	err := s.pickSubnet(ctx, t, req.Subnet)
+	if err == nil {
+		err = s.st.CreateTenant(ctx, t)
+	}
+	s.netMu.Unlock()
+	if err != nil {
 		s.release(t.ID)
 		return nil, err
 	}
