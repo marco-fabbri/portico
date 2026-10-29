@@ -305,3 +305,19 @@ drawn across the logo on the Keycloak login page.
   revoke it there. The run could revoke the old key when it can tell
   it is Portico's (by its `portico-` name on the account it found), or
   keep the stored key after checking it belongs to that account.
+
+## Tenant ready network (0.2.0)
+
+- The *Portico Networking* policy filters every entity type with `*`
+  (`internal/settings/networking_rights.go`); a filter limited to the
+  transit VPC, its external subnet and the tenants' projects is spec 6.1,
+  to be measured.
+- An update of a role's operations answered 400 in the lab before the
+  code sent the full role; the product now replaces the networking role
+  when its update is refused and keeps the tenant role. Measure the PUT
+  on pc.7.6 and drop the replacement if it is never needed.
+- The watch (`internal/tenant/netwatch.go`) does not re-run the site's
+  readiness checks (spec 4.1 "in the site monitor at its own pace"):
+  only the card does.
+- A floating IP read with an empty `projectExtId` is not taken as moved
+  by the watch: whether Prism Central always returns it is not measured.

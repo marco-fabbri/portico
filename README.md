@@ -113,6 +113,14 @@ users are Keycloak users of the tenant group, created from the admin UI
 or API with a one-time temporary password; the email is the username and
 the SAML `NameID`.
 
+Since 0.2.0 a tenant also gets a **ready network** on each site whose
+MSP switched it on: a VPC with the tenant's `/24`, outbound access, and
+floating IPs that publish its VMs, on a `/28` of the site's transit VPC
+as in Nutanix's NVD-2219 routed shared transit. Portico stores what it
+created, notices when a tenant deletes or moves it in Prism Central, and
+removes it at Disconnect; the tenant's role in its project cannot create
+floating IPs, so the MSP sets how many it has.
+
 ## Why "Portico"
 
 A portico stands in front of private buildings and makes them reachable
@@ -143,6 +151,8 @@ word with no vendor name in it, and `portico serve` reads well.
 - Port 9440 of Prism Central reachable only from Portico's internal
   address and the MSP management network: Portico checks what it can from
   its own address, the network enforces it.
+- For tenant networks, Flow Virtual Networking (Integrated mode) and one
+  transit VPC per site with a routed prefix (install guide).
 - An account that can create users and edit authorization policies, used
   once by the setup page to create Portico's own service account; an
   administrator's credentials once more for the SAML trust, which the
@@ -260,7 +270,7 @@ docs/
 
 Step 1 ended with 0.1.0: the appliance image (Rocky Linux 9, CIS
 Level 1, console wizard, `cloudflared` option), sites and an install
-guide. Next, from the known limits: the container images inside the
+guide. 0.2.0 adds the tenant ready network. Next, from the known limits: the container images inside the
 qcow2, so a first boot needs no Internet, and a backup of Keycloak's
 database with the store.
 

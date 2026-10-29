@@ -321,7 +321,11 @@ it is empty, and emptying it is not Portico's problem).
   measurement finds. What the MSP shares into the project (subnets,
   categories) or what Portico itself created there (resource group,
   role memberships, SAML user group) does not count; Disconnect removes
-  Portico's objects and leaves the MSP's shared ones alone.
+  Portico's objects and leaves the MSP's shared ones alone. Since 0.2.0
+  that includes the ready network, removed first and in reverse order:
+  floating IPs, subnet, VPC, the sharing, the overlay external subnet; a
+  floating IP still associated with a VM refuses the Disconnect and is
+  named (`2026-10-29-tenant-network-design.md` 4.4).
 - A kind Portico cannot count with the service account (my call): an
   unknown is not an empty. If the measurement shows Prism Central itself
   refuses to delete a project that still holds something, that refusal
