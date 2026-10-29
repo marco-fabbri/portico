@@ -103,31 +103,49 @@ func New(svc *tenant.Service, st store.Store, brand *branding.Service, so *Setti
 // tenantJSON is the wire shape of a tenant: the row and one entry per
 // site it is placed on (design sites §4.2).
 type tenantJSON struct {
-	ID              string          `json:"id"`
-	DisplayName     string          `json:"display_name"`
-	Status          string          `json:"status"`
-	Contacts        string          `json:"contacts"`
-	KeycloakGroupID string          `json:"keycloak_group_id"`
-	LastError       string          `json:"last_error"`
-	CreatedAt       time.Time       `json:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at"`
+	ID              string    `json:"id"`
+	DisplayName     string    `json:"display_name"`
+	Status          string    `json:"status"`
+	Contacts        string    `json:"contacts"`
+	KeycloakGroupID string    `json:"keycloak_group_id"`
+	LastError       string    `json:"last_error"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	// The address plan (tenant networking design 4.2): the /24, whether
+	// it is an exception, and the floating IPs per site.
+	Subnet          string          `json:"subnet"`
+	SubnetException bool            `json:"subnet_exception"`
+	FloatingIPs     int             `json:"floating_ips"`
 	Placements      []placementJSON `json:"placements"`
 }
 
 // placementJSON is a tenant on one site.
 type placementJSON struct {
-	Site                  string `json:"site"`
-	Code                  string `json:"code"`
-	Status                string `json:"status"`
-	ClusterExtID          string `json:"cluster_ext_id"`
-	StorageContainerExtID string `json:"storage_container_ext_id"`
-	ProjectID             string `json:"project_id"`
-	ProjectExtID          string `json:"project_ext_id"`
-	ResourceGroupExtID    string `json:"resource_group_ext_id"`
-	SAMLGroupExtID        string `json:"saml_group_ext_id"`
-	RoleMembershipExtID   string `json:"role_membership_ext_id"`
-	IdPShared             bool   `json:"idp_shared"`
-	LastError             string `json:"last_error"`
+	Site                  string      `json:"site"`
+	Code                  string      `json:"code"`
+	Status                string      `json:"status"`
+	ClusterExtID          string      `json:"cluster_ext_id"`
+	StorageContainerExtID string      `json:"storage_container_ext_id"`
+	ProjectID             string      `json:"project_id"`
+	ProjectExtID          string      `json:"project_ext_id"`
+	ResourceGroupExtID    string      `json:"resource_group_ext_id"`
+	SAMLGroupExtID        string      `json:"saml_group_ext_id"`
+	RoleMembershipExtID   string      `json:"role_membership_ext_id"`
+	IdPShared             bool        `json:"idp_shared"`
+	LastError             string      `json:"last_error"`
+	Network               networkJSON `json:"network"`
+}
+
+// networkJSON is a connection's ready network (design 4.3).
+type networkJSON struct {
+	State          string             `json:"state"`
+	Error          string             `json:"error"`
+	TransitPrefix  string             `json:"transit_prefix"`
+	SNATIP         string             `json:"snat_ip"`
+	ExtSubnetExtID string             `json:"ext_subnet_ext_id"`
+	VPCExtID       string             `json:"vpc_ext_id"`
+	SubnetExtID    string             `json:"subnet_ext_id"`
+	FloatingIPs    []store.FloatingIP `json:"floating_ips"`
 }
 
 // toJSON builds a tenant's wire shape with its placements.
@@ -139,6 +157,7 @@ func (h *handler) toJSON(ctx context.Context, t *store.Tenant) (tenantJSON, erro
 	out := tenantJSON{
 		ID: t.ID, DisplayName: t.DisplayName, Status: string(t.Status), Contacts: t.Contacts,
 		KeycloakGroupID: t.KeycloakGroupID, LastError: t.LastError, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+		Subnet: t.Subnet, SubnetException: t.SubnetException, FloatingIPs: t.FIPAllowance,
 		Placements: make([]placementJSON, 0, len(ps)),
 	}
 	for _, p := range ps {
@@ -153,6 +172,8 @@ func (h *handler) placementJSON(p store.Placement) placementJSON {
 		ClusterExtID: p.ClusterExtID, StorageContainerExtID: p.StorageContainerExtID,
 		ProjectID: p.ProjectID, ProjectExtID: p.ProjectExtID, ResourceGroupExtID: p.ResourceGroupExtID,
 		SAMLGroupExtID: p.SAMLGroupExtID, RoleMembershipExtID: p.RoleMembershipExtID, IdPShared: p.IdPShared, LastError: p.LastError,
+		Network: networkJSON{State: string(p.NetState), Error: p.NetError, TransitPrefix: p.TransitPrefix, SNATIP: p.SNATIP,
+			ExtSubnetExtID: p.ExtSubnetExtID, VPCExtID: p.VPCExtID, SubnetExtID: p.SubnetExtID, FloatingIPs: p.FloatingIPs},
 	}
 }
 
