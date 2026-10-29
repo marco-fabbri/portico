@@ -155,3 +155,32 @@ func TestCreateReturnsStoredEntity(t *testing.T) {
 		t.Fatalf("subnet = %+v", s)
 	}
 }
+
+func v4(s string, bits int) map[string]any {
+	return map[string]any{"ipv4": map[string]any{"value": s, "prefixLength": bits}}
+}
+
+// The shape read from NTNX-01 (write-up 34).
+func TestPrismGatewayParses(t *testing.T) {
+	f := newFakePC(t)
+	f.lists[PathDomainManagers] = []any{map[string]any{"network": map[string]any{"externalNetworks": []any{map[string]any{
+		"defaultGateway": v4("10.23.210.254", 24), "subnetMask": v4("255.255.255.0", 24), "ipAddresses": []any{v4("10.23.210.175", 24)}}}}}}
+	c := newClient(t, f, nil)
+	gw, own, err := c.PrismGateway(context.Background())
+	if err != nil || gw != netip.MustParseAddr("10.23.210.254") || own != netip.MustParsePrefix("10.23.210.175/24") {
+		t.Fatalf("PrismGateway = %v %v %v", gw, own, err)
+	}
+}
+
+func TestClusterAddresses(t *testing.T) {
+	f := newFakePC(t)
+	f.lists[PathClusterMgmt+"/config/clusters"] = []any{map[string]any{"extId": "c-1", "name": "NTNX-01",
+		"config":  map[string]any{"clusterFunction": []string{"AOS"}},
+		"network": map[string]any{"externalAddress": v4("10.23.210.170", 32), "externalDataServiceIp": v4("10.23.210.173", 32)},
+		"nodes":   map[string]any{"nodeList": []any{map[string]any{"controllerVmIp": v4("10.23.210.172", 32), "hostIp": v4("10.23.210.171", 32)}}}}}
+	c := newClient(t, f, nil)
+	cl, err := c.ListClusters(context.Background())
+	if err != nil || len(cl) != 1 || len(cl[0].Addresses) != 4 || cl[0].Addresses[1] != netip.MustParseAddr("10.23.210.173") {
+		t.Fatalf("clusters = %+v, %v", cl, err)
+	}
+}
