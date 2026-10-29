@@ -47,8 +47,8 @@ func (s *Service) RepairSite(ctx context.Context, siteID, oldIdPExtID string) ([
 			if idp, err = s.idp(ctx, site); err != nil {
 				return nil, err
 			}
-			if role, err = site.PC.FindRole(ctx, s.cfg.RoleName); err != nil {
-				return nil, fmt.Errorf("role %q: %w", s.cfg.RoleName, err)
+			if role, err = s.role(ctx, site.PC); err != nil {
+				return nil, err
 			}
 		}
 		line := RepairLine{Tenant: p.TenantID, OK: true, Message: "bound to identity provider " + idp.ExtID}

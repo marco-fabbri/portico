@@ -193,9 +193,9 @@ func (s *Service) prepare(ctx context.Context, p *store.Placement) (prepared, er
 	if err != nil {
 		return prepared{}, err
 	}
-	role, err := site.PC.FindRole(ctx, s.cfg.RoleName)
+	role, err := s.role(ctx, site.PC)
 	if err != nil {
-		return prepared{}, fmt.Errorf("role %q: %w", s.cfg.RoleName, err)
+		return prepared{}, err
 	}
 	return prepared{p: p, site: site, idp: idp, role: role}, nil
 }
@@ -319,24 +319,70 @@ func (s *Service) idpShareStep(ctx context.Context, pc PrismCentral, p *store.Pl
 	return idp.ExtID, nil
 }
 
-// roleMembershipStep gives the tenant's group the role in its project.
+// DefaultRole is the role a tenant's group holds in its project: Project
+// Admin without the floating IP creation and deletion, made by the site
+// setup (tenant networking design 4.3).
+const DefaultRole = "Portico Tenant"
+
+// fallbackRole stands in for DefaultRole on a site set up before it.
+const fallbackRole = "Project Admin"
+
+// role is the role bound inside the projects of a site: the configured
+// one or, on a site whose setup has not made DefaultRole yet, Project
+// Admin (roleMembershipStep says so).
+func (s *Service) role(ctx context.Context, pc PrismCentral) (*nutanix.Role, error) {
+	role, err := pc.FindRole(ctx, s.cfg.RoleName)
+	if nutanix.IsNotFound(err) && s.cfg.RoleName == DefaultRole {
+		role, err = pc.FindRole(ctx, fallbackRole)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("role %q: %w", s.cfg.RoleName, err)
+	}
+	return role, nil
+}
+
+// roleMembershipStep gives the tenant's group the role in its project,
+// then deletes the group's memberships there with another role: a
+// connection made with Project Admin moves to Portico Tenant at its next
+// Retry or Repair.
 func (s *Service) roleMembershipStep(ctx context.Context, pc PrismCentral, p *store.Placement, idp *nutanix.SAMLIdP, role *nutanix.Role) (string, error) {
 	rms, err := pc.ListRoleMemberships(ctx)
 	if err != nil {
 		return "", err
 	}
+	id := ""
+	var others []string
 	for _, rm := range rms {
-		if rm.IdentityExtID == p.SAMLGroupExtID && rm.ProjectExtID == p.ProjectExtID && rm.RoleExtID == role.ExtID {
-			p.RoleMembershipExtID = rm.ExtID
-			return rm.ExtID, nil
+		if rm.IdentityExtID != p.SAMLGroupExtID || rm.ProjectExtID != p.ProjectExtID {
+			continue
+		}
+		if rm.RoleExtID == role.ExtID && id == "" {
+			id = rm.ExtID
+		} else if rm.RoleExtID != role.ExtID {
+			others = append(others, rm.ExtID)
 		}
 	}
-	rm, err := pc.CreateRoleMembership(ctx, p.SAMLGroupExtID, idp.ExtID, p.ProjectExtID, role.ExtID)
-	if err != nil {
-		return "", err
+	if id == "" {
+		rm, err := pc.CreateRoleMembership(ctx, p.SAMLGroupExtID, idp.ExtID, p.ProjectExtID, role.ExtID)
+		if err != nil {
+			return "", err
+		}
+		id = rm.ExtID
 	}
-	p.RoleMembershipExtID = rm.ExtID
-	return rm.ExtID, nil
+	p.RoleMembershipExtID = id
+	for _, o := range others {
+		if err := pc.DeleteRoleMembership(ctx, o); err != nil && !nutanix.IsNotFound(err) {
+			return "", fmt.Errorf("the membership with the earlier role was not deleted: %w", err)
+		}
+	}
+	detail := id
+	if len(others) > 0 {
+		detail += fmt.Sprintf(" (%d membership(s) with another role deleted)", len(others))
+	}
+	if role.DisplayName != s.cfg.RoleName {
+		detail += " (fallback: " + role.DisplayName + ", Repair the site)"
+	}
+	return detail, nil
 }
 
 // remove takes the tenant off every site, then deletes its Keycloak group
