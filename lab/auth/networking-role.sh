@@ -60,10 +60,20 @@ case "${1:-}" in
         echo "role exists: $role"
       else
         jq '.operations = $ARGS.positional' --args "${ops[@]}" "$tmp/cur.json" > "$tmp/role.json"
-        IF_MATCH="$(etag_of "$IAM1/authz/roles/$role")" lab/pc.sh PUT "$IAM1/authz/roles/$role" "$tmp/role.json" >/dev/null 2>"$tmp/code"
+        IF_MATCH="$(etag_of "$IAM1/authz/roles/$role")" lab/pc.sh PUT "$IAM1/authz/roles/$role" "$tmp/role.json" >"$tmp/resp" 2>"$tmp/code"
         echo "update role: $(tr -d '\n' <"$tmp/code") ${#ops[@]} operations"
+        if ! grep -q 'HTTP 20' "$tmp/code"; then
+          # A refused update (seen: 400) is replaced by a new role: the policy
+          # that names the old one goes first.
+          echo "  refused: $(jq -c '[.. | .message? // empty] | .[:2]' "$tmp/resp" 2>/dev/null)"
+          pol=$(policy_extid)
+          [ -z "$pol" ] || remove "$IAM1/authz/authorization-policies/$pol" "policy naming the old role"
+          remove "$IAM1/authz/roles/$role" "old role"
+          role=""
+        fi
       fi
-    else
+    fi
+    if [ -z "$role" ]; then
       jq -n --arg n "$ROLE_NAME" '{displayName:$n, description:"Portico: tenant subnets in the transit VPC, sharing, floating IPs, default routes", operations:$ARGS.positional}' --args "${ops[@]}" > "$tmp/role.json"
       code=$(post "$IAM1/authz/roles" "$tmp/role.json" "$tmp/resp") || { echo "create role: $code $(jq -c '.data.error // .' "$tmp/resp")" >&2; exit 1; }
       role=$(jq -r '.data.extId' "$tmp/resp"); echo "create role: $code $role"
