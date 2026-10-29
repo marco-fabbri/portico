@@ -231,6 +231,18 @@ must Portico ask the MSP for?
     `Update_Floating_Ip`, `Delete_Floating_Ip`. Whether a custom role
     with these, scoped to the external subnets and the tenants' projects,
     is enough is the next measurement.
+- MEASURED (as the `portico` service account, NTNX-01, 20:16 UTC, a
+  temporary key): with the role **Portico Networking** created by Marco
+  through `lab/auth/networking-role.sh create` (six operations, subnet
+  part limited to `external-nat` by `extId`, floating IPs on all), the
+  account **shared the external subnet** with its project, where
+  `Project Manager_acp` alone was refused, and created the VPC. The
+  default route then failed: listing route tables answers 403
+  `NETWORKING-10071` "User denied access to list route tables";
+  `Project Manager_acp` has no route table operation either. The role
+  gains `View_VPC_Route_Table`, `View_Route_Table_Route`,
+  `Create_Route_Table_Route` and `Delete_Route_Table_Route` (entity type
+  `vpc_route_table`).
 - MEASURED (as `admin`, NTNX-01, 19:55–20:10 UTC): a VM on the ready
   network, `lab/network/probe-vm.sh create|check|delete portico-netprobe`
   (Rocky 9 GenericCloud, 1 vCPU, 1 GiB, user `probe` with an SSH key
