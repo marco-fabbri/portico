@@ -165,15 +165,21 @@ idempotent by name and recorded like the others:
    (`NETWORKING-10056`, measured).
 2. **vpc**: `<project>-vpc`, type `REGULAR`, in the project, one
    external subnet, the DNS servers in the common DHCP options.
-3. **subnet**: `<project>-net`, overlay, in the VPC and the project,
+3. **default-route**: a static route `0.0.0.0/0` with next hop the
+   external subnet in the VPC's route table. Measured: a VPC created
+   through the API has only its local routes, and without this one
+   nothing leaves it (no SNAT, no floating IP reply).
+4. **subnet**: `<project>-net`, overlay, in the VPC and the project,
    the tenant's `/24`.
-4. **floating-ips**: as many as the tenant's allowance (default 1, set
+5. **floating-ips**: as many as the tenant's allowance (default 1, set
    on the tenant page, 0 to 16), unassociated, in the project, from the
    external network.
-5. **read-back**: the VPC's SNAT addresses and the floating IPs, stored
+6. **read-back**: the VPC's SNAT addresses and the floating IPs, stored
    on the connection and shown on the tenant page.
 
-Measured on both sites as admin: 27 s for steps 1 to 4.
+Measured as admin: 27 to 30 s for steps 1 to 5, and a VM on the subnet
+gets its address by DHCP, reaches the Internet through SNAT and is
+reached on its floating IP (write-up 34).
 
 The ready network has a **state of its own** on the connection (my
 call, after the builder check): `none`, `building`, `ready`, `failed`.
@@ -196,7 +202,8 @@ tenant's change to an object that still exists (my call).
 
 Changing the allowance later creates or deletes unassociated floating
 IPs to match; Portico never deletes one that is associated to a VM and
-says so instead.
+says so instead. Prism Central itself deletes an associated floating IP
+without refusing (measured), so Portico reads the association first.
 
 The tenant associates a floating IP with a VM in Prism Central. If
 `Project Admin` cannot (section 6 item 3), Portico creates on each site
@@ -211,8 +218,9 @@ Disconnect (sites usability design 4.6) counts, as before, what the
 project holds; the VPC, the subnet and the floating IPs Portico created,
 recognised by their stored `extId`s, do not count, but a VM with a NIC on the tenant's subnet does (it is a
 VM). A floating IP the tenant created itself counts. With nothing left,
-Portico deletes in reverse: Portico's floating IPs, the subnet, the VPC,
-then `unshare` of the external network, then the project's objects as
+Portico deletes in reverse: Portico's floating IPs (first checking that
+none is associated), the subnet, the VPC (its route goes with it), then
+`unshare` of the external network, then the project's objects as
 today. The service account can now list floating IPs (4.5), which
 removes the 0.1.0 known limit "Disconnect does not count floating IPs".
 
@@ -293,15 +301,18 @@ tenant page shows them, and the MSP tells the tenant).
    the same, both kinds are offered; otherwise the VLAN external network
    only.
 3. A VM of a tenant user (Project Admin of its project, through
-   Portico): created on `<project>-net`, gets its DHCP address, reaches
-   the Internet through SNAT, and the tenant can associate a floating IP
-   with it and reach it from outside the VLAN.
-4. How to read the Flow mode through the API (Integrated or Standalone)
-   rather than inferring it.
-5. The gateway check of 4.1 on both sites: the wrong `.183` would have
-   been caught, the right `.254` passes.
-6. Removal with a VM still on the subnet: what Prism Central refuses,
-   so Disconnect's count matches it.
+   Portico): can the tenant create it on `<project>-net` and associate a
+   floating IP with it? The data path itself is measured as admin
+   (DHCP, SNAT, floating IP from the VLAN).
+4. How to read the Flow mode through the API. Measured: the
+   controller's API has no such field, so the inference and the MSP's
+   confirmation of 4.1 apply unless another API shows it.
+5. Measured: the gateway check of 4.1 reads from `domain-managers` and
+   `clusters`; NYC1's old `.183` is its cluster's Data Services IP and
+   would have been caught, `.254` passes on both sites.
+6. Measured: with a VM on the subnet, Prism Central refuses to delete
+   the subnet and the VPC and to unshare the external network
+   (`NETWORKING-10068`), but deletes an associated floating IP.
 7. A site with two clusters: can a tenant VPC on one cluster use the
    external network of the other, or does each cluster need its own?
 
