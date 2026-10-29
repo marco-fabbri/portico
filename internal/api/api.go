@@ -234,7 +234,7 @@ func (h *handler) fail(w http.ResponseWriter, err error) {
 	case status == http.StatusNotFound:
 		writeError(w, status, "tenant not found")
 	case errors.As(err, &ne):
-		writeJSON(w, status, map[string]any{"error": err.Error(), "counts": ne.Contents.Counts})
+		writeJSON(w, status, map[string]any{"error": err.Error(), "counts": ne.Contents.Counts, "associated": ne.Associated})
 	case status == http.StatusInternalServerError:
 		h.log.Error("api request failed", "err", err.Error())
 		writeError(w, status, err.Error())

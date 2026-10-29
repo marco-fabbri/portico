@@ -442,6 +442,12 @@ func (s *Service) remove(ctx context.Context, id string) error {
 	return s.st.DeleteTenant(ctx, id)
 }
 
+// removalStep is one recorded step of a Disconnect.
+type removalStep struct {
+	name string
+	fn   func(ctx context.Context) (string, error)
+}
+
 // removePlacement runs the deletion steps on one site in reverse order
 // (unshare before delete) and deletes the placement; a 404 is recorded as
 // "already absent". On failure the placement stays, failed.
@@ -499,10 +505,11 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string) 
 		s.log.Warn("disconnect keeps an object Portico did not create", "tenant", tenantID, "site", siteID, "why", why)
 		return "kept: " + why, nil
 	}
-	steps := []struct {
-		name string
-		fn   func(ctx context.Context) (string, error)
-	}{
+	var steps []removalStep
+	if hasNetwork(p) {
+		steps = s.networkRemoval(pc, p)
+	}
+	steps = append(steps, []removalStep{
 		{"role-membership", func(ctx context.Context) (string, error) {
 			if p.SAMLGroupExtID == "" {
 				return absent("role membership")
@@ -607,7 +614,7 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string) 
 			}
 			return d, err
 		}},
-	}
+	}...)
 	for _, st := range steps {
 		if err := s.record(ctx, tenantID, siteID, st.name, st.fn); err != nil {
 			return fail(err)
