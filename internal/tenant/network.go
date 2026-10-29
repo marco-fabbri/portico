@@ -21,6 +21,10 @@ var DefaultAddressPool = netip.MustParsePrefix("10.100.0.0/16")
 // DefaultAllowance is a new tenant's floating IPs per site (design 4.3).
 const DefaultAllowance = 1
 
+// ErrInvalidSubnet refuses a subnet exception: not a private /24, or one
+// that overlaps another tenant's subnet.
+var ErrInvalidSubnet = errors.New("tenant: invalid subnet")
+
 // SiteNetwork is a site's ready network: whether new connections get one,
 // the transit VPC their external subnets go in (its externally routable
 // prefix holds the tenants' /28s) and the DNS servers of their VPCs.
@@ -58,10 +62,15 @@ func (s *Service) pickSubnet(ctx context.Context, t *store.Tenant, exception str
 	if exception != "" {
 		p, err := netip.ParsePrefix(exception)
 		if err != nil {
-			return fmt.Errorf("the subnet %q is not a prefix", exception)
+			return fmt.Errorf("%w: %q is not a prefix", ErrInvalidSubnet, exception)
+		}
+		for _, o := range tenants {
+			if q, err := netip.ParsePrefix(o.Subnet); err == nil && o.ID != t.ID && q.Overlaps(p) {
+				return fmt.Errorf("%w: %s overlaps %s, the subnet of tenant %s", ErrInvalidSubnet, p, q, o.ID)
+			}
 		}
 		if err := netplan.CheckException(p, taken); err != nil {
-			return err
+			return fmt.Errorf("%w: %v", ErrInvalidSubnet, err)
 		}
 		t.Subnet, t.SubnetException = p.Masked().String(), true
 		return nil
