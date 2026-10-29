@@ -98,7 +98,7 @@ func TestNewSiteRunShowsSummary(t *testing.T) {
 	e.login(t)
 	rec := e.do("POST", "/setup/sites/new", e.form("code", "AZ-US-NYC1", "name", "New York", "url", pc.Srv.URL, "confirmed", "on", "pin", fp, "username", "admin", "password", "pc-pw-1"), true)
 	body := rec.Body.String()
-	if rec.Code != 200 || strings.Count(body, `class="step `) != 8 || !strings.Contains(body, `href="/setup/sites/az-us-nyc1"`) {
+	if rec.Code != 200 || strings.Count(body, `class="step `) != 9 || !strings.Contains(body, `href="/setup/sites/az-us-nyc1"`) {
 		t.Fatalf("summary: %d\n%s", rec.Code, body)
 	}
 	if strings.Contains(body, "pc-pw-1") || strings.Contains(body, pc.Key) || strings.Contains(e.log.String(), "pc-pw-1") {

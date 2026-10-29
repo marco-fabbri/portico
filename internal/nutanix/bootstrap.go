@@ -34,10 +34,14 @@ type APIKey struct {
 	ExpiryTime time.Time
 }
 
-// AuthorizationPolicy is a global authorization policy.
+// AuthorizationPolicy is a global authorization policy: its role, and
+// its identities and entities as Prism Central returns them.
 type AuthorizationPolicy struct {
-	ExtID       string `json:"extId"`
-	DisplayName string `json:"displayName"`
+	ExtID       string          `json:"extId"`
+	DisplayName string          `json:"displayName"`
+	Role        string          `json:"role"`
+	Identities  json.RawMessage `json:"identities"`
+	Entities    json.RawMessage `json:"entities"`
 }
 
 // FindUser returns the user with exactly that username.

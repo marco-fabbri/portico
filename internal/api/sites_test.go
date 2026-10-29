@@ -437,7 +437,7 @@ func TestCreateSiteWithAdminRunsSetup(t *testing.T) {
 	pc, fp := withSetup(t, e)
 	body := `{"code":"AZ-US-NYC1","name":"New York","url":"` + pc.Srv.URL + `","tls_pin":"` + fp + `","admin":{"username":"admin","password":"pc-pw-1"}}`
 	rec, out := e.do("POST", "/api/v1/sites", body)
-	if rec.Code != 201 || out["complete"] != true || len(out["steps"].([]any)) != 8 || out["site"].(map[string]any)["id"] != "az-us-nyc1" || out["site"].(map[string]any)["tls_pin"] != fp {
+	if rec.Code != 201 || out["complete"] != true || len(out["steps"].([]any)) != 9 || out["site"].(map[string]any)["id"] != "az-us-nyc1" || out["site"].(map[string]any)["tls_pin"] != fp {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
 	if strings.Contains(rec.Body.String(), "pc-pw-1") || strings.Contains(rec.Body.String(), pc.Key) || strings.Contains(e.log.String(), "pc-pw-1") || strings.Contains(e.log.String(), pc.Key) {

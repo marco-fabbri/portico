@@ -160,6 +160,12 @@ func (f *fakePC) handle(w http.ResponseWriter, r *http.Request) {
 		reply(200, map[string]any{"extId": "rm-1"})
 	case strings.HasPrefix(p, PathIAM1+"/authz/role-memberships/") && r.Method == "DELETE":
 		w.WriteHeader(204)
+	case p == PathIAM1+"/authz/roles" && r.Method == "POST":
+		reply(201, map[string]any{"extId": "role-new", "displayName": rec.Body["displayName"], "operations": rec.Body["operations"]})
+	case strings.HasPrefix(p, PathIAM1+"/authz/roles/") && r.Method == "PUT":
+		reply(200, map[string]any{"message": "updated"})
+	case p == PathIAM1+"/authz/authorization-policies" && r.Method == "POST":
+		reply(201, map[string]any{"extId": "pol-new", "displayName": rec.Body["displayName"]})
 	case p == PathIAM1+"/authz/authorization-policies":
 		reply(200, []map[string]any{
 			{"extId": "pol-pm", "displayName": "Project Manager_acp"},

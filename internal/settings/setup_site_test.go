@@ -77,7 +77,7 @@ func stepOf(res SetupResult, name string) StepLine {
 	return StepLine{}
 }
 
-var setupSteps = []string{"certificate", "version", "rights", "identity-provider", "service-account", "saml-trust", "defaults", "live"}
+var setupSteps = []string{"certificate", "version", "rights", "identity-provider", "service-account", "networking-rights", "saml-trust", "defaults", "live"}
 
 func TestSetupUnconfirmedCertificateSendsNoCredentials(t *testing.T) {
 	f := setupEnv(t)
@@ -166,7 +166,7 @@ func TestSetupKeycloakRefusedLeavesIncomplete(t *testing.T) {
 	f := setupEnv(t)
 	f.kc.FailClientCreate = 403
 	res := f.run(t, f.admin(f.pin))
-	if s := stepOf(res, "saml-trust"); s.Status != "failed" || len(res.Steps) != 6 || res.Complete {
+	if s := stepOf(res, "saml-trust"); s.Status != "failed" || len(res.Steps) != 7 || res.Complete {
 		t.Fatalf("steps = %+v", res.Steps)
 	}
 	if len(f.doc(t).ServedSites()) != 0 {

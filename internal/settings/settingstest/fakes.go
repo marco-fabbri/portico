@@ -172,7 +172,7 @@ type PC struct {
 	// Version, when set, is Prism Central's own entry in the clusters list.
 	Version string
 	// AdminOps are the operations the admin's role grants (OpCatalog when
-	// nil); RolesForbidden refuses the role read with 403.
+	// nil); RolesForbidden refuses the read of the admin's role with 403.
 	AdminOps       []string
 	RolesForbidden bool
 	// Containers replaces the storage containers list when set.
@@ -193,15 +193,68 @@ type PC struct {
 	UserDeleteForbidden bool
 	// RefuseUserDelete refuses the deletion of this one user (an extId).
 	RefuseUserDelete string
-	closed           atomic.Int32
+	// Roles are the roles listed by name and read by extId: Project Admin
+	// (role-pa) at start, then the ones created. RoleCreateStatus and
+	// RoleUpdateStatus, when set, refuse a creation or an update with that
+	// status; RoleUpdates counts the accepted updates.
+	Roles                              []map[string]any
+	RoleCreateStatus, RoleUpdateStatus int
+	RoleUpdates                        int
+	// Policies are the authorization policies created.
+	Policies []map[string]any
+	closed   atomic.Int32
+	nextID   int
+}
+
+// ProjectAdminOps are the operations of the double's Project Admin role.
+var ProjectAdminOps = []string{"op-View_Project", "op-View_Subnet", "op-Create_Floating_Ip", "op-Delete_Floating_Ip", "op-Update_Floating_Ip"}
+
+// Role returns the role with that display name, or nil.
+func (f *PC) Role(name string) map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.Roles {
+		if r["displayName"] == name {
+			return r
+		}
+	}
+	return nil
+}
+
+// Policy returns the created policy with that display name, or nil.
+func (f *PC) Policy(name string) map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, p := range f.Policies {
+		if p["displayName"] == name {
+			return p
+		}
+	}
+	return nil
+}
+
+func (f *PC) id(prefix string) string {
+	f.nextID++
+	return fmt.Sprintf("%s-%d", prefix, f.nextID)
+}
+
+func projectAdmin() []map[string]any {
+	ops := make([]any, len(ProjectAdminOps))
+	for i, o := range ProjectAdminOps {
+		ops[i] = o
+	}
+	return []map[string]any{{"extId": "role-pa", "displayName": "Project Admin", "operations": ops}}
 }
 
 // OpCatalog is the operations the double lists by name.
-var OpCatalog = []string{"Create_User", "Create_User_Key", "Update_Authorization_Policy", "Create_Saml_Identity_Provider", "Create_Role", "Update_Role", "Share_Saml_Identity_Provider"}
+var OpCatalog = []string{"Create_User", "Create_User_Key", "Update_Authorization_Policy", "Create_Saml_Identity_Provider", "Create_Role", "Update_Role", "Delete_Role",
+	"Create_Authorization_Policy", "Delete_Authorization_Policy", "Share_Saml_Identity_Provider", "View_Project",
+	"View_Subnet", "Create_Subnet", "Delete_Subnet", "Share_Subnet", "Unshare_Subnet", "View_VPC", "View_Floating_Ip", "Create_Floating_Ip", "Update_Floating_Ip", "Delete_Floating_Ip",
+	"View_VPC_Route_Table", "View_Route_Table_Route", "Create_Route_Table_Route", "Delete_Route_Table_Route"}
 
 // NewPC starts a Prism Central double over http.
 func NewPC(t *testing.T) *PC {
-	f := &PC{Password: "pc-pw-1", Key: "issued-key-4242"}
+	f := &PC{Password: "pc-pw-1", Key: "issued-key-4242", Roles: projectAdmin()}
 	f.Srv = httptest.NewUnstartedServer(http.HandlerFunc(f.handle))
 	f.Srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
 		if st == http.StateClosed {
@@ -219,7 +272,7 @@ func (f *PC) ClosedConns() int { return int(f.closed.Load()) }
 // NewTLSPC starts a Prism Central double over https, with httptest's
 // certificate (trusted by no root).
 func NewTLSPC(t *testing.T) *PC {
-	f := &PC{Password: "pc-pw-1", Key: "issued-key-4242"}
+	f := &PC{Password: "pc-pw-1", Key: "issued-key-4242", Roles: projectAdmin()}
 	f.Srv = httptest.NewTLSServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.Srv.Close)
 	return f
@@ -385,13 +438,19 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 	case strings.HasSuffix(p, "/authn/users/sa-1/keys") && r.Method == "POST":
 		reply(201, map[string]any{"extId": "key-1", "name": body["name"], "keyDetails": map[string]any{"apiKey": f.Key}, "expiryTime": "2126-10-18T00:00:00Z"})
+	case strings.HasSuffix(p, "/authz/authorization-policies") && r.Method == "POST":
+		pol := body
+		pol["extId"] = f.id("pol")
+		f.Policies = append(f.Policies, pol)
+		reply(201, pol)
 	case strings.HasSuffix(p, "/authz/authorization-policies"):
 		named := func(u string) []any {
 			return []any{map[string]any{"identityFilter": map[string]any{"user": map[string]any{"uuid": map[string]any{"anyof": []any{u}}}}}}
 		}
-		reply(200, []map[string]any{{"extId": "pol-pm", "displayName": "Project Manager_acp", "role": "role-pm", "identities": named("u-existing")},
-			{"extId": "pol-sa", "displayName": "Super Admin_acp", "role": "role-sa", "identities": named("u-admin")}})
-	case strings.Contains(p, "/authz/roles/") && f.RolesForbidden:
+		out := []map[string]any{{"extId": "pol-pm", "displayName": "Project Manager_acp", "role": "role-pm", "identities": named("u-existing")},
+			{"extId": "pol-sa", "displayName": "Super Admin_acp", "role": "role-sa", "identities": named("u-admin")}}
+		reply(200, append(out, f.Policies...))
+	case strings.HasSuffix(p, "/authz/roles/role-sa") && f.RolesForbidden:
 		w.WriteHeader(403)
 		w.Write([]byte(`{"data":{"error":"forbidden"}}`))
 	case strings.HasSuffix(p, "/authz/roles/role-sa"):
@@ -418,6 +477,66 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 			"identities": []any{map[string]any{"identityFilter": map[string]any{"user": map[string]any{"uuid": map[string]any{"anyof": []any{"u-existing"}}}}}}})
 	case strings.HasSuffix(p, "/authz/authorization-policies/pol-pm") && r.Method == "PUT":
 		reply(200, map[string]any{"message": "updated"})
+	case strings.Contains(p, "/authz/authorization-policies/pol-") && (r.Method == "GET" || r.Method == "DELETE"):
+		id := p[strings.LastIndex(p, "/")+1:]
+		for i, pol := range f.Policies {
+			if pol["extId"] != id {
+				continue
+			}
+			if r.Method == "GET" {
+				w.Header().Set("ETag", `"pol"`)
+				reply(200, pol)
+			} else {
+				f.Policies = append(f.Policies[:i:i], f.Policies[i+1:]...)
+				w.WriteHeader(204)
+			}
+			return
+		}
+		w.WriteHeader(404)
+		w.Write([]byte(`{"data":{"error":"no such policy"}}`))
+	case strings.HasSuffix(p, "/authz/roles") && r.Method == "GET":
+		out := []map[string]any{}
+		for _, role := range f.Roles {
+			if strings.Contains(r.URL.Query().Get("$filter"), "'"+role["displayName"].(string)+"'") {
+				out = append(out, map[string]any{"extId": role["extId"], "displayName": role["displayName"]})
+			}
+		}
+		reply(200, out)
+	case strings.HasSuffix(p, "/authz/roles") && r.Method == "POST":
+		if f.RoleCreateStatus != 0 {
+			w.WriteHeader(f.RoleCreateStatus)
+			w.Write([]byte(`{"data":{"error":[{"message":"role creation refused"}]}}`))
+			return
+		}
+		role := body
+		role["extId"] = f.id("role")
+		f.Roles = append(f.Roles, role)
+		reply(201, role)
+	case strings.Contains(p, "/authz/roles/"):
+		id := p[strings.LastIndex(p, "/")+1:]
+		for i, role := range f.Roles {
+			if role["extId"] != id {
+				continue
+			}
+			switch {
+			case r.Method == "GET":
+				w.Header().Set("ETag", `"role"`)
+				reply(200, role)
+			case r.Method == "PUT" && f.RoleUpdateStatus != 0:
+				w.WriteHeader(f.RoleUpdateStatus)
+				w.Write([]byte(`{"data":{"error":[{"message":"role update refused"}]}}`))
+			case r.Method == "PUT":
+				f.RoleUpdates++
+				role["operations"] = body["operations"]
+				reply(200, map[string]any{"message": "updated"})
+			case r.Method == "DELETE":
+				f.Roles = append(f.Roles[:i:i], f.Roles[i+1:]...)
+				w.WriteHeader(204)
+			}
+			return
+		}
+		w.WriteHeader(404)
+		w.Write([]byte(`{"data":{"error":"no such role"}}`))
 	default:
 		w.WriteHeader(404)
 		w.Write([]byte(`{"data":{"error":"no route"}}`))
