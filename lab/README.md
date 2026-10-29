@@ -6,7 +6,8 @@ here runs on the appliance.
 
 - `env.sh` — source it first. Exports `PC_URL`, `PE_URL`, `PC_USER`,
   `PC_PASS`, `LAB_VM_IP`, `LAB_PRISM_HOST`, `LAB_ID_HOST`. Reads the password
-  from `~/portico-secrets/prism-pw` and stops if the file is missing.
+  from `~/portico-secrets/prism-pw`, or from `nyc1-pw` when `PC_URL` is
+  NYC1's Prism Central (`10.23.210.185`), and stops if the file is missing.
 - `pc.sh METHOD PATH [JSON_FILE]` — calls the Prism Central API with Basic
   auth. Body on stdout, `HTTP <code>` on stderr. Adds `NTNX-Request-Id` on
   v4 writes and `If-Match` when `IF_MATCH` is set.
@@ -36,6 +37,9 @@ here runs on the appliance.
 - `saml/theme-probe.sh [reset]` writes a probe login theme and sets it on the realm (write-up 13); `auth/probe-login-request.sh` prints the login-request shape, the provider-selection PUT and `initiate-login`.
 - `tenants/api.sh METHOD PATH [JSON]` calls Portico's admin API on the lab VM with the break-glass password from `~/portico-secrets/portico-admin-pw`; `tenants/acceptance.sh [--delete]` is the Milestone 2a acceptance (write-up 11).
 - `saml/keycloak-realm.sh admin-client` registers the confidential client `portico-admin` (service account with realm-management roles) that the tenant service uses; secret in `~/portico-secrets/portico-kc-admin-secret`.
+
+- `network/external-subnet.sh NAME FIRST LAST` creates a site's NAT external subnet on `MGMT`'s VLAN with that IP pool; `network/tenant-network.sh create|show|delete PROJECT CIDR` builds a tenant's ready network (external subnet shared with the project, VPC, overlay subnet, one floating IP) as admin or, with `PC_API_KEY`, as the service account (write-up 34).
+- `auth/networking-role.sh create|show|delete` gives the service account the networking operations Project Manager lacks: role `Portico Networking`, policy `Portico Networking_portico`, the subnet operations limited to the external subnet (write-up 34).
 
 Secrets rule: credentials live in `~/portico-secrets/` (mode 0600). Scripts
 read them from there and never print, log, or copy them under the
