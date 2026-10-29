@@ -55,9 +55,10 @@ model. Small MSPs have no turnkey answer.
   built in Milestone 4 as **sites** (design
   `2026-10-20-sites-design.md`, ADR 0004). Still deferred from it:
   configuring disaster recovery between sites (replication, protection
-  policies, recovery plans: the MSP does it in Prism Central; a DR site is
-  a site like any other), grouping sites by region on the site page, and
-  choosing API versions per site.
+  policies, recovery plans: today the MSP does it in Prism Central and a
+  DR site is a site like any other; Portico managing them is in the
+  backlog, decided with Marco on 2026-10-29), grouping sites by region on
+  the site page, and choosing API versions per site.
 - Nutanix Enterprise AI and Nutanix Kubernetes Platform as further services.
   For NKP the direction is one MSP-managed control plane with tenant-only
   worker nodes, "real provider" style. To be measured, not designed yet.
