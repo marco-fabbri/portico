@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/marco-fabbri/portico/internal/idp/keycloak"
+	"github.com/marco-fabbri/portico/internal/netplan"
 	"github.com/marco-fabbri/portico/internal/nutanix"
 	"github.com/marco-fabbri/portico/internal/store"
 )
@@ -301,6 +302,9 @@ type CreateRequest struct {
 	// Subnet, when set, is the tenant's /24 instead of the next one of the
 	// pool (tenant networking design 4.2, the exception).
 	Subnet string
+	// FIPAllowance, when set, is the floating IPs per site instead of
+	// DefaultAllowance.
+	FIPAllowance *int
 }
 
 // placementFor resolves a request against the configured sites.
@@ -404,6 +408,12 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*store.Tenant,
 	}
 	t := &store.Tenant{ID: req.Slug, DisplayName: req.DisplayName, Contacts: req.Contacts, Status: store.StatusCreating, LastOp: store.OpProvision,
 		FIPAllowance: DefaultAllowance}
+	if req.FIPAllowance != nil {
+		if *req.FIPAllowance < 0 || *req.FIPAllowance > netplan.MaxAllowance {
+			return nil, ErrInvalidAllowance
+		}
+		t.FIPAllowance = *req.FIPAllowance
+	}
 	// The lock comes first: a deletion releases it only after the row is
 	// gone, so a Create in that window must not insert an orphan row.
 	if !s.acquire(t.ID) {

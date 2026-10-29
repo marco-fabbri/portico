@@ -2,11 +2,14 @@ package web
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
 	"github.com/marco-fabbri/portico/internal/api"
+	"github.com/marco-fabbri/portico/internal/netplan"
 	"github.com/marco-fabbri/portico/internal/settings"
 )
 
@@ -18,6 +21,7 @@ type setupData struct {
 	Stored                          bool
 	AdminSecretSet, ClientSecretSet bool
 	OperationTimeout                string
+	PoolLocked                      bool // a tenant holds a subnet from the pool
 	// Sites are the document's sites in order, keys blanked, with the
 	// tenants placed on each; Incomplete names the ones not served yet.
 	Sites      []siteRow
@@ -102,6 +106,7 @@ func (h *Handler) renderSetup(w http.ResponseWriter, r *http.Request, status int
 	d.Exposure = h.exposureState(r)
 	d.Realm = h.realmState(r)
 	d.Realm.Reload = !d.Done["keycloak"]
+	d.PoolLocked = h.poolLocked(r)
 	for i := range d.Sites {
 		d.Sites[i].Tenants = h.siteTenants(r, d.Sites[i].S.ID)
 		if h.setup.Runtime != nil {
@@ -109,6 +114,22 @@ func (h *Handler) renderSetup(w http.ResponseWriter, r *http.Request, status int
 		}
 	}
 	h.render(w, r, status, "setup", "Setup", d, errMsg)
+}
+
+// poolLocked reports whether any tenant holds a subnet from the address
+// pool: the pool is fixed from then on (tenant networking design 4.2).
+// An unreadable store locks it too.
+func (h *Handler) poolLocked(r *http.Request) bool {
+	ts, err := h.st.ListTenants(r.Context())
+	if err != nil {
+		return true
+	}
+	for _, t := range ts {
+		if t.Subnet != "" && !t.SubnetException {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) setupPage(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +159,16 @@ func formSettings(r *http.Request, section string, cur settings.Settings) (setti
 		}
 	case "tenants":
 		out.Tenants.ProjectPrefix, out.Tenants.GroupPrefix, out.Tenants.Role = v("project_prefix"), v("group_prefix"), v("role")
+		if a := v("address_pool"); a != "" {
+			pool, err := netip.ParsePrefix(a)
+			if err == nil {
+				err = netplan.CheckPool(pool)
+			}
+			if err != nil {
+				return out, fmt.Errorf("tenant address pool: %v", err)
+			}
+			out.Tenants.AddressPool = pool.Masked().String()
+		}
 		if t := v("operation_timeout"); t != "" {
 			d, err := time.ParseDuration(t)
 			if err != nil {
@@ -161,6 +192,10 @@ func (h *Handler) setupSave(w http.ResponseWriter, r *http.Request) {
 	}
 	section := r.FormValue("section")
 	s, err := formSettings(r, section, cur)
+	if err == nil && s.Tenants.AddressPool != cur.Tenants.AddressPool && h.poolLocked(r) {
+		err = errors.New("the tenant address pool cannot change while tenants hold subnets")
+		s.Tenants.AddressPool = cur.Tenants.AddressPool
+	}
 	if err != nil {
 		h.renderSetup(w, r, http.StatusBadRequest, s, source, err.Error())
 		return

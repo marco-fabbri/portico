@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/marco-fabbri/portico/internal/api"
@@ -106,6 +107,7 @@ func placementInProgress(s store.PlacementStatus) bool {
 
 type newData struct {
 	Slug, DisplayName, Contacts string
+	Subnet, Allowance           string // the Advanced section, as typed
 	Sites                       []newSite
 }
 
@@ -145,13 +147,22 @@ func (h *Handler) tenantCreate(w http.ResponseWriter, r *http.Request) {
 	if !h.requireCSRF(w, r) {
 		return
 	}
-	d := newData{Slug: strings.TrimSpace(r.PostFormValue("slug")), DisplayName: strings.TrimSpace(r.PostFormValue("display_name")), Contacts: strings.TrimSpace(r.PostFormValue("contacts")), Sites: h.newSites(r)}
+	d := newData{Slug: strings.TrimSpace(r.PostFormValue("slug")), DisplayName: strings.TrimSpace(r.PostFormValue("display_name")), Contacts: strings.TrimSpace(r.PostFormValue("contacts")), Sites: h.newSites(r),
+		Subnet: strings.TrimSpace(r.PostFormValue("subnet")), Allowance: strings.TrimSpace(r.PostFormValue("allowance"))}
 	if !tenant.ValidSlug(d.Slug) {
 		h.render(w, r, http.StatusBadRequest, "tenant_new", "New tenant", d, tenant.ErrInvalidSlug.Error())
 		return
 	}
 	// No box checked creates a tenant connected to no site.
-	req := tenant.CreateRequest{Slug: d.Slug, DisplayName: d.DisplayName, Contacts: d.Contacts, Sites: []tenant.PlacementRequest{}}
+	req := tenant.CreateRequest{Slug: d.Slug, DisplayName: d.DisplayName, Contacts: d.Contacts, Subnet: d.Subnet, Sites: []tenant.PlacementRequest{}}
+	if d.Allowance != "" {
+		n, err := strconv.Atoi(d.Allowance)
+		if err != nil {
+			h.render(w, r, http.StatusBadRequest, "tenant_new", "New tenant", d, tenant.ErrInvalidAllowance.Error())
+			return
+		}
+		req.FIPAllowance = &n
+	}
 	for _, s := range d.Sites {
 		if s.Checked {
 			req.Sites = append(req.Sites, tenant.PlacementRequest{Site: s.ID, ClusterExtID: s.Cluster, StorageContainerExtID: s.Container})
@@ -191,6 +202,9 @@ type placementView struct {
 	store.Placement
 	Code       string
 	Visibility *tenant.Visibility
+	// NetOn says the site's ready network is switched on: a connection
+	// without a network can get one.
+	NetOn bool
 }
 
 // detail gathers the detail page; withVisibility calls each site's Prism
@@ -212,6 +226,10 @@ func (h *Handler) detail(r *http.Request, t *store.Tenant, withVisibility bool) 
 		return d, fmt.Errorf("the tenant's sites could not be read: %w", err)
 	}
 	on := map[string]bool{}
+	netOn := map[string]bool{}
+	for _, s := range h.svc.Sites() {
+		netOn[s.ID] = s.Network.Enabled
+	}
 	var vis map[string]*tenant.Visibility
 	if withVisibility && (t.Status == store.StatusActive || t.Status == store.StatusDisabled) {
 		v, err := h.svc.Visibility(r.Context(), t.ID)
@@ -223,7 +241,7 @@ func (h *Handler) detail(r *http.Request, t *store.Tenant, withVisibility bool) 
 	for _, p := range ps {
 		on[p.SiteID] = true
 		d.Polling = d.Polling || placementInProgress(p.Status)
-		pv := placementView{Placement: p, Code: h.svc.SiteCode(p.SiteID)}
+		pv := placementView{Placement: p, Code: h.svc.SiteCode(p.SiteID), NetOn: netOn[p.SiteID]}
 		if p.Status == store.PlacementActive {
 			pv.Visibility = vis[p.SiteID]
 		}

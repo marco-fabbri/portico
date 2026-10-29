@@ -94,8 +94,8 @@ td { text-align: left; padding: .9rem .7rem; border-bottom: 1px solid var(--line
 tbody tr:last-child td { border-bottom: 0; }
 
 .status { display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-.status-creating, .status-deleting, .status-removing { background: var(--neutral-bg); color: var(--neutral); }
-.status-active, .status-available { background: var(--ok-bg); color: var(--ok); }
+.status-creating, .status-deleting, .status-removing, .status-building, .status-none { background: var(--neutral-bg); color: var(--neutral); }
+.status-active, .status-available, .status-ready { background: var(--ok-bg); color: var(--ok); }
 .status-failed, .status-unreachable, .status-remove-failed { background: var(--bad-bg); color: var(--bad); }
 .status-disabled, .status-maintenance, .status-suspended { background: var(--warn-bg); color: var(--warn); }
 h1 .status { vertical-align: middle; margin-left: .3rem; }

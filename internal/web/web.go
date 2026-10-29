@@ -43,6 +43,9 @@ type Options struct {
 	Secure   bool                 // the listener has TLS: Secure cookie
 	Version  string
 	Log      *slog.Logger
+	// NetReader reads a site's Prism Central for the Networking card; nil
+	// opens the site with its service account key.
+	NetReader NetReader
 }
 
 // Handler serves the UI. It implements api.SessionChecker so the same
@@ -61,6 +64,8 @@ type Handler struct {
 	mux      *http.ServeMux
 	pages    map[string]*template.Template
 	icons    branding.Icons // the admin UI's tab icons, drawn once
+	// netReader reads a site for the Networking card (siteNetReader when nil).
+	netReader NetReader
 }
 
 // New builds the handler and parses the templates once.
@@ -77,7 +82,7 @@ func New(o Options) *Handler {
 	if o.Branding == nil {
 		o.Branding = branding.NewService(o.Store, o.Log)
 	}
-	h := &Handler{st: o.Store, svc: o.Service, brand: o.Branding, sessions: o.Sessions, limiter: o.Limiter, setup: o.Setup, exposure: o.Exposure, secure: o.Secure, version: o.Version, log: o.Log}
+	h := &Handler{st: o.Store, svc: o.Service, brand: o.Branding, sessions: o.Sessions, limiter: o.Limiter, setup: o.Setup, exposure: o.Exposure, secure: o.Secure, version: o.Version, log: o.Log, netReader: o.NetReader}
 	h.pages = parsePages()
 	h.icons = branding.AdminIcons()
 	mux := http.NewServeMux()
@@ -92,6 +97,7 @@ func New(o Options) *Handler {
 	mux.HandleFunc("GET /{$}", h.home)
 	h.routes(mux)
 	h.connectionRoutes(mux)
+	h.networkingRoutes(mux)
 	h.setupRoutes(mux)
 	h.exposureRoutes(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

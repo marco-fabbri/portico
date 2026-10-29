@@ -6,6 +6,13 @@
   <div id="site-status" hx-post="/setup/sites/{{.Data.S.ID}}/status" hx-vals='{"_csrf":"{{.CSRF}}"}' hx-trigger="load" hx-swap="outerHTML"><p class="muted">Checking Prism Central and Keycloak…</p></div>
 </section>
 
+{{if .Data.S.ServiceAccountExtID}}
+<section class="card" id="card-networking">
+  <h2>Networking</h2>
+  <div id="site-networking" hx-get="/setup/sites/{{.Data.S.ID}}/networking" hx-trigger="load" hx-swap="outerHTML"><p class="muted">Reading the site's networking…</p></div>
+</section>
+{{end}}
+
 {{if .Data.Running}}
 <section class="card" id="card-tenants">
   <h2>Tenants on this site</h2>
@@ -180,4 +187,32 @@
 <div id="site-run" class="check-result"></div>
 {{end}}
 {{end}}
+</div>{{end}}{{end}}
+
+{{define "site_networking"}}{{with .Data}}<div id="site-networking">
+<p class="muted">The ready network gives each tenant connected to this site a VPC, a /24 subnet and floating IPs, routed through one transit VPC. Every check must pass before it goes on; tenants connected earlier get theirs with Create ready network on their page.</p>
+{{if .Error}}<div class="banner error">{{.Error}}</div>{{end}}
+{{if .Refused}}<div class="banner error">{{.Refused}}</div>{{end}}
+{{if .Notice}}<div class="banner notice">{{.Notice}}</div>{{end}}
+{{if .Checks}}<table class="status-card">
+  <tbody>{{range .Checks}}<tr>
+    <th>{{.Name}}</th>
+    <td>{{if eq .Status "ok"}}<span class="state done">ok</span>{{else if eq .Status "warning"}}<span class="state todo">warning</span>{{else}}<span class="state todo">{{.Status}}</span>{{end}}</td>
+    <td>{{.Message}}</td>
+  </tr>{{end}}</tbody>
+</table>{{end}}
+<form hx-post="/setup/sites/{{.S.ID}}/networking" hx-target="#site-networking" hx-swap="outerHTML">
+  <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+  <label>Transit VPC
+    <select name="transit_vpc_ext_id"{{if and .Used .S.Network.TransitVPCExtID}} disabled{{end}}>
+      <option value="">none</option>
+      {{$cur := .S.Network.TransitVPCExtID}}{{range .Choices}}<option value="{{.VPCExtID}}"{{if eq .VPCExtID $cur}} selected{{end}}>{{.Name}} · {{.ExternalSubnet}} · {{.RoutedPrefix}} ({{.Slices}} tenants)</option>{{end}}
+    </select>
+  </label>
+  {{if and .Used .S.Network.TransitVPCExtID}}<input type="hidden" name="transit_vpc_ext_id" value="{{.S.Network.TransitVPCExtID}}"><p class="muted small">{{.Used}} tenant connection(s) hold a routed range of it: disconnect them to pick another one.</p>{{end}}
+  <label>DNS servers <input type="text" name="dns" value="{{range $i, $d := .S.Network.DNS}}{{if $i}}, {{end}}{{$d}}{{end}}" placeholder="1.1.1.1, 8.8.8.8"></label>
+  <label class="inline"><input type="checkbox" name="integrated"{{if .S.Network.IntegratedConfirmed}} checked{{end}}> Flow Virtual Networking runs in the Integrated mode on this site</label>
+  <label class="inline"><input type="checkbox" name="enabled"{{if .S.Network.Enabled}} checked{{end}}> New connections get a ready network</label>
+  <div class="actions"><button type="submit" class="primary">Save</button></div>
+</form>
 </div>{{end}}{{end}}

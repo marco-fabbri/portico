@@ -20,6 +20,11 @@
       </div>
       {{else}}<p class="banner warning">No site is configured: add one on the setup page first.</p>{{end}}
     </fieldset>
+    <details{{if or .Data.Subnet .Data.Allowance}} open{{end}}><summary>Advanced</summary>
+      <label>Subnet <input type="text" name="subnet" value="{{.Data.Subnet}}" placeholder="next free /24 of the address pool">
+        <span class="muted">a private /24 the tenant's network uses instead of the next free one, for instance to match the customer's own plan</span></label>
+      <label>Floating IPs per site <input type="number" name="allowance" min="0" max="12" value="{{.Data.Allowance}}" placeholder="1"></label>
+    </details>
     <div class="actions">
       <button type="submit" class="primary">Create</button>
       <a class="button" href="/">Cancel</a>
