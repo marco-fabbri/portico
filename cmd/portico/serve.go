@@ -264,6 +264,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	})
 	go runtime.reload(ctx, settingsSvc, sitesReload)
 	go monitor.Run(ctx, 30*time.Second, 10*time.Second)
+	go tenants.RunNetworkWatch(ctx, tenant.NetworkWatchInterval)
 	placements := sites.NewIndex(st, 5*time.Second)
 	tenants.OnPlacementChange(placements.Invalidate)
 	setup.Runtime = &api.Runtime{Monitor: monitor, Store: sessions}
