@@ -144,14 +144,6 @@ this file.
   `ParseKeyfile` does not check the `[ipv4]` section;
   tunnel mode is not measured with a real Cloudflare tunnel yet.
 
-- At the first boot `NetworkManager-wait-online` waits its full 60 s and
-  fails: the image's unused "Wired connection 1" never comes up, so
-  every unit after `network-online.target` starts a minute late
-  (write-up 30). Remove that profile in the image cleanup, or let the
-  console delete it when it writes the interface's keyfile.
-- The CI's actions run on Node.js 20, which GitHub retires: move
-  `actions/checkout`, `setup-go` and the upload actions to their Node 24
-  majors.
 - `deploy/tofu/nutanix` is validated by `tofu validate` and the CI boot
   test renders its template; a `tofu test` with a mock provider would
   also cover the VM resource's arguments (write-up 19).
