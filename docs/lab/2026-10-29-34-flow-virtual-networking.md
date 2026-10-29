@@ -370,6 +370,12 @@ must Portico ask the MSP for?
     publishes the VM, as in the NVD. Its Internet access failed, as
     expected while the upstream router has no route back to the prefix
     and no NAT rule for it.
+  - A second tenant on `10.23.211.32/28` (its VPC, subnet and floating
+    IP `10.23.211.37`, all in its project), then its Disconnect while the
+    first one kept its VM: floating IP, subnet and VPC deleted,
+    `unshare` succeeded, project deleted, its overlay external subnet
+    removed; the transit VPC stayed and the first tenant's VM still
+    answered on `10.23.211.18`.
 - MEASURED (read only, both sites): the networking controller's API has
   no field for the Flow mode (`controllers` lists version, status,
   health per cluster and node, the VLAN stack, nothing about Integrated
