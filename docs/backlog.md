@@ -121,8 +121,6 @@ file.
 - `Apply(ctx, hook, b)` surface is clumsy (`Apply(ctx)` would do);
   `serve.go` variable `store` shadows the store package (rename to
   `sessions`).
-- `go.mod` marks `modernc.org/sqlite` and `x/crypto` as indirect (`go mod
-  tidy`).
 - `TestPrismBootstrapPolicyMissingDeletesTheKey`-style gaps elsewhere:
   Review Focus "Basic header on /healthz → 200" not asserted explicitly.
 
@@ -206,8 +204,9 @@ surface or the admin authentication path, so they wait for a decision.
 - `nutanix.getRaw` repeats `call` for one request; `listAll` decodes
   each page twice (`internal/nutanix`).
 - The retired VM of Milestones 0 to 2 still has its scripts and their
-  checks: `lab/vm/`, `lab/portico/deploy.sh`, `undeploy.sh`, the lab
-  `portico.yaml` files, and their lines in `lab/test_scripts.sh` and
+  checks: `lab/vm/` except `lab/vm/lib.sh`, which the network scripts
+  use (`edge-router.sh`), `lab/portico/deploy.sh`, `undeploy.sh`, the
+  lab `portico.yaml` files, and their lines in `lab/test_scripts.sh` and
   `lab/README.md`.
 
 ## Closed in Milestone 2f (write-up 16)
@@ -321,3 +320,131 @@ drawn across the logo on the Keycloak login page.
   only the card does.
 - A floating IP read with an empty `projectExtId` is not taken as moved
   by the watch: whether Prism Central always returns it is not measured.
+
+## Deferred from the re-read of 2026-10-30 (write-up 36)
+
+The Important findings P1 to P8 were closed with a test each (PRs #65
+to #67); these are the reviewers' Minor findings, to be confirmed in
+the code when taken, and the structural items.
+
+### Public path
+
+- Sealed values carry no associated data: someone with write access to
+  the database can move a sealed value between fields or rows
+  (`internal/secrets/secrets.go`).
+- `Verify=false` with no pin runs `InsecureSkipVerify` with only a
+  warning at each build; a deadline or a status-card error would do
+  (`internal/proxy/pin.go`, `cmd/portico/sites_runtime.go`).
+- The pass-through keeps forwarding to a removed site when no site is
+  left (`cmd/portico/sites_runtime.go`, `applyPassthrough`).
+- The console hard-codes `/etc/portico/portico.yaml` for `admin
+  set-password` and `internalAdmin` although it receives `-config`
+  (`internal/console/password.go`, `console.go`).
+- `serve` makes a fresh master key when the file is missing before
+  checking whether the store holds sealed settings, so a lost key file
+  leaves a wrong one in place (`cmd/portico/serve.go`).
+- A failed later bind leaves the earlier listeners serving and does not
+  call `wait()` (`cmd/portico/serve.go`, `serveListeners`).
+- The access log's `session` field means "cookie present", not "valid"
+  (also under "Public path, sessions, proxy").
+- Lab-name clean-up left the appliance's `portico.appliance.yaml` note
+  on backing the master key up "with the store": a backup holding both
+  defeats encryption at rest; say to keep them apart.
+
+### Provisioning
+
+- The read-back of a create goes by name, not by the task's entity;
+  with two same-named objects the stored extId can be the wrong one
+  (`internal/nutanix/networking.go` `createWithTask`, `projects.go`).
+- `createWithTask`, `CreateProject`, `CreateResourceGroup` and
+  `CreateDefaultRoute` call `WaitTask("")` on an empty task id and
+  report a failure after a create that succeeded.
+- Floating IPs created after their call failed are not adopted at
+  Disconnect (`adoptByName` covers the external subnet, the VPC and the
+  subnet); a project or SAML group created after its call failed is
+  recorded "already absent" and stays in Prism Central
+  (`internal/tenant/network.go`, `provision.go` `removePlacement`).
+- `AssignSubnets`, `SetAllowance` and `Retry` write tenant rows read
+  outside the tenant lock (`internal/tenant/network.go`).
+- `role()` falls back to Project Admin silently when Portico Tenant is
+  missing, which makes the floating-IP allowance no limit
+  (`internal/tenant/provision.go`).
+- `foreignGroup` matches the first group of that name; two
+  `tenant-<slug>` groups can exist after a trust is recreated
+  (`internal/tenant/provision.go`).
+- Lowering the allowance deletes any `<project>-fip-N` in the project,
+  one the tenant made itself under the Project Admin fallback included
+  (`matchAllowance`).
+- The Portico Networking policy filters every subnet, VPC, route table
+  and floating IP of the Prism Central (also under "Tenant ready network
+  (0.2.0)"): with the adoption rule now scoped to the project, this is
+  the widest open item.
+
+### Admin side
+
+- A site's stored API key follows a URL change: `CheckSite` refuses to
+  send it to another host, `UpdateSite` keeps it when only the URL
+  changes (`internal/api/sites.go`).
+- A site URL may be `http` (`internal/settings/sites.go`); the trust
+  check runs for https only.
+- The tenant site chooser renders `Site.Name`, which a YAML-made or
+  legacy site takes from Prism Central's address; the admin UI does not
+  say the Name is shown to tenants (`branding/templates/sites.html`,
+  `site_new.html`).
+- The unsealed API key reaches two fragments' template data
+  (`internal/web/site_setup.go` `statusData.S`, `summaryData.Site`);
+  every other path blanks it.
+- `POST /login` has no CSRF token or Origin check: another site can
+  post wrong passwords from the admin's browser and lock the admin's
+  address out through the limiter (`internal/web/login.go`).
+- The current-password check on `/password` is not rate-limited.
+- `portico admin set-password` applies no password policy
+  (`internal/api/auth.go` `SetAdminPassword`).
+- Site Save stores Code and Name before failing on Order
+  (`internal/web/sites.go` `siteFromForm`); a refused site change still
+  rewrites the document and runs the hooks (`patchSites`).
+- Card saves and `PUT /settings` update a document read outside the
+  lock, which can revert a concurrent bootstrap write; `ForgetSite`
+  deletes placements before the document; branding cache and store are
+  written without one lock; `PUT /settings` without `operation_timeout`
+  stores 0.
+
+### Test gaps not closed by the fix pass
+
+- No CSRF test walks every route; the lists miss `/password`,
+  `/setup/realm/retry`, the site networking, maintenance, disconnect
+  and tenants routes, and the connection and network routes.
+- The fake Prism Central accepts what the real one refuses: a VPC on an
+  unshared external subnet, deleting a subnet a VPC uses, deleting a
+  project that holds resources; removal order is checked by step names
+  only.
+- No test that tenant-facing pages never show a Prism Central address;
+  none that `Callback`/`Logout` log lines hold no token, code or state;
+  the IdP-down test counts no requests reaching Prism Central.
+
+### Structure: its own milestone, plan to be written
+
+- `internal/settings` holds the document, the live checks and about
+  1,600 lines of bootstraps that create things in Keycloak and Prism
+  Central (`bootstrap*.go`, `setup_site.go`, `networking_rights.go`,
+  `remove_site.go`): the third part is its own package.
+- `internal/api` is the HTTP layer and the service layer at once
+  (`SettingsOptions`, the site operations, the admin password and the
+  limiter); `web` imports it for all of that. ADR 0003's single service
+  layer exists, inside the HTTP package. The settings document was
+  merged in three places (web, API body, API overlay); 0.2.2 shares the
+  pool parse, the rest still differs.
+- `internal/auth` is tenant sessions, admin sessions and site routing
+  in one; `internal/proxy` also runs the SAML automation;
+  `cmd/portico/sites_runtime.go` is a subsystem in `main`; the step
+  runner is copied four times in `internal/tenant`; `internal/nutanix`
+  reads operations, roles and policies through two API versions each.
+- Exported and unused outside their package: `config.Config.Validate`,
+  `exposure.CertPath/KeyPath/TokenPath`, `proxy.CookieAttrs/StashName`,
+  `auth.Discover`, `nutanix.ListProjects/WaitTask/Path*`,
+  `tenant.DefaultSites/DefaultAllowance/WatchNetworks/UserGroupsLister`,
+  `netplan.ErrPoolFull`, `sites.ProbeOnce/CheckTrust/StateKey`,
+  `branding.Service.LogoFile`; `api.IdentityFromContext` is used by
+  tests only and nothing logs who acted. `unset.html` and the "no
+  password" branches are unreachable since `serve` always stores the
+  factory password (design 4.2 still describes that state).
