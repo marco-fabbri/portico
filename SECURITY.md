@@ -1,7 +1,9 @@
 # Security policy
 
-Portico is pre-release: there is no supported installation yet and no
-release to upgrade. Security matters from the first commit anyway, because
+Portico is released (see the
+[releases](https://github.com/marco-fabbri/portico/releases)) and still
+before 1.0: the current release is the supported one, and a fix ships as
+the next patch release. Security matters from the first commit, because
 the whole point of the appliance is what it refuses to let through.
 
 ## Reporting a vulnerability

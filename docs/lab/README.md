@@ -1,4 +1,4 @@
-# Lab write-ups (Milestones 0 to 2 and the layout pass)
+# Lab write-ups
 
 Measurements on cluster NTNX-01, Prism Central pc.7.6.0.6, October 2026.
 Each write-up states what was measured, the implications for the design,
@@ -41,6 +41,7 @@ and how to re-measure after an upgrade. Scripts are under `lab/`.
 | 33 | [v0.1.0 from the release image](2026-10-27-33-release-rehearsal.md) | a scripted rehearsal of the published image on both sites, two tenants with VMs, and a clean teardown; the VLANs share one firewall that drops 210 to 220 |
 | 34 | [Flow Virtual Networking on both sites](2026-10-29-34-flow-virtual-networking.md) | Integrated mode on both Prism Centrals, with no virtual IP; NYC1's enablement failed until its Prism Central's gateway was fixed (the Data Services IP had been set); a NAT external subnet per site; a tenant's ready network in five calls and about 30 s, a VPC made through the API needing its default route by hand, a VM on it with DHCP, SNAT and its floating IP, the same `/24` on both sites; Project Manager cannot share the external subnet nor manage floating IPs; the data the MSP must give, as a table |
 | 35 | [Ready network acceptance on a second appliance](2026-10-30-35-ready-network-acceptance.md) | Portico Tenant refused until the two system-only operations of Project Admin (`Create_Role_Membership`, `Delete_Role_Membership`) were left out; the Networking card's nine checks; a tenant's network in 47 to 100 s, its VM reached on its floating IP, Disconnect in about 70 s leaving nothing; the Internet waits for the router's route of the routed prefix; Prism Central's Cassandra restarting under CPU contention |
+| 36 | [The re-read of the project after 0.2.1](2026-10-30-36-project-review.md) | documents and code re-read after three releases: README and install guide still at 0.1.0; eight Important code findings (encoded paths past the deny list, a token in the access log, a task poll 500 creating objects twice, adoption by name, the API resetting the pool), none breaking a rule on the appliance as shipped |
 
 `lab-inventory.md` lists everything created in the lab and how to remove it.
 `TEMPLATE.md` is the write-up skeleton. `payloads/` holds sanitised request
