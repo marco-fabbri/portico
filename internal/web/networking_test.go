@@ -134,7 +134,7 @@ func TestTenantPageShowsNetwork(t *testing.T) {
 	e.createTenant(t, "acme")
 	netPlacement(t, e, store.NetReady, "")
 	body := e.do("GET", "/tenants/acme", nil, true).Body.String()
-	for _, want := range []string{"10.23.211.18", "10.23.211.29", "10.23.211.16/28", "10.100.0.0/24", `status-ready`} {
+	for _, want := range []string{"10.23.211.18", "10.23.211.29", "10.23.211.16/28", "10.128.0.0/24", `status-ready`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("the page lacks %q:\n%s", want, body)
 		}
@@ -233,7 +233,7 @@ func TestTenantNewException(t *testing.T) {
 	e := newEnv(t, true)
 	e.login(t)
 	e.createTenant(t, "acme")
-	rec := e.do("POST", "/tenants", e.form("slug", "beta", "display_name", "Beta", "subnet", "10.100.0.0/24", "allowance", "2"), true)
+	rec := e.do("POST", "/tenants", e.form("slug", "beta", "display_name", "Beta", "subnet", "10.128.0.0/24", "allowance", "2"), true)
 	if rec.Code != 409 && rec.Code != 400 || !strings.Contains(rec.Body.String(), "acme") {
 		t.Fatalf("an overlapping exception: %d\n%s", rec.Code, rec.Body.String())
 	}

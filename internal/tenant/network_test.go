@@ -57,7 +57,7 @@ func TestConnectBuildsNetwork(t *testing.T) {
 		}
 	}
 	pl, tn := e.place(t, "acme"), e.get(t, "acme")
-	if pl.Status != store.PlacementActive || pl.NetState != store.NetReady || pl.NetError != "" || pl.TransitPrefix != "10.23.211.0/28" || tn.Subnet != "10.100.0.0/24" {
+	if pl.Status != store.PlacementActive || pl.NetState != store.NetReady || pl.NetError != "" || pl.TransitPrefix != "10.23.211.0/28" || tn.Subnet != "10.128.0.0/24" {
 		t.Fatalf("placement = %+v, tenant subnet %q", pl, tn.Subnet)
 	}
 	ext, net := e.pc.SubnetNamed("portico-acme-ext"), e.pc.SubnetNamed("portico-acme-net")
@@ -68,7 +68,7 @@ func TestConnectBuildsNetwork(t *testing.T) {
 	if vpc == nil || vpc.ProjectExtID != pl.ProjectExtID || vpc.External[0].SubnetExtID != ext.ExtID {
 		t.Fatalf("vpc = %+v", vpc)
 	}
-	if net == nil || net.ProjectExtID != pl.ProjectExtID || net.VPCExtID != vpc.ExtID || net.Prefix != netip.MustParsePrefix("10.100.0.0/24") {
+	if net == nil || net.ProjectExtID != pl.ProjectExtID || net.VPCExtID != vpc.ExtID || net.Prefix != netip.MustParsePrefix("10.128.0.0/24") {
 		t.Fatalf("subnet = %+v", net)
 	}
 	if r := e.pc.RoutesOf(vpc.ExtID); len(r) != 1 || r[0].Destination != netip.MustParsePrefix("0.0.0.0/0") || r[0].NextHopExtID != ext.ExtID {
@@ -161,7 +161,7 @@ func TestAssignSubnetsCreationOrder(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	for _, tn := range []*store.Tenant{
-		{ID: "zeta", DisplayName: "Z", Status: store.StatusActive, Subnet: "10.100.0.0/24", SubnetException: true},
+		{ID: "zeta", DisplayName: "Z", Status: store.StatusActive, Subnet: "10.128.0.0/24", SubnetException: true},
 		{ID: "omega", DisplayName: "O", Status: store.StatusActive},
 		{ID: "alpha", DisplayName: "A", Status: store.StatusActive},
 	} {
@@ -173,7 +173,7 @@ func TestAssignSubnetsCreationOrder(t *testing.T) {
 	if err != nil || n != 2 {
 		t.Fatalf("AssignSubnets = %d, %v", n, err)
 	}
-	if o, a := e.get(t, "omega"), e.get(t, "alpha"); o.Subnet != "10.100.1.0/24" || a.Subnet != "10.100.2.0/24" || o.SubnetException {
+	if o, a := e.get(t, "omega"), e.get(t, "alpha"); o.Subnet != "10.128.1.0/24" || a.Subnet != "10.128.2.0/24" || o.SubnetException {
 		t.Fatalf("omega %q, alpha %q", o.Subnet, a.Subnet)
 	}
 	if n, err := e.svc.AssignSubnets(ctx); err != nil || n != 0 {
@@ -189,7 +189,7 @@ func TestCreateStoresException(t *testing.T) {
 	e.svc.Wait()
 	e.create(t, "beta")
 	e.svc.Wait()
-	if a, b := e.get(t, "acme"), e.get(t, "beta"); a.Subnet != "192.168.5.0/24" || !a.SubnetException || b.Subnet != "10.100.0.0/24" {
+	if a, b := e.get(t, "acme"), e.get(t, "beta"); a.Subnet != "192.168.5.0/24" || !a.SubnetException || b.Subnet != "10.128.0.0/24" {
 		t.Fatalf("acme %q %v, beta %q", a.Subnet, a.SubnetException, b.Subnet)
 	}
 	_, err := e.svc.Create(context.Background(), CreateRequest{Slug: "gamma", DisplayName: "G", Subnet: "192.168.5.0/24"})
