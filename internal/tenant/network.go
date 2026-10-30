@@ -381,9 +381,13 @@ func (s *Service) buildNetwork(ctx context.Context, t *store.Tenant, p *store.Pl
 			if err != nil {
 				return "", err
 			}
-			// Found without its project (the read-back failed once): the
-			// repair of the create path, on every path (write-up 36, P8).
+			// Found without its project (write-up 34): the repair of the
+			// create path, on every path (write-up 36, P8). One of another
+			// project is never deleted.
 			if vpc != nil && vpc.ProjectExtID != p.ProjectExtID {
+				if vpc.ProjectExtID != "" {
+					return "", fmt.Errorf("%s (%s) belongs to another project", name, vpc.ExtID)
+				}
 				if err := pc.DeleteVPC(ctx, vpc.ExtID); err != nil && !nutanix.IsNotFound(err) {
 					return "", fmt.Errorf("%w; deleting it failed: %v", errNoProject(name), err)
 				}
@@ -428,6 +432,9 @@ func (s *Service) buildNetwork(ctx context.Context, t *store.Tenant, p *store.Pl
 				return "", err
 			}
 			if sub != nil && sub.ProjectExtID != p.ProjectExtID {
+				if sub.ProjectExtID != "" {
+					return "", fmt.Errorf("%s (%s) belongs to another project", name, sub.ExtID)
+				}
 				if err := pc.DeleteSubnet(ctx, sub.ExtID); err != nil && !nutanix.IsNotFound(err) {
 					return "", fmt.Errorf("%w; deleting it failed: %v", errNoProject(name), err)
 				}
@@ -490,12 +497,24 @@ func findSubnet(ctx context.Context, pc PrismCentral, extID, name, project, vpc 
 	if err != nil {
 		return nil, err
 	}
+	// The project's own, else one Prism Central created without its
+	// project (write-up 34), which the step then repairs; never another
+	// project's.
+	var orphan *nutanix.Subnet
 	for i := range all {
-		if all[i].Name == name && (project == "" || all[i].ProjectExtID == project) && (vpc == "" || all[i].VPCExtID == vpc) {
+		if all[i].Name != name || (vpc != "" && all[i].VPCExtID != vpc) {
+			continue
+		}
+		switch all[i].ProjectExtID {
+		case project:
 			return &all[i], nil
+		case "":
+			if orphan == nil {
+				orphan = &all[i]
+			}
 		}
 	}
-	return nil, nil
+	return orphan, nil
 }
 
 // findVPC is findSubnet for a VPC: by the stored extId, else by name
@@ -512,12 +531,21 @@ func findVPC(ctx context.Context, pc PrismCentral, extID, name, project string) 
 	if err != nil {
 		return nil, err
 	}
+	var orphan *nutanix.VPC
 	for i := range all {
-		if all[i].Name == name && all[i].ProjectExtID == project {
+		if all[i].Name != name {
+			continue
+		}
+		switch all[i].ProjectExtID {
+		case project:
 			return &all[i], nil
+		case "":
+			if orphan == nil {
+				orphan = &all[i]
+			}
 		}
 	}
-	return nil, nil
+	return orphan, nil
 }
 
 // matchAllowance brings the connection's floating IPs, <project>-fip-N,

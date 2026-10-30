@@ -47,12 +47,12 @@ func TestCreateOverlayExternalSubnetHasNoProject(t *testing.T) {
 	f.lists[PathNetworking+"/subnets"] = []any{netSubnet("oen-1", "portico-acme-ext", "")}
 	c := newClient(t, f, nil)
 	p := netip.MustParsePrefix("10.23.211.16/28")
-	if _, err := c.CreateOverlayExternalSubnet(context.Background(), "portico-acme-ext", "vpc-t", p,
+	if _, err := c.CreateOverlayExternalSubnet(context.Background(), "portico-acme-ext", "vpc-1", p,
 		netip.MustParseAddr("10.23.211.17"), netip.MustParseAddr("10.23.211.18"), netip.MustParseAddr("10.23.211.30")); err != nil {
 		t.Fatalf("CreateOverlayExternalSubnet: %v", err)
 	}
 	b := find(f.requests(), "POST", PathNetworking+"/subnets").Body
-	if b["isExternal"] != true || b["isNatEnabled"] != true || b["vpcReference"] != "vpc-t" || b["subnetType"] != "OVERLAY" {
+	if b["isExternal"] != true || b["isNatEnabled"] != true || b["vpcReference"] != "vpc-1" || b["subnetType"] != "OVERLAY" {
 		t.Fatalf("POST body = %v", b)
 	}
 	if _, ok := b["projectExtId"]; ok {
@@ -212,5 +212,32 @@ func TestFloatingIPAssociationWithoutStatus(t *testing.T) {
 	fips, err := c.ListFloatingIPs(context.Background())
 	if err != nil || len(fips) != 2 || !fips[0].Associated || fips[1].Associated {
 		t.Fatalf("fips = %+v, %v", fips, err)
+	}
+}
+
+// The read-back after a create takes the object of that name in the
+// project (or without one, when Prism Central dropped it: write-up 34),
+// never another project's (write-up 36 review).
+func TestCreateReadBackPrefersTheProjectsObject(t *testing.T) {
+	f := newFakePC(t)
+	other := netSubnet("s-other", "portico-acme-net", "p-other")
+	dropped := netSubnet("s-dropped", "portico-acme-net", "")
+	mine := netSubnet("s-mine", "portico-acme-net", "p-1")
+	c := newClient(t, f, nil)
+	pr := netip.MustParsePrefix("10.128.1.0/24")
+	gw, first, last := netip.MustParseAddr("10.128.1.1"), netip.MustParseAddr("10.128.1.2"), netip.MustParseAddr("10.128.1.254")
+	f.lists[PathNetworking+"/subnets"] = []any{other, dropped, mine}
+	sub, err := c.CreateOverlaySubnet(context.Background(), "portico-acme-net", "p-1", "vpc-1", pr, gw, first, last)
+	if err != nil || sub.ExtID != "s-mine" {
+		t.Fatalf("subnet = %+v, %v", sub, err)
+	}
+	f.lists[PathNetworking+"/subnets"] = []any{other, dropped}
+	sub, err = c.CreateOverlaySubnet(context.Background(), "portico-acme-net", "p-1", "vpc-1", pr, gw, first, last)
+	if err != nil || sub.ExtID != "s-dropped" {
+		t.Fatalf("subnet = %+v, %v", sub, err)
+	}
+	f.lists[PathNetworking+"/subnets"] = []any{other}
+	if _, err = c.CreateOverlaySubnet(context.Background(), "portico-acme-net", "p-1", "vpc-1", pr, gw, first, last); !IsNotFound(err) {
+		t.Fatalf("err = %v, want not found", err)
 	}
 }
