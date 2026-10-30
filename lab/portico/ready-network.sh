@@ -94,8 +94,16 @@ done
 if [ -z "$(pl .status)" ]; then say ok "disconnected in $(( $(now) - t1 )) s"; else say FAIL "disconnect: $(pl .status) $(pl .last_error)"; fi
 code=$(api DELETE "/api/v1/tenants/$slug")
 case "$code" in 20*) say ok "tenant $slug deleted" ;; *) say FAIL "delete: HTTP $code $(field .error)" ;; esac
+# A list Prism Central did not answer is no proof of anything: read again,
+# and fail if it never answers.
 for kind in subnets vpcs floating-ips; do
-  left=$(lab/pc.sh GET "$NET/$kind?\$limit=100" 2>/dev/null | jq -r --arg p "$project-" '[.data[]? | select((.name // "") | startswith($p)) | .name] | join(" ")')
-  if [ -z "$left" ]; then say ok "no $kind of $project left"; else say FAIL "$kind left: $left"; fi
+  left="?"
+  for _ in 1 2 3 4 5; do
+    if left=$(lab/pc.sh GET "$NET/$kind?\$limit=100" 2>/dev/null | jq -er --arg p "$project-" '[.data[]? | select((.name // "") | startswith($p)) | .name] | join(" ")' 2>/dev/null); then break; fi
+    left="?"; sleep 5
+  done
+  if [ "$left" = "?" ]; then say FAIL "$kind: Prism Central did not answer the list"
+  elif [ -z "$left" ]; then say ok "no $kind of $project left"
+  else say FAIL "$kind left: $left"; fi
 done
 exit "$fail"

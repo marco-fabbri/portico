@@ -8,7 +8,7 @@
 # publish: a floating IP of the VLAN external subnet on the transit VPC,
 # associated with PRIVATE_IP of the overlay external subnet (a tenant's
 # floating IP there), so the tenant's VM is reached from the VLAN.
-# Optional: EXT_SUBNET (external-nat), OEN_CIDR (100.64.0.0/24), OEN_NAME
+# Optional: EXT_SUBNET (external-nat), OEN_CIDR (100.64.0.0/24, or none), OEN_NAME
 # (portico-transit-oen): one overlay external subnet per tenant is made by
 # running create with another name and CIDR; delete removes OEN_NAME, and
 # the transit VPC once no overlay external subnet is left in it.
@@ -26,12 +26,17 @@ source lab/lib.sh
 NET=/api/networking/v4.4/config
 ext_name="${EXT_SUBNET:-external-nat}"
 cidr="${OEN_CIDR:-100.64.0.0/24}"
+# OEN_CIDR=none: no overlay external subnet of the script's own; Portico cuts
+# the tenants' /28s from the ERP by itself.
+[ "$cidr" != none ] || cidr=""
 net="${cidr%/*}"; prefix="${cidr#*/}"
 # gateway: first address of the CIDR; pool: second to the one before broadcast
 ip2n() { local a b c d; IFS=. read -r a b c d <<<"$1"; echo $(( (a << 24) + (b << 16) + (c << 8) + d )); }
 n2ip() { echo "$(( $1 >> 24 & 255 )).$(( $1 >> 16 & 255 )).$(( $1 >> 8 & 255 )).$(( $1 & 255 ))"; }
-first=$(ip2n "$net"); last=$(( first + (1 << (32 - prefix)) - 1 ))
-gw=$(n2ip $(( first + 1 ))); pool_s=$(n2ip $(( first + 2 ))); pool_e=$(n2ip $(( last - 1 )))
+if [ -n "$cidr" ]; then
+  first=$(ip2n "$net"); last=$(( first + (1 << (32 - prefix)) - 1 ))
+  gw=$(n2ip $(( first + 1 ))); pool_s=$(n2ip $(( first + 2 ))); pool_e=$(n2ip $(( last - 1 )))
+fi
 vpc_name="portico-transit"; oen_name="${OEN_NAME:-portico-transit-oen}"; pub_name="portico-transit-pub"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
@@ -81,7 +86,7 @@ case "${1:-}" in
       task=$(lab/pc.sh POST "$NET/route-tables/$rt/routes" "$tmp/route" 2>"$tmp/err" | jq -r '.data.extId // empty')
       if [ -n "$task" ]; then echo "default route: $(wait_task "$task")" >&2; else echo "default route: refused, $(tail -1 "$tmp/err")" >&2; exit 1; fi
     fi
-    if [ -z "$(by_name subnets "$oen_name")" ]; then
+    if [ -n "$cidr" ] && [ -z "$(by_name subnets "$oen_name")" ]; then
       jq -n --arg n "$oen_name" --arg v "$v" --arg net "$net" --argjson pre "$prefix" --arg gw "$gw" --arg s "$pool_s" --arg e "$pool_e" '{
         name:$n, subnetType:"OVERLAY", vpcReference:$v, isExternal:true, isNatEnabled:true,
         ipConfig:[{ipv4:{ipSubnet:{ip:{value:$net}, prefixLength:$pre}, defaultGatewayIp:{value:$gw},
