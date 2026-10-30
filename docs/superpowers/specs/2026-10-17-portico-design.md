@@ -19,8 +19,8 @@ model. Small MSPs have no turnkey answer.
 
 1. **Appliance**: a VM image importable into Prism Central, with a console
    wizard for network settings and a web UI for everything else.
-2. **Exposure**: one Prism Central reachable at a public URL, either through a
-   Cloudflare Tunnel (`cloudflared`, the "easy" path) or directly on port 443.
+2. **Exposure**: one or more Prism Centrals reachable at one public URL
+   (sites, `2026-10-20-sites-design.md`), either through a Cloudflare Tunnel (`cloudflared`, the "easy" path) or directly on port 443.
    Both modes give the same security guarantees.
 3. **Identity**: every request on the public path is authenticated by Portico
    against the identity provider before it reaches Prism Central. Prism
@@ -548,6 +548,99 @@ page applies, so there is no second path to protect; the logic is tested
 without a browser; and the UI can be replaced, or another front end put on
 top (section 2, deferred), without touching the logic.
 
+### 4.8 Console wizard
+
+`portico console` (Go TUI) on tty1 via a getty override: hostname, IP/mask/
+gateway/DNS for the internal interface, re-runnable at any time, writes
+NetworkManager profiles with `nmcli`. Sets the break-glass password. Shows service health and the URL of the
+internal admin UI. Nothing else is configurable from the console.
+Milestone 3 had added the exposure and the Keycloak administrator's
+credentials to it; Marco's install test of 2026-10-26 moved both back to
+the admin UI (ADR 0007): the certificate is uploaded from the browser and
+Portico creates the Keycloak realm with the first boot's temporary
+administrator, which it then deletes.
+
+### 4.9 Appliance image
+
+- Rocky Linux 9, built from the official GenericCloud qcow2 with a repeatable
+  build (Packer + QEMU or a kickstart-based build; builder's choice).
+- CIS Rocky Linux 9 Benchmark **Level 1 Server** applied at build time with
+  OpenSCAP (`scap-security-guide`, profile `cis_server_l1`), remediation then
+  re-scan; the HTML report ships with each release.
+- Known CIS exceptions, documented in the report: `/var/lib/containers` on its
+  own partition (exec allowed) so `/tmp`, `/var/tmp`, `/dev/shm` can stay
+  noexec; separate partitions for `/var`, `/var/log`, `/var/log/audit`,
+  `/home` sized within the 40 GiB target.
+- SELinux enforcing. SSH key-only, internal interface only. firewalld with the
+  listeners above and nothing else.
+- Output: `portico-<version>.qcow2` + checksum + OpenSCAP report, importable
+  into the Prism Central image service. Built by GitHub Actions and attached
+  to a GitHub release, so an MSP downloads a finished image and never builds
+  one. The repository goes public when this pipeline works (public
+  repositories get Actions minutes for free). CIS hardening reuses the
+  approach already built in Marco's `nkp-preprovisioned-toolkit/cis`. Cloud-init accepted for unattended
+  network config; the console wizard covers the attended case.
+- Second delivery form (agreed with Marco on 2026-10-18): the same
+  components installed on any Rocky Linux 9 host the MSP already runs,
+  on Proxmox or in a public cloud, with an rpm or an install script (the
+  systemd unit and the quadlets are host-agnostic; the lab VM is exactly
+  that since Milestone 1). Only network reachability matters: port 9440
+  of every Prism Central from Portico's address, never from the Internet,
+  and the public names towards the tenants.
+- Updates: `dnf` for the OS; for the application the installer of the
+  new release run in place (`install.sh --release`), which stops
+  Portico, copies the store and the master key to
+  `/var/lib/portico/backup-<old version>-<time>/` and replaces the binary,
+  the units and the quadlets (container image tags for
+  Keycloak/PostgreSQL included); no rpm. The backup of an appliance is a
+  snapshot of its VM in Prism Central (decided with Marco on 2026-10-26,
+  Milestone 6): Keycloak's database lives in the podman volume
+  `postgres-data`, outside `/var/lib/portico`, so a copy of that
+  directory onto a new image loses the realm and every tenant user, and
+  copying the master key off the appliance would break "the master key
+  never leaves the appliance"; the snapshot holds both and keeps the key
+  inside. Full image replacement is therefore not a path in v0.1.0; an
+  export of Keycloak's database with the store is in the backlog. The qcow2 carries no container image:
+  PostgreSQL and Keycloak are pulled from their registries at first boot
+  (write-up 29), a known limit of v0.1.0 until they ship in the image.
+- Builder's calls, fixed with Marco on 2026-10-19 for Milestone 3:
+  - Build: Packer with the QEMU builder on a GitHub Actions x86_64 runner
+    (KVM available), from the Rocky Linux 9 boot ISO with a kickstart,
+    because the CIS partition layout needs a fresh disk; the GenericCloud
+    image stays the base of the lab VM and of the "existing host" form.
+  - One installer, `deploy/install.sh`, used by the image build and by
+    the second delivery form: packages, the `portico` user and
+    directories, the binary, the quadlets (PostgreSQL, Keycloak), the
+    units (`portico.service`, the console on tty1, cloudflared), firewalld
+    and SSH policy. Re-running it on an installed host upgrades it.
+  - Hardening: OpenSCAP with `scap-security-guide` profile
+    `xccdf_org.ssgproject.content_profile_cis_server_l1` and a tailoring
+    file for the documented exceptions, remediation then evaluation; the
+    HTML report is a release asset. The control list and the disclaimer
+    wording follow `nkp-preprovisioned-toolkit/cis`; the Ansible subset
+    itself is not reused (no Ansible on the appliance).
+  - Console wizard (section 4.8) also sets the break-glass password, shows
+    the generated Keycloak administrator credentials once for the setup
+    page, and configures exposure: direct with a certificate and key
+    (pasted or self-signed for a trial) or a Cloudflare tunnel token.
+    These need root and a tty, which the web UI does not have; the
+    exposure card in the web UI and ACME are deferred.
+  - Keycloak needs its public name as `KC_HOSTNAME` (measured, write-up
+    19: with `KC_HOSTNAME_STRICT=false` alone the SAML descriptor read on
+    the loopback names the loopback). Portico writes it into a file the
+    Keycloak quadlet loads on every settings save that carries the
+    identity host, and a path unit restarts Keycloak; the installer
+    needs no public name.
+  - Secrets (Keycloak administrator and database passwords) and the TLS
+    pairs are generated at the first boot of every appliance by
+    `portico-firstboot.service`, never in the image.
+  - Release: a tag `v*` builds the image, the OpenSCAP report, the
+    checksums and the binary tarball and attaches them to a GitHub
+    release; `deploy/tofu/nutanix` (reusing the Nutanix module of the
+    NKP toolkit) uploads the image from the release URL and creates the
+    VM, with optional cloud-init network for the unattended case.
+  - Out of Milestone 3: the pair (4.11), the rpm, ACME, the exposure card.
+
 ### 4.10 Tenant-facing pages and branding
 
 Everything a tenant user sees before Prism Central is either Keycloak or
@@ -643,99 +736,6 @@ Portico, and both carry the MSP's identity, not Nutanix's or Portico's.
   per-site stash cookies that never reach an upstream, so returning to a
   site needs no new login. No Prism Central address is ever shown to the
   tenant.
-
-### 4.8 Console wizard
-
-`portico console` (Go TUI) on tty1 via a getty override: hostname, IP/mask/
-gateway/DNS for the internal interface, re-runnable at any time, writes
-NetworkManager profiles with `nmcli`. Sets the break-glass password. Shows service health and the URL of the
-internal admin UI. Nothing else is configurable from the console.
-Milestone 3 had added the exposure and the Keycloak administrator's
-credentials to it; Marco's install test of 2026-10-26 moved both back to
-the admin UI (ADR 0007): the certificate is uploaded from the browser and
-Portico creates the Keycloak realm with the first boot's temporary
-administrator, which it then deletes.
-
-### 4.9 Appliance image
-
-- Rocky Linux 9, built from the official GenericCloud qcow2 with a repeatable
-  build (Packer + QEMU or a kickstart-based build; builder's choice).
-- CIS Rocky Linux 9 Benchmark **Level 1 Server** applied at build time with
-  OpenSCAP (`scap-security-guide`, profile `cis_server_l1`), remediation then
-  re-scan; the HTML report ships with each release.
-- Known CIS exceptions, documented in the report: `/var/lib/containers` on its
-  own partition (exec allowed) so `/tmp`, `/var/tmp`, `/dev/shm` can stay
-  noexec; separate partitions for `/var`, `/var/log`, `/var/log/audit`,
-  `/home` sized within the 40 GiB target.
-- SELinux enforcing. SSH key-only, internal interface only. firewalld with the
-  listeners above and nothing else.
-- Output: `portico-<version>.qcow2` + checksum + OpenSCAP report, importable
-  into the Prism Central image service. Built by GitHub Actions and attached
-  to a GitHub release, so an MSP downloads a finished image and never builds
-  one. The repository goes public when this pipeline works (public
-  repositories get Actions minutes for free). CIS hardening reuses the
-  approach already built in Marco's `nkp-preprovisioned-toolkit/cis`. Cloud-init accepted for unattended
-  network config; the console wizard covers the attended case.
-- Second delivery form (agreed with Marco on 2026-10-18): the same
-  components installed on any Rocky Linux 9 host the MSP already runs,
-  on Proxmox or in a public cloud, with an rpm or an install script (the
-  systemd unit and the quadlets are host-agnostic; the lab VM is exactly
-  that since Milestone 1). Only network reachability matters: port 9440
-  of every Prism Central from Portico's address, never from the Internet,
-  and the public names towards the tenants.
-- Updates: `dnf` for the OS; for the application the installer of the
-  new release run in place (`install.sh --release`), which stops
-  Portico, copies the store and the master key to
-  `/var/lib/portico/backup-<old version>-<time>/` and replaces the binary,
-  the units and the quadlets (container image tags for
-  Keycloak/PostgreSQL included); no rpm. The backup of an appliance is a
-  snapshot of its VM in Prism Central (decided with Marco on 2026-10-26,
-  Milestone 6): Keycloak's database lives in the podman volume
-  `postgres-data`, outside `/var/lib/portico`, so a copy of that
-  directory onto a new image loses the realm and every tenant user, and
-  copying the master key off the appliance would break "the master key
-  never leaves the appliance"; the snapshot holds both and keeps the key
-  inside. Full image replacement is therefore not a path in v0.1.0; an
-  export of Keycloak's database with the store is in the backlog. The qcow2 carries no container image:
-  PostgreSQL and Keycloak are pulled from their registries at first boot
-  (write-up 29), a known limit of v0.1.0 until they ship in the image.
-- Builder's calls, fixed with Marco on 2026-10-19 for Milestone 3:
-  - Build: Packer with the QEMU builder on a GitHub Actions x86_64 runner
-    (KVM available), from the Rocky Linux 9 boot ISO with a kickstart,
-    because the CIS partition layout needs a fresh disk; the GenericCloud
-    image stays the base of the lab VM and of the "existing host" form.
-  - One installer, `deploy/install.sh`, used by the image build and by
-    the second delivery form: packages, the `portico` user and
-    directories, the binary, the quadlets (PostgreSQL, Keycloak), the
-    units (`portico.service`, the console on tty1, cloudflared), firewalld
-    and SSH policy. Re-running it on an installed host upgrades it.
-  - Hardening: OpenSCAP with `scap-security-guide` profile
-    `xccdf_org.ssgproject.content_profile_cis_server_l1` and a tailoring
-    file for the documented exceptions, remediation then evaluation; the
-    HTML report is a release asset. The control list and the disclaimer
-    wording follow `nkp-preprovisioned-toolkit/cis`; the Ansible subset
-    itself is not reused (no Ansible on the appliance).
-  - Console wizard (section 4.8) also sets the break-glass password, shows
-    the generated Keycloak administrator credentials once for the setup
-    page, and configures exposure: direct with a certificate and key
-    (pasted or self-signed for a trial) or a Cloudflare tunnel token.
-    These need root and a tty, which the web UI does not have; the
-    exposure card in the web UI and ACME are deferred.
-  - Keycloak needs its public name as `KC_HOSTNAME` (measured, write-up
-    19: with `KC_HOSTNAME_STRICT=false` alone the SAML descriptor read on
-    the loopback names the loopback). Portico writes it into a file the
-    Keycloak quadlet loads on every settings save that carries the
-    identity host, and a path unit restarts Keycloak; the installer
-    needs no public name.
-  - Secrets (Keycloak administrator and database passwords) and the TLS
-    pairs are generated at the first boot of every appliance by
-    `portico-firstboot.service`, never in the image.
-  - Release: a tag `v*` builds the image, the OpenSCAP report, the
-    checksums and the binary tarball and attaches them to a GitHub
-    release; `deploy/tofu/nutanix` (reusing the Nutanix module of the
-    NKP toolkit) uploads the image from the release URL and creates the
-    VM, with optional cloud-init network for the unattended case.
-  - Out of Milestone 3: the pair (4.11), the rpm, ACME, the exposure card.
 
 ### 4.11 Deployment topologies: single node and pair
 
@@ -904,10 +904,11 @@ portico/
 | 2e | Bootstrap and setup mode | done 2026-10-18 (write-up 15): a fresh appliance (process YAML, empty store) starts in setup mode and is configured card by card from the setup page; Portico creates the service account and its key in Prism Central, the Keycloak realm and clients, and the SAML identity provider from one-time credentials; the service account cannot create the IdP (`Project Manager_acp`), so that step asks for an administrator once; 41 s end to end on the lab |
 | 2f | Minor sweep after 2d and 2e | done 2026-10-18 (write-up 16): the deferred minors of write-ups 14 and 15 closed with a test each (password policy on the realm Portico creates, login restarted once when its state expired, logo above the realm name, URL with credentials refused, store failures as 500, typed Keycloak errors, no start limit on the service); the older deferred findings live in `docs/backlog.md` |
 | 3 | Appliance image | done 2026-10-20 (write-up 19): Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
-| 4 | Sites | several Prism Centrals behind one Portico, shown to tenants as sites on one public name (design `2026-10-20-sites-design.md`, ADR 0004); accepted on the appliance with one site (write-up 21), the two-site live test when a second pc.7.6 lab cluster is up |
+| 4 | Sites | done 2026-10-23 (write-ups 21, 23 to 25): several Prism Centrals behind one Portico, shown to tenants as sites on one public name (design `2026-10-20-sites-design.md`, ADR 0004); accepted on the appliance with one site (write-up 21), the two-site live test when a second pc.7.6 lab cluster is up |
 | 5 | Backlog sweep | done 2026-10-25 (write-ups 27 and 28): the findings in `docs/backlog.md` that must not ship in a release closed with a test each |
 | 6 | First release (step 1 complete) | done 2026-10-27 (write-ups 29, 30, 33): README, install guide, release artefacts, known limits documented; tag `v0.1.0` published, its image downloaded by Prism Central from GitHub and its installer run from the public release |
+| 7 | Tenant ready network | done 2026-10-30 (write-ups 34, 35): design `2026-10-29-tenant-network-design.md`, ADRs 0008 and 0009; released as 0.2.0 and 0.2.1 |
 
 Step 2 (later): richer UI, MSP features, brownfield inventory with exclusion
-list, multi-Prism Central, further services.
+list, further services.
 

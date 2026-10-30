@@ -6,8 +6,8 @@ they concern. They are grouped by area, not by milestone (several were
 raised more than once). An item leaves this file when a milestone closes
 it; the Milestone 2f sweep closed the 2d and 2e items listed at the end,
 and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
-The known limits of v0.1.0 (`docs/releases/v0.1.0.md`) are drawn from
-this file.
+The known limits of each release (`docs/releases/`) are drawn from this
+file.
 
 ## Public path, sessions, proxy
 
