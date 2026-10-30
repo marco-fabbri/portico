@@ -180,7 +180,7 @@ func (b *Bootstrapper) networkingPolicy(ctx context.Context, pc *nutanix.Client,
 }
 
 // tenantRole finds or makes Portico Tenant: Project Admin's operations
-// without the excluded ones. The tenants' role memberships name it, so a
+// without the excluded ones and without the system-only ones. The tenants' role memberships name it, so a
 // refused update keeps it as it is and the note says so.
 func (b *Bootstrapper) tenantRole(ctx context.Context, pc *nutanix.Client, target string, excluded []string) (change, note, msg string) {
 	pa, err := pc.FindRole(ctx, projectAdminRole)
@@ -191,15 +191,22 @@ func (b *Bootstrapper) tenantRole(ctx context.Context, pc *nutanix.Client, targe
 	if err != nil {
 		return "", "", rightsRefusal(target, "role "+projectAdminRole, "View_Role", err)
 	}
+	// A custom role cannot hold a system-only operation: Project Admin's
+	// Create_Role_Membership and Delete_Role_Membership stay out, so a
+	// tenant cannot manage the role memberships of its project.
+	systemOnly, err := pc.SystemOnlyOperations(ctx)
+	if err != nil {
+		return "", "", rightsRefusal(target, "operations", "View_Operation", err)
+	}
 	var ops []string
 	for _, o := range paRole.Operations {
-		if !slices.Contains(excluded, o) {
+		if !slices.Contains(excluded, o) && !slices.Contains(systemOnly, o) {
 			ops = append(ops, o)
 		}
 	}
 	found, err := pc.FindRole(ctx, DefaultTenantRole)
 	if nutanix.IsNotFound(err) {
-		if _, err := pc.CreateRole(ctx, DefaultTenantRole, "Portico: a tenant's role in its project, Project Admin without floating IP creation and deletion", ops); err != nil {
+		if _, err := pc.CreateRole(ctx, DefaultTenantRole, "Portico: a tenant's role in its project, Project Admin without floating IP creation and deletion and without the system-only operations", ops); err != nil {
 			return "", "", rightsRefusal(target, "role "+DefaultTenantRole, "Create_Role", err)
 		}
 		b.log.Info("site setup: role created", "role", DefaultTenantRole)

@@ -263,7 +263,11 @@ Measured with a local Project Admin of one project: it can, and it can
 also create and delete floating IPs of its own on the shared subnet, so
 the allowance would be no limit. Portico therefore creates on each
 site a role **Portico Tenant**, `Project Admin`'s operations without
-`Create_Floating_Ip` and `Delete_Floating_Ip`, in the same setup run as
+`Create_Floating_Ip` and `Delete_Floating_Ip`, and without the
+operations pc.7.6 keeps for system roles (`operationType`
+`SYSTEM_DEFINED_ONLY`: of Project Admin's, `Create_Role_Membership` and
+`Delete_Role_Membership`; a custom role holding one is refused with a
+400, measured 2026-10-30), in the same setup run as
 4.5, and maps the tenant groups to it instead of `Project Admin`
 (Marco, 2026-10-29); existing role memberships move to it at the
 connection's next Retry or Repair.

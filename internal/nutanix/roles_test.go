@@ -21,6 +21,26 @@ func TestOperationExtIDs(t *testing.T) {
 	}
 }
 
+// The filter asks for the system-only operations; the type is checked
+// again on what comes back, so a Prism Central that ignored the filter
+// does not make every operation system-only.
+func TestSystemOnlyOperations(t *testing.T) {
+	f := newFakePC(t)
+	f.lists[PathIAM1+"/authz/operations"] = []any{
+		map[string]any{"extId": "op-1", "displayName": "Create_Role_Membership", "operationType": "SYSTEM_DEFINED_ONLY"},
+		map[string]any{"extId": "op-2", "displayName": "View_Subnet", "operationType": "EXTERNAL"},
+	}
+	c := newClient(t, f, nil)
+	ids, err := c.SystemOnlyOperations(context.Background())
+	if err != nil || len(ids) != 1 || ids[0] != "op-1" {
+		t.Fatalf("SystemOnlyOperations = %v, %v", ids, err)
+	}
+	get := find(f.requests(), "GET", PathIAM1+"/authz/operations")
+	if get == nil || !strings.Contains(get.Query, "SYSTEM_DEFINED_ONLY") {
+		t.Fatalf("operations query = %+v", get)
+	}
+}
+
 func TestGetRoleOperations(t *testing.T) {
 	f := newFakePC(t)
 	f.objs[PathIAM1+"/authz/roles/role-1"] = map[string]any{"extId": "role-1", "displayName": "Project Admin", "operations": []any{"op-1", "op-2"}}
