@@ -94,6 +94,7 @@ func New(svc *tenant.Service, st store.Store, brand *branding.Service, so *Setti
 	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites/{site}/network", h.running(h.createNetwork))
 	mux.HandleFunc("POST "+Prefix+"tenants/{id}/sites/{site}/network/retry", h.running(h.retryNetwork))
 	mux.HandleFunc("PUT "+Prefix+"tenants/{id}/floating-ips", h.running(h.setAllowance))
+	mux.HandleFunc("PUT "+Prefix+"tenants/{id}/subnet", h.running(h.setSubnet))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})
@@ -543,6 +544,30 @@ func (h *handler) setAllowance(w http.ResponseWriter, r *http.Request) {
 	}
 	h.log.Info("tenant floating ip allowance set", "tenant", id, "allowance", *body.Allowance, "kept", kept)
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "allowance": *body.Allowance, "kept": kept})
+}
+
+// setSubnet changes the tenant's subnet until a ready network uses it:
+// {"subnet": "<private /24>"} for an exception, "" for the pool's next.
+func (h *handler) setSubnet(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Subnet *string `json:"subnet"`
+	}
+	if err := decode(r, &body); err != nil || body.Subnet == nil {
+		writeError(w, http.StatusBadRequest, `the body must be {"subnet": "<private /24>"} or {"subnet": ""}`)
+		return
+	}
+	id := r.PathValue("id")
+	if err := h.svc.SetSubnet(r.Context(), id, *body.Subnet); err != nil {
+		h.fail(w, err)
+		return
+	}
+	h.log.Info("tenant subnet set", "tenant", id)
+	t, err := h.st.GetTenant(r.Context(), id)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	h.writeTenant(w, r, http.StatusOK, t)
 }
 
 func (h *handler) failConnection(w http.ResponseWriter, site string, err error) {

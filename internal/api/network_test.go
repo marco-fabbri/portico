@@ -65,3 +65,26 @@ func TestTenantJSONShowsNetwork(t *testing.T) {
 		t.Fatalf("network: %v", net)
 	}
 }
+
+func TestSetSubnetRoute(t *testing.T) {
+	e, _ := newEnv2(t)
+	if rec, out := e.do("POST", "/api/v1/tenants", `{"slug":"acme","display_name":"ACME","sites":[{"site":"site-a"}]}`, true); rec.Code != 202 {
+		t.Fatalf("create: %d %v", rec.Code, out)
+	}
+	e.svc.Wait()
+	rec, out := e.do("PUT", "/api/v1/tenants/acme/subnet", `{"subnet":"192.168.7.0/24"}`, true)
+	if rec.Code != 200 || out["subnet"] != "192.168.7.0/24" || out["subnet_exception"] != true {
+		t.Fatalf("set: %d %v", rec.Code, out)
+	}
+	if rec, out := e.do("PUT", "/api/v1/tenants/acme/subnet", `{"subnet":"8.8.8.0/24"}`, true); rec.Code != 400 {
+		t.Fatalf("a public subnet: %d %v", rec.Code, out)
+	}
+	p, _ := e.st.GetPlacement(context.Background(), "acme", "site-a")
+	p.SubnetExtID, p.NetState = "net-1", store.NetReady
+	if err := e.st.UpdatePlacement(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	if rec, out := e.do("PUT", "/api/v1/tenants/acme/subnet", `{"subnet":""}`, true); rec.Code != 409 {
+		t.Fatalf("with a network: %d %v", rec.Code, out)
+	}
+}

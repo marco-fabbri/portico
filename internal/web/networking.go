@@ -59,6 +59,7 @@ func (h *Handler) networkingRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /tenants/{id}/sites/{site}/network", h.running(h.networkAction("create")))
 	mux.HandleFunc("POST /tenants/{id}/sites/{site}/network/retry", h.running(h.networkAction("retry")))
 	mux.HandleFunc("POST /tenants/{id}/floating-ips", h.running(h.tenantAllowance))
+	mux.HandleFunc("POST /tenants/{id}/subnet", h.running(h.tenantSubnet))
 }
 
 // usedSlices counts the connections to the site that hold a /28.
@@ -255,5 +256,23 @@ func (h *Handler) tenantAllowance(w http.ResponseWriter, r *http.Request) {
 		msg += fmt.Sprintf(" %d associated with a VM were kept: dissociate them in Prism Central, then save again.", kept)
 	}
 	h.notice(w, msg)
+	http.Redirect(w, r, "/tenants/"+url.PathEscape(t.ID), http.StatusSeeOther)
+}
+
+// tenantSubnet changes the tenant's subnet until a ready network uses it:
+// an exception, or empty for the next free /24 of the pool.
+func (h *Handler) tenantSubnet(w http.ResponseWriter, r *http.Request) {
+	if !h.requireCSRF(w, r) {
+		return
+	}
+	t, ok := h.loadTenant(w, r)
+	if !ok {
+		return
+	}
+	if err := h.svc.SetSubnet(r.Context(), t.ID, r.PostFormValue("subnet")); err != nil {
+		h.detailWithError(w, r, t, statusOf(err), err.Error())
+		return
+	}
+	h.log.Info("tenant subnet set", "via", "ui", "tenant", t.ID)
 	http.Redirect(w, r, "/tenants/"+url.PathEscape(t.ID), http.StatusSeeOther)
 }
