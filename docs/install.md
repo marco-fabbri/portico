@@ -1,9 +1,9 @@
 # Installing Portico
 
-This guide installs Portico 0.1.0. What the release contains, what it
-was measured on and its known limits are in the
-[release notes](releases/v0.1.0.md): read the limits before you put
-the appliance in front of customers.
+This guide installs the current release of Portico. What each release
+contains, what it was measured on and its known limits are in its
+[release notes](releases/): read the limits before you put the
+appliance in front of customers.
 
 ## What you need
 
@@ -184,10 +184,10 @@ floating IPs per site (1 by default).
 
 ## The appliance image
 
-1. **Download** `portico-0.1.0.qcow2` and `portico-0.1.0.qcow2.sha256`
-   from the [release](https://github.com/marco-fabbri/portico/releases/tag/v0.1.0)
+1. **Download** `portico-<version>.qcow2` and its `.sha256` from the
+   [latest release](https://github.com/marco-fabbri/portico/releases/latest)
    into one directory and check them with
-   `sha256sum -c portico-0.1.0.qcow2.sha256`. The OpenSCAP report of
+   `sha256sum -c portico-<version>.qcow2.sha256`. The OpenSCAP report of
    that build is next to them.
 2. **Create the VM**: with OpenTofu, `deploy/tofu/nutanix` uploads the
    image from the release and creates the VM (2 vCPU, 6 GiB, 40 GiB,
@@ -263,14 +263,15 @@ added one: the console is the way in.
 ## An existing Rocky Linux 9 host
 
 The same components on a Rocky Linux 9 host of yours (a VM on any
-hypervisor, a cloud instance). As root:
+hypervisor, a cloud instance). As root, with `<version>` the release
+you install (`0.2.1` at the time of writing):
 
 ```
-curl -fsSLO https://github.com/marco-fabbri/portico/releases/download/v0.1.0/install-0.1.0.tar.gz
-curl -fsSLO https://github.com/marco-fabbri/portico/releases/download/v0.1.0/install-0.1.0.tar.gz.sha256
-sha256sum -c install-0.1.0.tar.gz.sha256
-tar -xzf install-0.1.0.tar.gz
-bash deploy/install.sh --release 0.1.0
+curl -fsSLO https://github.com/marco-fabbri/portico/releases/download/v<version>/install-<version>.tar.gz
+curl -fsSLO https://github.com/marco-fabbri/portico/releases/download/v<version>/install-<version>.tar.gz.sha256
+sha256sum -c install-<version>.tar.gz.sha256
+tar -xzf install-<version>.tar.gz
+bash deploy/install.sh --release <version>
 ```
 
 The installer ([deploy/README.md](../deploy/README.md)) installs the
@@ -289,7 +290,7 @@ build.
 ## Updating
 
 The upgrade is in place; a new image does not take over an existing
-appliance's state in 0.1.0.
+appliance's state today.
 
 1. **Take a snapshot of the VM** in Prism Central, or check that its
    protection policy has a recent one. The snapshot is the backup: it

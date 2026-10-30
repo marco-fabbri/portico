@@ -5,7 +5,7 @@
 [![Prism Central pc.7.6](https://img.shields.io/badge/Prism%20Central-pc.7.6%2B-024DA1.svg)](#requirements)
 [![Keycloak 26](https://img.shields.io/badge/Keycloak-26-4D4D4D.svg?logo=keycloak&logoColor=white)](#what-it-does)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8.svg?logo=go&logoColor=white)](go.mod)
-[![Release v0.1.0](https://img.shields.io/badge/release-v0.1.0-green.svg)](https://github.com/marco-fabbri/portico/releases/tag/v0.1.0)
+[![Release v0.2.1](https://img.shields.io/badge/release-v0.2.1-green.svg)](https://github.com/marco-fabbri/portico/releases/tag/v0.2.1)
 
 A virtual appliance that runs inside a Nutanix cluster and acts as the
 **single, authenticated entry point** through which a managed service
@@ -26,11 +26,11 @@ and the same tenant model.
 > its public v4 APIs; the Nutanix guides it was built against stay on the
 > Nutanix portal.
 >
-> **First release, 0.1.0.** It is for trying Portico with real tenants
+> **Current release, 0.2.1.** It is for trying Portico with real tenants
 > on your own Prism Central. Everything below was measured on two test
 > clusters (see [Status and validation](#status-and-validation)), with
 > no production load. Read the
-> [known limits](docs/releases/v0.1.0.md#known-limits) before you put it
+> [known limits](docs/releases/v0.2.0.md#known-limits) before you put it
 > in front of customers. It is provided "as is", without warranty (see
 > [License](#license)).
 
@@ -168,8 +168,8 @@ check its checksum, import it into Prism Central and boot it; the
 console on tty1 sets the network and the setup page on port 8443 does
 the rest, the certificate included. The
 [install guide](docs/install.md) has every step, the certificates and
-the upgrade; the [release notes](docs/releases/v0.1.0.md) list what
-0.1.0 does not do yet.
+the upgrade; the [release notes](docs/releases/v0.2.1.md) say what
+the current release does not do yet.
 
 ## Status and validation
 
@@ -189,6 +189,7 @@ how to measure again after an upgrade.
 | 4 Sites, 2026-10-20 | Several Prism Centrals behind one Portico on one public name: site page, routing checked against the tenant's placements on every request, per-site cookies, maintenance with the users still connected, tenants added to and removed from sites. Built and tested against two fake Prism Centrals and accepted on the appliance with one site (write-ups 20 and 21). Then with a second pc.7.6 cluster: a tenant on two sites opens both consoles from the site page with one login, and its connections are added, suspended and disconnected, Disconnect deleting only an empty project Portico created (write-ups 23 to 25) |
 | 5 Backlog sweep, 2026-10-25 | The findings that must not ship closed with a test each: the public path, Prism Central retries, the appliance's SSH and service hardening, the admin UI, the portal's name (`portal_host`); the scripts moved onto the appliance (write-ups 27 and 28) |
 | 6 First release `v0.1.0` | A fresh appliance from the CI image, both sites, tenants, maintenance, local-login probes and two upgrades in place: two release blockers found and fixed (write-up 29); the release rehearsed as a draft (write-up 30) and from its image (write-up 33), then published on 2026-10-27 |
+| 7 Tenant ready network, 2026-10-30 | A VPC, a `/24` subnet, outbound access and floating IPs per tenant and site on a routed `/28` of the site's transit VPC (NVD-2219), built in seven recorded steps and removed at Disconnect; measured on two appliances, the second with a router VM in front of the transit VPC (write-ups 34 and 35); 0.2.1 moves the default pool clear of Prism Central's reserved subnets (ADR 0009) |
 
 Not verified yet: tenant API keys, brokering to a customer's own
 directory, brownfield projects, any production load. Deferred findings of the reviews are listed in
@@ -226,23 +227,31 @@ confirmed when adding the site.
 ## Repository layout
 
 ```
-cmd/portico/          main: serve | settings import|show | admin set-password | version
+cmd/portico/          main: serve | settings import|show | admin set-password | console | exposure apply | version
 internal/
   proxy/              reverse proxy, public policy, landing and error pages
   auth/               OIDC login, sessions
+  sites/              sites, their probes and certificate trust
   idp/keycloak/       Keycloak admin client
   nutanix/            Prism Central v4 client, service-account bootstrap
-  tenant/             tenant model and provisioning steps
+  tenant/             tenant model, provisioning steps, the ready network
+  netready/ netplan/  a site's networking checks, the tenant address plan
   settings/           runtime settings, checks, bootstraps
+  exposure/           the certificate and tunnel switch
   secrets/ store/     sealing, SQLite
+  config/             the process configuration file
   branding/           MSP branding, generated Keycloak theme
+  console/            the tty1 wizard
   web/ api/           admin UI (templates, HTMX) and JSON API
-deploy/               systemd unit, example configuration
+  textedit/           first-match edits of configuration text
+deploy/               systemd units, quadlets, firewalld, the OpenTofu module
+image/                the appliance image build (Packer, kickstart, OpenSCAP)
 lab/                  scripts that drive the lab (Prism Central, VM, Keycloak)
 docs/
-  superpowers/specs/  the design document
+  superpowers/specs/  the design documents
   superpowers/plans/  the plan each milestone was built from
   adr/                decisions
+  history/            the original analysis, as provenance
   lab/                measurements, one write-up per question
   releases/           the notes of each release
   backlog.md          deferred findings
@@ -251,11 +260,11 @@ docs/
 ## Documentation
 
 - [Install guide](docs/install.md) and the
-  [release notes of 0.1.0](docs/releases/v0.1.0.md) with its known limits.
+  [release notes](docs/releases/), 0.2.1's with 0.2.0's known limits.
 - [Design document](docs/superpowers/specs/2026-10-17-portico-design.md):
   intent, goals and anti-goals, architecture, security model, milestones.
-- [Decisions](docs/adr/): the pc.7.6 baseline, the proxy in the Go
-  binary, the API boundary and the tenant-facing pages.
+- [Decisions](docs/adr/): nine, from the pc.7.6 baseline to the tenant
+  address pool.
 - [Admin JSON API](docs/api.md) and [operating the binary](docs/operating.md):
   commands, files, setup mode, logs, backup.
 - [Lab write-ups](docs/lab/): one per question, with the version and how
@@ -270,7 +279,8 @@ docs/
 
 Step 1 ended with 0.1.0: the appliance image (Rocky Linux 9, CIS
 Level 1, console wizard, `cloudflared` option), sites and an install
-guide. 0.2.0 adds the tenant ready network. Next, from the known limits: the container images inside the
+guide. 0.2.0 added the tenant ready network, 0.2.1 its default pool.
+Next, from the known limits: the container images inside the
 qcow2, so a first boot needs no Internet, and a backup of Keycloak's
 database with the store.
 
