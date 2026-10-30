@@ -23,7 +23,7 @@ now() { date +%s; }
 
 api GET /api/v1/sites >/dev/null
 site="${1:-$(field '.sites[0].id')}"
-[ -n "$site" ] && [ "$site" != null ] || { echo "no sites on the appliance" >&2; exit 1; }
+if [ -z "$site" ] || [ "$site" = null ]; then echo "no sites on the appliance" >&2; exit 1; fi
 
 # 1. The tenant on the site, then its connection and its network.
 t0=$(now)
