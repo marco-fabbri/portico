@@ -316,9 +316,10 @@ func setMode(y string, tunnel bool) (string, error) {
 		return y, fmt.Errorf("public block not found in the process settings; edit the file by hand")
 	}
 	// The match ends on the next top-level key's first byte, which stays
-	// outside the edited segment.
+	// outside the edited segment; at the end of the text there is no such
+	// byte to give back.
 	end := loc[1]
-	if end > loc[0] && y[end-1] != '\n' {
+	if end < len(y) && end > loc[0] && y[end-1] != '\n' {
 		end--
 	}
 	head, block, tail := y[:loc[0]], y[loc[0]:end], y[end:]
