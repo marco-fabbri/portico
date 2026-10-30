@@ -66,6 +66,8 @@ transit objects?
 | 2 | — | — | connection failed: Prism Central timed out the role lookup; Retry made it |
 | 3 | 47 s after Retry | 67 s | the probe script read an empty subnet list (fixed, `7b781ad`) |
 | 4 | 100 s | 80 s | VM reached; Internet not reached |
+| 5-7 | 47 s; 24 s after Retry | — | routed prefix `100.96.0.0/24` behind a router VM: the probe scripts took failed reads for missing objects (fixed) |
+| 8 | ready (run 7's) | 50 s | VM reached on `100.96.0.12`; Internet 200 in 0.21 s; nothing left |
 
 - MEASURED: each run that connected built the seven `net-` steps, the
   last the read-back:
@@ -85,6 +87,38 @@ transit objects?
 - MEASURED: every Disconnect removed the floating IP, the subnet, the VPC
   and the external subnet; no object named `portico-netcheck-` was left,
   and the transit VPC stayed.
+
+### A router in front of the transit VPC
+
+The routed prefix `10.23.211.0/24` turned out to clash with the address
+plan, where the third octet is the VLAN ID, and the site's router could
+not be changed. A router VM took its place for the routed prefix:
+
+- `portico-edge` on NTNX-01 (`10.23.210.194`, 1 vCPU, 1 GiB, Rocky 9,
+  `lab/network/edge-router.sh create`): IP forwarding on, ICMP redirects
+  off, a route `100.96.0.0/24 via 10.23.210.200`, and nftables
+  masquerading the routed prefix to its own address, so the site's router
+  sees one more host of the VLAN.
+- `external-routed` made again with `EXT_GATEWAY=10.23.210.194`; the
+  transit VPC made again with `ERP=100.96.0.0/24` and no overlay external
+  subnet of its own (`OEN_CIDR=none`); the test project
+  `portico-routedprobe` and its objects deleted first. The Networking card
+  took the new transit VPC and passed its nine checks ("routed prefix
+  100.96.0.0/24").
+- MEASURED: the tenant got `100.96.0.0/28`, SNAT `100.96.0.13`, floating
+  IP `100.96.0.12`. The VM was reached on it from the build host (route
+  `100.96.0.0/24 via 10.23.210.200`, not persistent), and reached the
+  Internet: `curl` code 200 in 0.21 to 0.54 s. A capture on the router
+  showed the VM's traffic leaving with its floating IP as source and the
+  answers coming back through it; the build host's ping did not cross
+  the router (the transit VPC reaches hosts of its own VLAN directly).
+- MEASURED: Prism Central kept failing reads during these runs (504, 401,
+  error text). The probe scripts took a failed list for a missing project,
+  floating IP or VM, and the final check took one for "nothing left":
+  `probe-vm.sh` now reads up to five times and tells "absent" from "not
+  answered", and `ready-network.sh` fails a list that never answers.
+  Portico itself recovered each time with Retry network, which adopted
+  the external subnet it had made and found the sharing done.
 
 ### Prism Central under load
 
@@ -110,11 +144,14 @@ transit objects?
   network step is idempotent, so Repair and Retry recover; the error
   says what Prism Central answered.
 
-- The routed prefix `10.23.211.0/24` (chosen on 2026-10-29) clashes with
-  the address plan, where the third octet is the VLAN ID: it would be
-  VLAN 211's. The network administrator assigns another block, routes it
-  to `10.23.210.200` and NATs it; the transit VPC is then made again with
-  it, and the Internet line of this acceptance is measured then.
+- None from the router: the routed prefix is the MSP's network, and
+  Portico works with any block. A test site whose router cannot be
+  changed can put a router VM in front, as here; for an MSP that is a
+  single point of failure, and its own router or BGP gateway does it.
+- The default tenant pool `10.100.0.0/16` overlaps Prism Central's
+  microservices subnets (the Prism Central VM's pod network here is
+  `10.100.0.0/24`, the tenant's `/24` in every run): 0.2.1 changes the
+  default (ADR 0009).
 
 ## How to re-measure after an upgrade
 

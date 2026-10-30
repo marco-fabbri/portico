@@ -28,6 +28,13 @@ vm_name="$project-vm"; subnet_name="$project-net"; fip_name="${FIP_NAME:-$projec
 key_file="${SSH_KEY_FILE:-$HOME/.ssh/id_rsa.pub}"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
+# vm_state NAME: the VM's extId, "none" when a list that answered does not
+# have it, "?" when Prism Central did not answer the list.
+vm_state() {
+  lab/pc.sh GET "$VMM/vms?\$limit=100" 2>/dev/null | jq -er --arg n "$1" \
+    'if (.metadata.totalAvailableResults | type) == "number" then ([.data[]? | select(.name == $n)][0].extId // "none") else error end' 2>/dev/null || echo "?"
+}
+
 # by_name KIND NAME: the extId, read again a few times, since a busy Prism
 # Central can time out a list and an empty answer then means nothing.
 by_name() {
@@ -54,7 +61,8 @@ set_fip() {
 
 case "$action" in
   create)
-    p=$(project_extid "$project"); [ -n "$p" ] || { echo "no project $project" >&2; exit 1; }
+    p=""; for _ in 1 2 3 4 5; do p=$(project_extid "$project" 2>/dev/null); [ -z "$p" ] || break; sleep 5; done
+    [ -n "$p" ] || { echo "no project $project" >&2; exit 1; }
     s=$(by_name subnets "$subnet_name"); [ -n "$s" ] || { echo "no subnet $subnet_name" >&2; exit 1; }
     f=$(by_name floating-ips "$fip_name"); [ -n "$f" ] || { echo "no floating IP $fip_name" >&2; exit 1; }
     img=$(image_extid "${IMAGE:-rocky-9-genericcloud}"); [ -n "$img" ] || { echo "no image" >&2; exit 1; }
@@ -94,11 +102,15 @@ case "$action" in
   delete)
     f=$(by_name floating-ips "$fip_name")
     [ -z "$f" ] || echo "disassociate $fip_name: $(set_fip "$f")"
-    vm=$(vm_extid "$vm_name")
-    if [ -n "$vm" ]; then
+    vm="?"; for _ in 1 2 3 4 5; do vm=$(vm_state "$vm_name"); [ "$vm" = "?" ] || break; sleep 5; done
+    [ "$vm" != "?" ] || { echo "the VM list did not answer: $vm_name not checked" >&2; exit 1; }
+    if [ "$vm" != none ]; then
       t=$(vm_action "$vm" power-off); [ -z "$t" ] || [ "$t" = null ] || echo "power off: $(wait_task "$t" 120)"
-      t=$(IF_MATCH="$(etag_of "$VMM/vms/$vm")" lab/pc.sh DELETE "$VMM/vms/$vm" 2>/dev/null | jq -r '.data.extId // empty')
+      t=$(IF_MATCH="$(etag_of "$VMM/vms/$vm")" lab/pc.sh DELETE "$VMM/vms/$vm" 2>/dev/null | jq -r '.data.extId // empty' 2>/dev/null)
       if [ -n "$t" ]; then echo "delete VM: $(wait_task "$t" 300)"; else echo "delete VM: refused"; fi
+      # Gone only when a list that answered no longer has it.
+      left="?"; for _ in 1 2 3 4 5; do left=$(vm_state "$vm_name"); [ "$left" = "?" ] || break; sleep 5; done
+      [ "$left" = none ] || { echo "$vm_name is still there (or the list did not answer)" >&2; exit 1; }
     fi
     ;;
   *) echo "usage: $0 create|check|delete PROJECT" >&2; exit 2 ;;
