@@ -282,3 +282,17 @@ func TestAccessLogRecordsAuthSchemeOnly(t *testing.T) {
 		}
 	}
 }
+
+// An encoded separator in the path is refused before the session check and
+// never reaches the upstream: the policy matches the decoded path and the
+// proxy forwards the raw one (write-up 36, P1).
+func TestEncodedPathIsRefusedBeforeTheUpstream(t *testing.T) {
+	h := newPublicHarness(t)
+	rec := h.do("POST", "https://prism.test/api/iam/v4.1.b3/authn/login-requests/a%2Fb/$actions/validate-credentials", nil, true)
+	if rec.Code != http.StatusForbidden || rec.Header().Get("X-Portico-Rule") != "deny-encoded-path" {
+		t.Fatalf("got %d %s", rec.Code, rec.Body.String())
+	}
+	if n := len(*h.prism); n != 0 {
+		t.Fatalf("the upstream saw %d requests", n)
+	}
+}
