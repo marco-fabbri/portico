@@ -152,3 +152,27 @@ func TestDisconnectAfterTenantDeleted(t *testing.T) {
 		t.Fatalf("placement after disconnect: %v", err)
 	}
 }
+
+// Objects whose extId was never stored (a create that succeeded after
+// its call failed) are found by name at Disconnect, not left behind
+// (review: the next tenant's /28 overlapped the orphan).
+func TestDisconnectFindsUnstoredByName(t *testing.T) {
+	e := newNetEnv(t)
+	p := built(t, e, "acme")
+	p.ExtSubnetExtID, p.VPCExtID, p.SubnetExtID = "", "", ""
+	if err := e.st.UpdatePlacement(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.Disconnect(context.Background(), "acme", "site-a"); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	for _, n := range []string{"portico-acme-ext", "portico-acme-net"} {
+		if e.pc.SubnetNamed(n) != nil {
+			t.Fatalf("%s left behind", n)
+		}
+	}
+	if e.pc.VPCNamed("portico-acme-vpc") != nil {
+		t.Fatal("the VPC left behind")
+	}
+}

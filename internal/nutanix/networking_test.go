@@ -184,3 +184,33 @@ func TestClusterAddresses(t *testing.T) {
 		t.Fatalf("clusters = %+v, %v", cl, err)
 	}
 }
+
+// A VLAN subnet carries its cluster: the ready network serves the transit
+// VPC's cluster only.
+func TestSubnetCluster(t *testing.T) {
+	f := newFakePC(t)
+	s := netSubnet("ext-r", "external-routed", "")
+	s["subnetType"], s["isExternal"], s["clusterReference"] = "VLAN", true, "cl-1"
+	f.lists[PathNetworking+"/subnets"] = []any{s}
+	c := newClient(t, f, nil)
+	subs, err := c.ListSubnets(context.Background())
+	if err != nil || len(subs) != 1 || subs[0].ClusterExtID != "cl-1" {
+		t.Fatalf("subnets = %+v, %v", subs, err)
+	}
+}
+
+// A floating IP with an association but no status counts as associated:
+// Prism Central deletes an associated floating IP without refusing.
+func TestFloatingIPAssociationWithoutStatus(t *testing.T) {
+	f := newFakePC(t)
+	f.lists[PathNetworking+"/floating-ips"] = []any{
+		map[string]any{"extId": "fip-1", "name": "a", "association": map[string]any{"$objectType": "networking.v4.config.PrivateIpAssociation",
+			"privateIp": map[string]any{"ipv4": map[string]any{"value": "100.64.0.99"}}}},
+		map[string]any{"extId": "fip-2", "name": "b"},
+	}
+	c := newClient(t, f, nil)
+	fips, err := c.ListFloatingIPs(context.Background())
+	if err != nil || len(fips) != 2 || !fips[0].Associated || fips[1].Associated {
+		t.Fatalf("fips = %+v, %v", fips, err)
+	}
+}

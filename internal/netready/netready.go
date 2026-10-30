@@ -31,6 +31,7 @@ type Reader interface {
 	GetSubnet(ctx context.Context, extID string) (*nutanix.Subnet, error)
 	Routes(ctx context.Context, vpcExtID string) (string, []nutanix.Route, error)
 	MissingOperations(ctx context.Context, userExtID string, names []string) ([]string, error)
+	FindRole(ctx context.Context, displayName string) (*nutanix.Role, error)
 }
 
 // Check is one row of the Networking card.
@@ -96,8 +97,10 @@ func TransitChoices(ctx context.Context, r Reader) ([]Choice, error) {
 
 // Evaluate runs the checks in card order: flow, mode, gateway, transit,
 // transit-valid, rights, pool. used is how many tenant /28s the site's
-// connections hold; saExtID is the service account.
-func Evaluate(ctx context.Context, r Reader, n settings.SiteNetwork, saExtID string, used int) []Check {
+// connections hold; saExtID is the service account; tenantRole is the
+// role the site setup creates for tenants, checked when the MSP keeps it
+// ("" skips the check).
+func Evaluate(ctx context.Context, r Reader, n settings.SiteNetwork, saExtID string, used int, tenantRole string) []Check {
 	var out []Check
 	add := func(name, status, msg string) { out = append(out, Check{Name: name, Status: status, Message: msg}) }
 
@@ -146,6 +149,23 @@ func Evaluate(ctx context.Context, r Reader, n settings.SiteNetwork, saExtID str
 		add("rights", Failed, "The service account lacks "+strings.Join(missing, ", ")+": Repair the site")
 	} else {
 		add("rights", OK, "The service account has the networking operations")
+	}
+
+	if tenantRole != "" {
+		switch _, err := r.FindRole(ctx, tenantRole); {
+		case nutanix.IsNotFound(err):
+			add("tenant-role", Failed, "No "+tenantRole+" role: tenants would keep Project Admin, which creates floating IPs. Repair the site")
+		case err != nil:
+			add("tenant-role", Failed, "Cannot read the "+tenantRole+" role: "+err.Error())
+		default:
+			add("tenant-role", OK, "Tenants get the "+tenantRole+" role")
+		}
+	}
+
+	if len(n.DNS) == 0 {
+		add("dns", Todo, "Give the DNS servers the tenant subnets hand out")
+	} else {
+		add("dns", OK, "Tenant subnets hand out "+strings.Join(n.DNS, ", "))
 	}
 
 	if total := slices(prefix); total == 0 {

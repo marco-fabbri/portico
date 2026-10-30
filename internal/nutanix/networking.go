@@ -16,6 +16,7 @@ const PathNetworking = "/api/networking/v4.4/config"
 // the transit VPC carries none).
 type Subnet struct {
 	ExtID, Name, Type, ProjectExtID, VPCExtID string
+	ClusterExtID                              string // a VLAN subnet's cluster
 	External, NAT                             bool
 	Prefix                                    netip.Prefix
 	SharedWith                                []string
@@ -81,6 +82,7 @@ type rawSubnet struct {
 	SubnetType   string `json:"subnetType"`
 	ProjectExtID string `json:"projectExtId"`
 	VPCReference string `json:"vpcReference"`
+	ClusterRef   string `json:"clusterReference"`
 	IsExternal   bool   `json:"isExternal"`
 	IsNAT        bool   `json:"isNatEnabled"`
 	IPConfig     []struct {
@@ -95,7 +97,7 @@ type rawSubnet struct {
 }
 
 func (r rawSubnet) subnet() Subnet {
-	s := Subnet{ExtID: r.ExtID, Name: r.Name, Type: r.SubnetType, ProjectExtID: r.ProjectExtID, VPCExtID: r.VPCReference,
+	s := Subnet{ExtID: r.ExtID, Name: r.Name, Type: r.SubnetType, ProjectExtID: r.ProjectExtID, VPCExtID: r.VPCReference, ClusterExtID: r.ClusterRef,
 		External: r.IsExternal, NAT: r.IsNAT, SharedWith: r.SharedWithProjects}
 	if len(r.IPConfig) > 0 {
 		if a, err := netip.ParseAddr(r.IPConfig[0].IPv4.IPSubnet.IP.Value); err == nil {
@@ -147,15 +149,26 @@ type rawFloatingIP struct {
 		IPv4 ipValue `json:"ipv4"`
 	} `json:"floatingIp"`
 	AssociationStatus string `json:"associationStatus"`
-	Association       struct {
+	Association       *struct {
 		VMNICReference string `json:"vmNicReference"`
 	} `json:"association"`
 }
 
+// floatingIP reads the association safe side up: without a status, an
+// association present counts, since Prism Central deletes an associated
+// floating IP without refusing.
 func (r rawFloatingIP) floatingIP() FloatingIP {
-	return FloatingIP{ExtID: r.ExtID, Name: r.Name, ProjectExtID: r.ProjectExtID, ExternalSubnetExtID: r.ExternalSubnetReference,
-		IP: parseAddr(r.FloatingIP.IPv4.Value), AssociatedVMNIC: r.Association.VMNICReference,
-		Associated: r.AssociationStatus != "" && r.AssociationStatus != "NOT_ASSOCIATED"}
+	f := FloatingIP{ExtID: r.ExtID, Name: r.Name, ProjectExtID: r.ProjectExtID, ExternalSubnetExtID: r.ExternalSubnetReference,
+		IP: parseAddr(r.FloatingIP.IPv4.Value)}
+	if r.Association != nil {
+		f.AssociatedVMNIC = r.Association.VMNICReference
+	}
+	if r.AssociationStatus != "" {
+		f.Associated = r.AssociationStatus != "NOT_ASSOCIATED"
+	} else {
+		f.Associated = r.Association != nil
+	}
+	return f
 }
 
 // ListSubnets returns every subnet the caller can see.
