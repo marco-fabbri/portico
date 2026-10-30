@@ -4,7 +4,7 @@ nutanix_endpoint     = "10.0.0.10"
 nutanix_username     = "admin"
 nutanix_password     = ""
 nutanix_insecure     = true
-nutanix_cluster_name = "NTNX-01"
+nutanix_cluster_name = "cluster-1"
 nutanix_subnet_name  = "MGMT"
 nutanix_subnet_ipam  = false
 
