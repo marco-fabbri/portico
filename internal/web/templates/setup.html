@@ -105,7 +105,7 @@
     <label>Role in the project <input type="text" name="role" value="{{.Data.S.Tenants.Role}}" required></label>
     <label>Operation timeout <input type="text" name="operation_timeout" value="{{.Data.OperationTimeout}}" placeholder="10m" required></label>
     <label>Tenant address pool <input type="text" name="address_pool" value="{{.Data.S.Tenants.AddressPool}}"{{if .Data.PoolLocked}} readonly{{end}}></label>
-    <p class="muted small">{{if .Data.PoolLocked}}Fixed: tenants hold subnets from it.{{else}}Each tenant's network gets a /24 from this private prefix; it cannot change once a tenant holds one.{{end}}</p>
+    <p class="muted small">{{if .Data.PoolLocked}}Fixed: a ready network uses one of its subnets.{{else}}Each tenant's network gets a /24 from this private prefix. A change moves the tenants' /24s into the new pool; it is fixed once a ready network uses one.{{end}}</p>
     <div class="actions"><button type="submit" class="primary">Save</button></div>
   </form>
 </section>

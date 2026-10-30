@@ -28,6 +28,14 @@
     <dt>Subnet</dt><dd>{{with $t.Subnet}}<code>{{.}}</code>{{if $t.SubnetException}} <span class="muted small">exception</span>{{end}}{{else}}<span class="muted">none yet</span>{{end}}</dd>
     <dt>Updated</dt><dd>{{$t.UpdatedAt.Format "2006-01-02 15:04:05"}}</dd>
   </dl>
+  {{if not .Data.SubnetFixed}}
+  <form method="post" action="/tenants/{{$t.ID}}/subnet" class="inline-form">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+    <label>Subnet <input type="text" name="subnet" value="{{if $t.SubnetException}}{{$t.Subnet}}{{end}}" placeholder="next free /24 of the address pool">
+      <span class="muted">a private /24 instead of the pool's, when it collides with the customer's own network; it is fixed once a ready network uses it</span></label>
+    <div class="actions"><button type="submit">Save</button></div>
+  </form>
+  {{end}}
   <form method="post" action="/tenants/{{$t.ID}}/floating-ips" class="inline-form">
     <input type="hidden" name="_csrf" value="{{.CSRF}}">
     <label>Floating IPs per site <input type="number" name="allowance" min="0" max="12" value="{{$t.FIPAllowance}}"></label>

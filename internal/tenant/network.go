@@ -34,8 +34,9 @@ type SiteNetwork struct {
 	DNS             []netip.Addr
 }
 
-// SetAddressPool replaces the pool new tenants' /24s come from (the MSP
-// changes it only while no tenant has a subnet, design 4.2).
+// SetAddressPool replaces the pool the tenants' /24s come from; the MSP
+// changes it only while no built network uses a pool /24 (PoolInUse), and
+// AssignSubnets then moves the tenants' unused /24s into it.
 func (s *Service) SetAddressPool(p netip.Prefix) {
 	if !p.IsValid() {
 		p = DefaultAddressPool
@@ -83,9 +84,79 @@ func (s *Service) pickSubnet(ctx context.Context, t *store.Tenant, exception str
 	return nil
 }
 
+// subnetsBuilt reports, per tenant, whether one of its connections has
+// its subnet in Prism Central or is building it: from then on the tenant's
+// /24 stays.
+func (s *Service) subnetsBuilt(ctx context.Context) (map[string]bool, error) {
+	out := map[string]bool{}
+	for _, site := range s.Sites() {
+		ps, err := s.st.ListPlacementsBySite(ctx, site.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range ps {
+			if p.SubnetExtID != "" || p.NetState == store.NetBuilding {
+				out[p.TenantID] = true
+			}
+		}
+	}
+	return out, nil
+}
+
+// PoolInUse reports whether a built network uses a /24 of the address
+// pool: the pool is fixed from then on (design 4.2, Marco 2026-10-30).
+func (s *Service) PoolInUse(ctx context.Context) (bool, error) {
+	built, err := s.subnetsBuilt(ctx)
+	if err != nil {
+		return true, err
+	}
+	tenants, err := s.st.ListTenants(ctx)
+	if err != nil {
+		return true, err
+	}
+	for _, t := range tenants {
+		if built[t.ID] && t.Subnet != "" && !t.SubnetException {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// SetSubnet changes the tenant's subnet: an exception, or "" for the next
+// free /24 of the pool. It is refused once a connection of the tenant has
+// its subnet in Prism Central (design 4.2).
+func (s *Service) SetSubnet(ctx context.Context, id, subnet string) error {
+	if !s.acquire(id) {
+		return ErrBusy
+	}
+	defer s.release(id)
+	t, err := s.st.GetTenant(ctx, id)
+	if err != nil {
+		return err
+	}
+	built, err := s.subnetsBuilt(ctx)
+	if err != nil {
+		return err
+	}
+	if built[id] {
+		return fmt.Errorf("%w: the tenant's subnet %s is in a ready network: disconnect the site first", ErrState, t.Subnet)
+	}
+	s.netMu.Lock()
+	defer s.netMu.Unlock()
+	if err := s.pickSubnet(ctx, t, strings.TrimSpace(subnet)); err != nil {
+		return err
+	}
+	if err := s.st.UpdateTenant(ctx, t); err != nil {
+		return err
+	}
+	s.changed(id)
+	return nil
+}
+
 // AssignSubnets gives every tenant without a subnet the next free /24 of
 // the pool, in creation order (the upgrade to 0.2.0, design 4.2), and
-// returns how many it assigned.
+// moves into the pool the pool /24s left outside it by a pool change,
+// unless a built network uses them. It returns how many it assigned.
 func (s *Service) AssignSubnets(ctx context.Context) (int, error) {
 	s.netMu.Lock()
 	defer s.netMu.Unlock()
@@ -94,11 +165,18 @@ func (s *Service) AssignSubnets(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	sort.SliceStable(tenants, func(i, j int) bool { return tenants[i].CreatedAt.Before(tenants[j].CreatedAt) })
+	built, err := s.subnetsBuilt(ctx)
+	if err != nil {
+		return 0, err
+	}
 	n := 0
 	for i := range tenants {
 		t := &tenants[i]
 		if t.Subnet != "" {
-			continue
+			cur, err := netip.ParsePrefix(t.Subnet)
+			if t.SubnetException || built[t.ID] || err == nil && s.cfg.AddressPool.Contains(cur.Addr()) {
+				continue
+			}
 		}
 		if err := s.pickSubnet(ctx, t, ""); err != nil {
 			return n, err

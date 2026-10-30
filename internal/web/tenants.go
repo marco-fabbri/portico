@@ -189,6 +189,8 @@ type detailData struct {
 	// Retry offers the tenant-wide retry: the tenant's own step failed; a
 	// failed connection has its own Retry in the Sites table.
 	Retry bool
+	// SubnetFixed says a ready network uses the tenant's subnet.
+	SubnetFixed bool
 }
 
 // stepRow is a recorded step with its site's code ("" tenant-wide).
@@ -226,6 +228,9 @@ func (h *Handler) detail(r *http.Request, t *store.Tenant, withVisibility bool) 
 		return d, fmt.Errorf("the tenant's sites could not be read: %w", err)
 	}
 	on := map[string]bool{}
+	for _, p := range ps {
+		d.SubnetFixed = d.SubnetFixed || p.SubnetExtID != "" || p.NetState == store.NetBuilding
+	}
 	netOn := map[string]bool{}
 	for _, s := range h.svc.Sites() {
 		netOn[s.ID] = s.Network.Enabled

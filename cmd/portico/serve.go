@@ -260,6 +260,13 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		// is logged, and the save stands.
 		runtime.Apply(ctx, s)
 		tenants.SetAddressPool(addressPool(s))
+		// A pool changed before any network uses it moves the tenants'
+		// /24s into it (design 4.2).
+		if n, err := tenants.AssignSubnets(ctx); err != nil {
+			log.Error("tenant subnets not moved to the new pool", "err", err.Error())
+		} else if n > 0 {
+			log.Info("tenant subnets moved to the new pool", "count", n)
+		}
 		return nil
 	})
 	go runtime.reload(ctx, settingsSvc, sitesReload)

@@ -116,20 +116,15 @@ func (h *Handler) renderSetup(w http.ResponseWriter, r *http.Request, status int
 	h.render(w, r, status, "setup", "Setup", d, errMsg)
 }
 
-// poolLocked reports whether any tenant holds a subnet from the address
+// poolLocked reports whether a built network uses a /24 of the address
 // pool: the pool is fixed from then on (tenant networking design 4.2).
 // An unreadable store locks it too.
 func (h *Handler) poolLocked(r *http.Request) bool {
-	ts, err := h.st.ListTenants(r.Context())
-	if err != nil {
-		return true
+	if h.svc == nil {
+		return false
 	}
-	for _, t := range ts {
-		if t.Subnet != "" && !t.SubnetException {
-			return true
-		}
-	}
-	return false
+	used, err := h.svc.PoolInUse(r.Context())
+	return err != nil || used
 }
 
 func (h *Handler) setupPage(w http.ResponseWriter, r *http.Request) {
@@ -193,7 +188,7 @@ func (h *Handler) setupSave(w http.ResponseWriter, r *http.Request) {
 	section := r.FormValue("section")
 	s, err := formSettings(r, section, cur)
 	if err == nil && s.Tenants.AddressPool != cur.Tenants.AddressPool && h.poolLocked(r) {
-		err = errors.New("the tenant address pool cannot change while tenants hold subnets")
+		err = errors.New("the tenant address pool cannot change while a ready network uses one of its subnets")
 		s.Tenants.AddressPool = cur.Tenants.AddressPool
 	}
 	if err != nil {

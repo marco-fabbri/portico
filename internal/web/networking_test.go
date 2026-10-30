@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"log/slog"
+	"net/http/httptest"
 	"net/netip"
 	"strings"
 	"testing"
@@ -163,24 +164,68 @@ func TestRetryNetworkButton(t *testing.T) {
 	}
 }
 
-func TestPoolReadOnlyOnceAssigned(t *testing.T) {
+// The pool is fixed once a built network uses a pool /24 (Marco,
+// 2026-10-30), not as soon as a tenant has one.
+func TestPoolReadOnlyOnceBuilt(t *testing.T) {
 	e := newEnv(t, true)
 	withSetup(t, e, true)
 	e.login(t)
-	if body := e.do("GET", "/setup", nil, true).Body.String(); !strings.Contains(body, `name="address_pool"`) || strings.Contains(body, `name="address_pool" value="10.100.0.0/16" readonly`) {
-		t.Fatalf("pool field before any tenant:\n%s", body)
-	}
 	e.createTenant(t, "acme")
-	if body := e.do("GET", "/setup", nil, true).Body.String(); !strings.Contains(body, "readonly") {
+	if body := e.do("GET", "/setup", nil, true).Body.String(); !strings.Contains(body, `name="address_pool"`) || strings.Contains(body, `name="address_pool" value="10.100.0.0/16" readonly`) {
+		t.Fatalf("pool field with a tenant and no network:\n%s", body)
+	}
+	save := func(pool string) *httptest.ResponseRecorder {
+		return e.do("POST", "/setup/save", e.form("section", "tenants", "project_prefix", "portico", "group_prefix", "tenant-", "role", "Portico Tenant", "operation_timeout", "10m", "address_pool", pool), true)
+	}
+	if rec := save("10.200.0.0/16"); rec.Code != 303 {
+		t.Fatalf("a pool change before any network: %d\n%s", rec.Code, rec.Body.String())
+	}
+	p, err := e.st.GetPlacement(context.Background(), "acme", "site-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.SubnetExtID, p.NetState = "net-1", store.NetReady
+	if err := e.st.UpdatePlacement(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	if body := e.do("GET", "/setup", nil, true).Body.String(); !strings.Contains(body, `value="10.200.0.0/16" readonly`) {
 		t.Fatalf("pool field not read-only:\n%s", body)
 	}
-	rec := e.do("POST", "/setup/save", e.form("section", "tenants", "project_prefix", "portico", "group_prefix", "tenant-", "role", "Portico Tenant", "address_pool", "10.200.0.0/16"), true)
-	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "address pool") {
-		t.Fatalf("a pool change with a tenant holding a subnet: %d\n%s", rec.Code, rec.Body.String())
+	if rec := save("10.100.0.0/16"); rec.Code != 400 || !strings.Contains(rec.Body.String(), "address pool") {
+		t.Fatalf("a pool change with a built network: %d\n%s", rec.Code, rec.Body.String())
 	}
 	// The same pool is no change.
-	if rec := e.do("POST", "/setup/save", e.form("section", "tenants", "project_prefix", "portico", "group_prefix", "tenant-", "role", "Portico Tenant", "address_pool", "10.100.0.0/16"), true); rec.Code != 303 {
+	if rec := save("10.200.0.0/16"); rec.Code != 303 {
 		t.Fatalf("the same pool: %d\n%s", rec.Code, rec.Body.String())
+	}
+}
+
+// The tenant's subnet is changed on its page until a network uses it.
+func TestTenantSubnetEdit(t *testing.T) {
+	e := newEnv(t, true)
+	e.login(t)
+	e.createTenant(t, "acme")
+	if body := e.do("GET", "/tenants/acme", nil, true).Body.String(); !strings.Contains(body, `action="/tenants/acme/subnet"`) {
+		t.Fatalf("no subnet form:\n%s", body)
+	}
+	if rec := e.do("POST", "/tenants/acme/subnet", e.form("subnet", "192.168.7.0/24"), true); rec.Code != 303 {
+		t.Fatalf("set: %d\n%s", rec.Code, rec.Body.String())
+	}
+	if g, _ := e.st.GetTenant(context.Background(), "acme"); g.Subnet != "192.168.7.0/24" || !g.SubnetException {
+		t.Fatalf("acme = %+v", g)
+	}
+	netPlacement(t, e, store.NetReady, "")
+	p, _ := e.st.GetPlacement(context.Background(), "acme", "site-a")
+	p.SubnetExtID = "net-1"
+	if err := e.st.UpdatePlacement(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	body := e.do("GET", "/tenants/acme", nil, true).Body.String()
+	if strings.Contains(body, `action="/tenants/acme/subnet"`) {
+		t.Fatal("subnet form with a built network")
+	}
+	if rec := e.do("POST", "/tenants/acme/subnet", e.form("subnet", "192.168.8.0/24"), true); rec.Code != 409 {
+		t.Fatalf("set with a network: %d", rec.Code)
 	}
 }
 
