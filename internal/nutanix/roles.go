@@ -52,6 +52,32 @@ func (c *Client) OperationExtIDs(ctx context.Context, names []string) (map[strin
 	return out, nil
 }
 
+// SystemOnlyOperations returns the extIds of the operations only a
+// system-defined role may hold (operationType SYSTEM_DEFINED_ONLY): pc.7.6
+// refuses a custom role holding one with a 400 "invalid operations".
+// Project Admin holds two of them, Create_Role_Membership and
+// Delete_Role_Membership (measured on NTNX-01, 2026-10-30).
+func (c *Client) SystemOnlyOperations(ctx context.Context) ([]string, error) {
+	const systemOnly = "SYSTEM_DEFINED_ONLY"
+	q := url.Values{}
+	q.Set("$filter", "operationType eq Iam.Authz.OperationType'"+systemOnly+"'")
+	q.Set("$limit", "100")
+	var ops []struct {
+		ExtID         string `json:"extId"`
+		OperationType string `json:"operationType"`
+	}
+	if _, err := c.do(ctx, http.MethodGet, PathIAM1+"/authz/operations", q.Encode(), nil, "", &ops); err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, o := range ops {
+		if o.OperationType == systemOnly {
+			out = append(out, o.ExtID)
+		}
+	}
+	return out, nil
+}
+
 // GetRole returns a role with its operations.
 func (c *Client) GetRole(ctx context.Context, extID string) (*RoleDetail, error) {
 	var r RoleDetail

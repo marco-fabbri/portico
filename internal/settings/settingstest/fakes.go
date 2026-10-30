@@ -207,7 +207,26 @@ type PC struct {
 }
 
 // ProjectAdminOps are the operations of the double's Project Admin role.
-var ProjectAdminOps = []string{"op-View_Project", "op-View_Subnet", "op-Create_Floating_Ip", "op-Delete_Floating_Ip", "op-Update_Floating_Ip"}
+// It holds Create_Role_Membership, an operation a custom role cannot hold
+// (SYSTEM_DEFINED_ONLY, measured on NTNX-01 2026-10-30).
+var ProjectAdminOps = []string{"op-View_Project", "op-View_Subnet", "op-Create_Floating_Ip", "op-Delete_Floating_Ip", "op-Update_Floating_Ip", "op-Create_Role_Membership"}
+
+// SystemOnlyOps are the operations of type SYSTEM_DEFINED_ONLY: Prism
+// Central refuses a custom role holding one with a 400.
+var SystemOnlyOps = []string{"Create_Role_Membership", "Delete_Role_Membership"}
+
+// systemOnlyIn names the first SYSTEM_DEFINED_ONLY operation in ops.
+func systemOnlyIn(ops any) string {
+	list, _ := ops.([]any)
+	for _, o := range list {
+		for _, n := range SystemOnlyOps {
+			if o == "op-"+n {
+				return n
+			}
+		}
+	}
+	return ""
+}
 
 // Role returns the role with that display name, or nil.
 func (f *PC) Role(name string) map[string]any {
@@ -463,6 +482,12 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 			ops = append(ops, "op-"+n)
 		}
 		reply(200, map[string]any{"extId": "role-sa", "displayName": "Super Admin", "operations": ops})
+	case strings.HasSuffix(p, "/authz/operations") && strings.Contains(r.URL.Query().Get("$filter"), "SYSTEM_DEFINED_ONLY"):
+		out := []map[string]any{}
+		for _, n := range SystemOnlyOps {
+			out = append(out, map[string]any{"extId": "op-" + n, "displayName": n, "operationType": "SYSTEM_DEFINED_ONLY"})
+		}
+		reply(200, out)
 	case strings.HasSuffix(p, "/authz/operations"):
 		out := []map[string]any{}
 		for _, n := range OpCatalog {
@@ -508,6 +533,11 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(`{"data":{"error":[{"message":"role creation refused"}]}}`))
 			return
 		}
+		if systemOnlyIn(body["operations"]) != "" {
+			w.WriteHeader(400)
+			w.Write([]byte(`{"data":{"error":[{"message":"Failed to create role as invalid operations are provided in the request."}]}}`))
+			return
+		}
 		role := body
 		role["extId"] = f.id("role")
 		f.Roles = append(f.Roles, role)
@@ -525,6 +555,9 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 			case r.Method == "PUT" && f.RoleUpdateStatus != 0:
 				w.WriteHeader(f.RoleUpdateStatus)
 				w.Write([]byte(`{"data":{"error":[{"message":"role update refused"}]}}`))
+			case r.Method == "PUT" && systemOnlyIn(body["operations"]) != "":
+				w.WriteHeader(400)
+				w.Write([]byte(`{"data":{"error":[{"message":"Failed to update role as invalid operations are provided in the request."}]}}`))
 			case r.Method == "PUT":
 				f.RoleUpdates++
 				role["operations"] = body["operations"]
