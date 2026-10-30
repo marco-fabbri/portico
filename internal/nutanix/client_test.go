@@ -269,3 +269,35 @@ func TestClientDoesNotFollowRedirects(t *testing.T) {
 		t.Fatal("the API key followed the redirect")
 	}
 }
+
+// A 500 on a task poll is Prism Central's IDF, not the task: WaitTask polls
+// on and the caller never runs its create again (write-up 36, P4).
+func TestWaitTaskPollsThroughATransientError(t *testing.T) {
+	f := newFakePC(t)
+	f.failN["GET "+PathTasks+"/t-1"] = 1
+	if err := newClient(t, f, nil).WaitTask(context.Background(), "t-1"); err != nil {
+		t.Fatalf("WaitTask: %v", err)
+	}
+	n := 0
+	for _, r := range f.requests() {
+		if r.Method == "GET" && r.Path == PathTasks+"/t-1" {
+			n++
+		}
+	}
+	// the failed read, then the fake's RUNNING and SUCCEEDED
+	if n != 3 {
+		t.Fatalf("task reads = %d, want 3", n)
+	}
+}
+
+func TestWaitTaskGivesUpOnARefusal(t *testing.T) {
+	f := newFakePC(t)
+	f.fail["GET "+PathTasks+"/t-1"] = 404
+	err := newClient(t, f, nil).WaitTask(context.Background(), "t-1")
+	if !IsNotFound(err) {
+		t.Fatalf("err = %v, want a 404", err)
+	}
+	if n := len(f.requests()); n != 1 {
+		t.Fatalf("task reads = %d, want 1", n)
+	}
+}
