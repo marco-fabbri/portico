@@ -79,7 +79,7 @@ site's ready network was off, or the connection is from before 0.2.0),
 | Method and path | What it does | Answers |
 |---|---|---|
 | `GET /api/v1/settings` | The stored settings (or the file's while nothing is stored): `stored`, `source`, `mode`, `complete`, `missing`, the public names, `passthrough_site`, and the sections `keycloak`, `oidc`, `tenants` with `*_set` flags for the secrets. The sites are under `/api/v1/sites` | 200 |
-| `PUT /api/v1/settings` | Replace the settings (the sites are kept). A secret left out keeps its stored value; `operation_timeout` is a duration such as `10m`. Refused with the field name when a value is invalid | 200; 400 |
+| `PUT /api/v1/settings` | Replace the settings (the sites are kept). A secret left out keeps its stored value; `operation_timeout` is a duration such as `10m`; `address_pool` (a private IPv4 prefix between /8 and /20) is kept when omitted. Refused with the field name when a value is invalid | 200; 400; 409 when `address_pool` changes while a ready network uses one of its subnets |
 | `POST /api/v1/settings/check` | Live check of Keycloak with the settings as stored plus the body's fields: `{"target": "keycloak" \| "oidc"}` | 200 `{"ok", "message"}` |
 | `POST /api/v1/settings/bootstrap/keycloak` | Create the realm, the admin client and the OIDC client from the Keycloak administrator's credentials: `{"admin_username", "admin_password", "realm", "display_name"}`. The credentials are used for this call and not stored; the two client secrets are | 200 with the result; 400; 409 when the realm exists |
 | `POST /api/v1/settings/apply` | Exit so that systemd restarts the service on the stored settings | 202; 409 when the settings are incomplete or not stored |
