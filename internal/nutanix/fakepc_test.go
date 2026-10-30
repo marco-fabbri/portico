@@ -20,6 +20,7 @@ type fakePC struct {
 	key    string
 	etag   string
 	fail   map[string]int   // "METHOD path" → status to answer with an error body
+	failN  map[string]int   // "METHOD path" → status to answer with for that many calls, then normally
 	status string           // task status after polls
 	totals map[string]int   // list path → metadata.totalAvailableResults
 	lists  map[string][]any // list path → items, answered as one page
@@ -34,7 +35,7 @@ type recorded struct {
 }
 
 func newFakePC(t *testing.T) *fakePC {
-	f := &fakePC{t: t, key: "k-secret-123", etag: `"etag-abc"`, fail: map[string]int{}, status: "SUCCEEDED", totals: map[string]int{}, lists: map[string][]any{}, objs: map[string]any{}}
+	f := &fakePC{t: t, key: "k-secret-123", etag: `"etag-abc"`, fail: map[string]int{}, failN: map[string]int{}, status: "SUCCEEDED", totals: map[string]int{}, lists: map[string][]any{}, objs: map[string]any{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -55,6 +56,10 @@ func (f *fakePC) handle(w http.ResponseWriter, r *http.Request) {
 	f.reqs = append(f.reqs, rec)
 	key := r.Method + " " + r.URL.Path
 	status, failing := f.fail[key]
+	if n, ok := f.failN[key]; ok && n > 0 && !failing {
+		status, failing = 500, true
+		f.failN[key] = n - 1
+	}
 	f.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")

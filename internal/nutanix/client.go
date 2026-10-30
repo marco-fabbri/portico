@@ -363,12 +363,29 @@ type taskStatus struct {
 	LegacyErrorMessage string `json:"legacyErrorMessage"`
 }
 
-// WaitTask polls a task until it succeeds, fails, or ctx ends.
+// taskPollTransientLimit is how many transient errors in a row a task
+// poll takes before WaitTask gives up: with the 2 s poll, 40 s.
+const taskPollTransientLimit = 20
+
+// WaitTask polls a task until it succeeds, fails, or ctx ends. A
+// transient error on the poll (a 500 from Prism Central's IDF, write-up
+// 19) is not the task's outcome: returning it made the caller run its
+// create again while the task still ran, so the poll goes on (write-up
+// 36, P4).
 func (c *Client) WaitTask(ctx context.Context, taskExtID string) error {
+	transient := 0
 	for {
 		var st taskStatus
 		if _, err := c.do(ctx, http.MethodGet, PathTasks+"/"+taskExtID, "", nil, "", &st); err != nil {
-			return err
+			if !IsTransient(err) {
+				return err
+			}
+			if transient++; transient >= taskPollTransientLimit {
+				return err
+			}
+			st.Status = ""
+		} else {
+			transient = 0
 		}
 		switch st.Status {
 		case "SUCCEEDED":
