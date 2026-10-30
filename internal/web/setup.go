@@ -4,12 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/netip"
 	"strings"
 	"time"
 
 	"github.com/marco-fabbri/portico/internal/api"
-	"github.com/marco-fabbri/portico/internal/netplan"
 	"github.com/marco-fabbri/portico/internal/settings"
 )
 
@@ -154,15 +152,10 @@ func formSettings(r *http.Request, section string, cur settings.Settings) (setti
 		}
 	case "tenants":
 		out.Tenants.ProjectPrefix, out.Tenants.GroupPrefix, out.Tenants.Role = v("project_prefix"), v("group_prefix"), v("role")
-		if a := v("address_pool"); a != "" {
-			pool, err := netip.ParsePrefix(a)
-			if err == nil {
-				err = netplan.CheckPool(pool)
-			}
-			if err != nil {
-				return out, fmt.Errorf("tenant address pool: %v", err)
-			}
-			out.Tenants.AddressPool = pool.Masked().String()
+		if pool, err := settings.ParsePool(v("address_pool")); err != nil {
+			return out, fmt.Errorf("tenant address pool: %v", err)
+		} else if pool != "" {
+			out.Tenants.AddressPool = pool
 		}
 		if t := v("operation_timeout"); t != "" {
 			d, err := time.ParseDuration(t)

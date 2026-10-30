@@ -163,6 +163,7 @@ type settingsJSON struct {
 		ProjectPrefix    string `json:"project_prefix"`
 		GroupPrefix      string `json:"group_prefix"`
 		Role             string `json:"role"`
+		AddressPool      string `json:"address_pool"`
 		OperationTimeout string `json:"operation_timeout"`
 	} `json:"tenants"`
 }
@@ -179,6 +180,7 @@ func toSettingsJSON(s settings.Settings, source, mode string) settingsJSON {
 	j.Keycloak.Realm, j.Keycloak.AdminClientID, j.Keycloak.AdminClientSecretSet = s.Keycloak.Realm, s.Keycloak.AdminClientID, s.Keycloak.AdminClientSecret != ""
 	j.OIDC.Issuer, j.OIDC.ClientID, j.OIDC.ClientSecretSet = s.OIDC.Issuer, s.OIDC.ClientID, s.OIDC.ClientSecret != ""
 	j.Tenants.ProjectPrefix, j.Tenants.GroupPrefix, j.Tenants.Role = s.Tenants.ProjectPrefix, s.Tenants.GroupPrefix, s.Tenants.Role
+	j.Tenants.AddressPool = s.Tenants.AddressPool
 	j.Tenants.OperationTimeout = s.Tenants.OperationTimeout.String()
 	return j
 }
@@ -207,6 +209,14 @@ func fromSettingsJSON(j settingsJSON, base settings.Settings) (settings.Settings
 		s.OIDC.ClientSecret = base.OIDC.ClientSecret
 	}
 	s.Tenants.ProjectPrefix, s.Tenants.GroupPrefix, s.Tenants.Role = j.Tenants.ProjectPrefix, j.Tenants.GroupPrefix, j.Tenants.Role
+	pool, err := settings.ParsePool(j.Tenants.AddressPool)
+	if err != nil {
+		return s, fmt.Errorf("tenants.address_pool: %v", err)
+	}
+	if pool == "" {
+		pool = base.Tenants.AddressPool
+	}
+	s.Tenants.AddressPool = pool
 	if v := strings.TrimSpace(j.Tenants.OperationTimeout); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
@@ -275,6 +285,14 @@ func (h *handler) putSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	// The pool is fixed once a ready network uses one of its subnets
+	// (tenant networking design 4.2): the same rule as the setup page.
+	if s.Tenants.AddressPool != base.Tenants.AddressPool && h.svc != nil {
+		if used, err := h.svc.PoolInUse(r.Context()); err != nil || used {
+			writeError(w, http.StatusConflict, "the tenant address pool cannot change while a ready network uses one of its subnets")
+			return
+		}
 	}
 	if err := h.so.Service.Update(r.Context(), s); err != nil {
 		// A wrong document is the caller's (400); anything else (the
