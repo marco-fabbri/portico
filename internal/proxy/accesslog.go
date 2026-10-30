@@ -105,11 +105,18 @@ func AccessLog(log *slog.Logger, next http.Handler) http.Handler {
 }
 
 // authScheme returns the lower-cased scheme of the first Authorization
-// value ("basic", "bearer", ...) or "none"; the credential itself is never
-// returned.
+// value when it is a known one ("basic", "bearer", ...), "other" for any
+// other value and "none" without the header. A value without a scheme is
+// the credential itself (a bare token), so only known names are echoed
+// (write-up 36, P2).
 func authScheme(r *http.Request) string {
-	if f := strings.Fields(r.Header.Get("Authorization")); len(f) > 0 {
-		return strings.ToLower(f[0])
+	f := strings.Fields(r.Header.Get("Authorization"))
+	if len(f) == 0 {
+		return "none"
 	}
-	return "none"
+	switch scheme := strings.ToLower(f[0]); scheme {
+	case "basic", "bearer", "digest", "negotiate", "ntlm":
+		return scheme
+	}
+	return "other"
 }

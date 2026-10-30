@@ -263,6 +263,8 @@ func TestAccessLogRecordsAuthSchemeOnly(t *testing.T) {
 		{"", "none", ""},
 		{"Bearer abc.def", "bearer", "abc.def"},
 		{"Basic YWJj", "basic", "YWJj"},
+		{"eyJhbGciOiJIUzI1NiJ9.e30.abc", "other", "eyJhbGciOiJIUzI1NiJ9"},
+		{"Token abc", "other", "abc"},
 	}
 	for _, c := range cases {
 		h := newPublicHarness(t)
