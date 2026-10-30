@@ -325,8 +325,9 @@ func inProject[T any](ctx context.Context, name, project string, create func(ctx
 }
 
 // buildNetwork runs the ready network's steps on an active connection
-// (design 4.3): each finds its object by the stored extId first, by name
-// second, so a run again adopts what a cut-off one created. A failure is
+// (design 4.3): each finds its object by the stored extId, by name only
+// when none was stored and only inside the project, so a run again adopts
+// what a cut-off one created and nothing else. A failure is
 // the network's state; the connection stays as it is.
 func (s *Service) buildNetwork(ctx context.Context, t *store.Tenant, p *store.Placement, site Site) error {
 	pc, project := site.PC, s.projectName(t.ID)
@@ -348,7 +349,7 @@ func (s *Service) buildNetwork(ctx context.Context, t *store.Tenant, p *store.Pl
 			if slice, err = s.transitSlice(ctx, pc, p, site, name); err != nil {
 				return "", err
 			}
-			sub, err := findSubnet(ctx, pc, p.ExtSubnetExtID, name)
+			sub, err := findSubnet(ctx, pc, p.ExtSubnetExtID, name, "", site.Network.TransitVPCExtID)
 			if err != nil {
 				return "", err
 			}
@@ -376,9 +377,17 @@ func (s *Service) buildNetwork(ctx context.Context, t *store.Tenant, p *store.Pl
 		}},
 		{"net-vpc", func(ctx context.Context) (string, error) {
 			name := project + "-vpc"
-			vpc, err := findVPC(ctx, pc, p.VPCExtID, name)
+			vpc, err := findVPC(ctx, pc, p.VPCExtID, name, p.ProjectExtID)
 			if err != nil {
 				return "", err
+			}
+			// Found without its project (the read-back failed once): the
+			// repair of the create path, on every path (write-up 36, P8).
+			if vpc != nil && vpc.ProjectExtID != p.ProjectExtID {
+				if err := pc.DeleteVPC(ctx, vpc.ExtID); err != nil && !nutanix.IsNotFound(err) {
+					return "", fmt.Errorf("%w; deleting it failed: %v", errNoProject(name), err)
+				}
+				vpc = nil
 			}
 			if vpc == nil {
 				vpc, err = inProject(ctx, name, p.ProjectExtID,
@@ -414,9 +423,15 @@ func (s *Service) buildNetwork(ctx context.Context, t *store.Tenant, p *store.Pl
 			if err != nil {
 				return "", fmt.Errorf("the tenant has no subnet assigned")
 			}
-			sub, err := findSubnet(ctx, pc, p.SubnetExtID, name)
+			sub, err := findSubnet(ctx, pc, p.SubnetExtID, name, p.ProjectExtID, p.VPCExtID)
 			if err != nil {
 				return "", err
+			}
+			if sub != nil && sub.ProjectExtID != p.ProjectExtID {
+				if err := pc.DeleteSubnet(ctx, sub.ExtID); err != nil && !nutanix.IsNotFound(err) {
+					return "", fmt.Errorf("%w; deleting it failed: %v", errNoProject(name), err)
+				}
+				sub = nil
 			}
 			if sub == nil {
 				gw, first, last := netplan.TenantRange(prefix)
@@ -457,40 +472,48 @@ func (s *Service) buildNetwork(ctx context.Context, t *store.Tenant, p *store.Pl
 	return s.st.UpdatePlacement(ctx, p)
 }
 
-// findSubnet returns the subnet by its stored extId, else by name, else nil.
-func findSubnet(ctx context.Context, pc PrismCentral, extID, name string) (*nutanix.Subnet, error) {
+// findSubnet returns the subnet by its stored extId; a stored extId that
+// is gone means the subnet was deleted, and the answer is nil so the step
+// creates again and never adopts a same-named one. Without a stored
+// extId (a create that succeeded after its call failed) it goes by name,
+// only inside project (when given) and vpc (when given): design 4.3,
+// write-up 36 P6.
+func findSubnet(ctx context.Context, pc PrismCentral, extID, name, project, vpc string) (*nutanix.Subnet, error) {
 	if extID != "" {
 		sub, err := pc.GetSubnet(ctx, extID)
-		if err == nil || !nutanix.IsNotFound(err) {
-			return sub, err
+		if nutanix.IsNotFound(err) {
+			return nil, nil
 		}
+		return sub, err
 	}
 	all, err := pc.ListSubnets(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for i := range all {
-		if all[i].Name == name {
+		if all[i].Name == name && (project == "" || all[i].ProjectExtID == project) && (vpc == "" || all[i].VPCExtID == vpc) {
 			return &all[i], nil
 		}
 	}
 	return nil, nil
 }
 
-// findVPC returns the VPC by its stored extId, else by name, else nil.
-func findVPC(ctx context.Context, pc PrismCentral, extID, name string) (*nutanix.VPC, error) {
+// findVPC is findSubnet for a VPC: by the stored extId, else by name
+// inside the project.
+func findVPC(ctx context.Context, pc PrismCentral, extID, name, project string) (*nutanix.VPC, error) {
 	if extID != "" {
 		vpc, err := pc.GetVPC(ctx, extID)
-		if err == nil || !nutanix.IsNotFound(err) {
-			return vpc, err
+		if nutanix.IsNotFound(err) {
+			return nil, nil
 		}
+		return vpc, err
 	}
 	all, err := pc.ListVPCs(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for i := range all {
-		if all[i].Name == name {
+		if all[i].Name == name && all[i].ProjectExtID == project {
 			return &all[i], nil
 		}
 	}
@@ -681,16 +704,18 @@ func adoptByName(ctx context.Context, pc PrismCentral, p *store.Placement) error
 	}
 	project := p.ProjectID
 	if p.ExtSubnetExtID == "" {
-		sub, err := findSubnet(ctx, pc, "", project+"-ext")
+		// The external subnet lives in the transit VPC with no project;
+		// a tenant's own subnet of that name carries its project.
+		sub, err := findSubnet(ctx, pc, "", project+"-ext", "", "")
 		if err != nil {
 			return err
 		}
-		if sub != nil && sub.External {
+		if sub != nil && sub.External && sub.ProjectExtID == "" {
 			p.ExtSubnetExtID = sub.ExtID
 		}
 	}
 	if p.VPCExtID == "" {
-		vpc, err := findVPC(ctx, pc, "", project+"-vpc")
+		vpc, err := findVPC(ctx, pc, "", project+"-vpc", p.ProjectExtID)
 		if err != nil {
 			return err
 		}
@@ -699,7 +724,7 @@ func adoptByName(ctx context.Context, pc PrismCentral, p *store.Placement) error
 		}
 	}
 	if p.SubnetExtID == "" {
-		sub, err := findSubnet(ctx, pc, "", project+"-net")
+		sub, err := findSubnet(ctx, pc, "", project+"-net", p.ProjectExtID, p.VPCExtID)
 		if err != nil {
 			return err
 		}

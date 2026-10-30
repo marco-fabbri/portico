@@ -58,6 +58,18 @@ func (p *PC) SubnetNamed(name string) *nutanix.Subnet {
 }
 
 // VPCNamed returns the VPC of that name, or nil.
+// HasSubnet reports whether a subnet with that extId exists.
+func (p *PC) HasSubnet(extID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.Subnets {
+		if p.Subnets[i].ExtID == extID {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *PC) VPCNamed(name string) *nutanix.VPC {
 	p.mu.Lock()
 	defer p.mu.Unlock()
