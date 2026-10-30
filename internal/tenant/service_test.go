@@ -681,3 +681,25 @@ func TestCreateUserReadsTheStatusUnderTheLock(t *testing.T) {
 		t.Fatalf("CreateUser under a held lock = %v, want ErrBusy", err)
 	}
 }
+
+// Disconnect removes the group's role membership in the tenant's project
+// only: the group may be foreign and hold roles elsewhere (write-up 36, P5).
+func TestDisconnectKeepsMembershipsInOtherProjects(t *testing.T) {
+	e := newEnv(t)
+	e.create(t, "acme")
+	e.svc.Wait()
+	tn := e.place(t, "acme")
+	e.pc.Memberships = append(e.pc.Memberships, nutanix.RoleMembership{ExtID: "rm-other", IdentityExtID: tn.SAMLGroupExtID, IdentityType: "GROUP", ProjectExtID: "other-project", RoleExtID: "role-x"})
+	ctx := context.Background()
+	if err := e.svc.Disconnect(ctx, "acme", tn.SiteID); err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+	e.svc.Wait()
+	var left []string
+	for _, rm := range e.pc.Memberships {
+		left = append(left, rm.ExtID+"@"+rm.ProjectExtID)
+	}
+	if len(left) != 1 || left[0] != "rm-other@other-project" {
+		t.Fatalf("memberships left = %v, want only the other project's", left)
+	}
+}
