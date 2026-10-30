@@ -10,12 +10,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/marco-fabbri/portico/internal/config"
+	"github.com/marco-fabbri/portico/internal/netplan"
 )
 
 // SettingKey is the store key of the JSON document.
@@ -169,6 +171,24 @@ func Defaults() Settings {
 // Admin without the floating IP creation and deletion (tenant networking
 // design 4.3), created on each site by its setup run.
 const DefaultTenantRole = "Portico Tenant"
+
+// ParsePool checks a tenant address pool as the setup page and the API
+// take it and returns it masked; an empty value gives "" (keep the
+// stored one). The one parse for both callers (write-up 36, P7).
+func ParsePool(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", nil
+	}
+	pool, err := netip.ParsePrefix(s)
+	if err == nil {
+		err = netplan.CheckPool(pool)
+	}
+	if err != nil {
+		return "", err
+	}
+	return pool.Masked().String(), nil
+}
 
 // DefaultAddressPool is the tenant address pool of a fresh document. It
 // keeps clear of the subnets Prism Central's microservices reserve

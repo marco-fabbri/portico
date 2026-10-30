@@ -443,3 +443,57 @@ func TestSettingsPutNamesKickTheRealmJobInSetupMode(t *testing.T) {
 		t.Fatalf("new names in service: %d kicks %d", rec.Code, realm.kicks)
 	}
 }
+
+// The pool round-trips through the API: a GET then a PUT of its body
+// leaves a custom pool as it was (write-up 36, P7).
+func TestSettingsPutKeepsThePool(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	if err := e.svc.Patch(context.Background(), func(s *settings.Settings) { s.Tenants.AddressPool = "172.20.0.0/16" }); err != nil {
+		t.Fatal(err)
+	}
+	rec, out := e.do("GET", "/api/v1/settings", "")
+	if rec.Code != 200 || out["tenants"].(map[string]any)["address_pool"] != "172.20.0.0/16" {
+		t.Fatalf("GET: %d %v", rec.Code, out)
+	}
+	body, _ := json.Marshal(out)
+	if rec, out := e.do("PUT", "/api/v1/settings", string(body)); rec.Code != 200 {
+		t.Fatalf("PUT: %d %v", rec.Code, out)
+	}
+	got, _ := e.svc.Get(context.Background())
+	if got.Tenants.AddressPool != "172.20.0.0/16" {
+		t.Fatalf("stored pool = %q", got.Tenants.AddressPool)
+	}
+}
+
+func TestSettingsPutRefusesPoolChangeWhileInUse(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	ctx := context.Background()
+	if err := e.st.CreateTenant(ctx, &store.Tenant{ID: "acme", DisplayName: "Acme", Status: store.StatusActive, Subnet: "10.128.0.0/24"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.CreatePlacement(ctx, &store.Placement{TenantID: "acme", SiteID: "site-a", Status: store.PlacementActive, SubnetExtID: "net-1", NetState: store.NetReady}); err != nil {
+		t.Fatal(err)
+	}
+	_, out := e.do("GET", "/api/v1/settings", "")
+	out["tenants"].(map[string]any)["address_pool"] = "172.21.0.0/16"
+	body, _ := json.Marshal(out)
+	rec, out := e.do("PUT", "/api/v1/settings", string(body))
+	if rec.Code != 409 || !strings.Contains(out["error"].(string), "ready network") {
+		t.Fatalf("PUT: %d %v", rec.Code, out)
+	}
+	got, _ := e.svc.Get(ctx)
+	if got.Tenants.AddressPool != settings.DefaultAddressPool {
+		t.Fatalf("stored pool = %q", got.Tenants.AddressPool)
+	}
+}
+
+func TestSettingsPutValidatesThePool(t *testing.T) {
+	e := newSettingsEnv(t, true)
+	_, out := e.do("GET", "/api/v1/settings", "")
+	out["tenants"].(map[string]any)["address_pool"] = "8.8.0.0/16"
+	body, _ := json.Marshal(out)
+	rec, out := e.do("PUT", "/api/v1/settings", string(body))
+	if rec.Code != 400 || !strings.Contains(out["error"].(string), "tenants.address_pool") {
+		t.Fatalf("PUT: %d %v", rec.Code, out)
+	}
+}
