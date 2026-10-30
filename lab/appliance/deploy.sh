@@ -9,6 +9,9 @@
 # logged in for an artifact. Lab only.
 #   lab/appliance/deploy.sh --release V
 #   lab/appliance/deploy.sh [--run ID | --image PATH] [--version V]
+# A second appliance next to the first: LAB_APPLIANCE_IP, LAB_VM_NAME and
+# LAB_APPLIANCE_STATE (a directory of its own for the OpenTofu state and
+# variables, e.g. lab/appliance/b).
 set -euo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 : "${PC_URL:?source lab/env.sh first}" "${PC_USER:?}" "${PC_PASS:?}"
@@ -30,8 +33,11 @@ APPLIANCE_IP="${LAB_APPLIANCE_IP:-10.23.210.191}"
 GATEWAY="${LAB_GATEWAY:-10.23.210.254}"
 SUBNET_NAME="${LAB_SUBNET_NAME:-MGMT}"
 CLUSTER_NAME="${LAB_CLUSTER_NAME:-NTNX-01}"
+VM_NAME="${LAB_VM_NAME:-portico-appliance}"
 A=lab/appliance
+S="${LAB_APPLIANCE_STATE:-$A}"
 umask 077
+mkdir -p "$S"
 
 if [ $RELEASE -eq 0 ] && [ -z "$IMAGE_HOST" ]; then
   echo "no image host: give --release V to let Prism Central download from GitHub, or set LAB_IMAGE_HOST" >&2; exit 2
@@ -70,7 +76,7 @@ if [ $RELEASE -eq 0 ]; then
   echo "copying $(du -h "$IMAGE" | cut -f1) to $IMAGE_HOST"
   scp -q -o BatchMode=yes "$IMAGE" "$IMAGE_USER@$IMAGE_HOST:$stage/portico-$VERSION.qcow2"
   "${SSH[@]}" "sudo firewall-cmd -q --add-port=8000/tcp; cd '$stage' && (nohup python3 -m http.server 8000 >/dev/null 2>&1 & echo \$! > '$stage/http.pid')"
-  echo "$stage" > "$A/.stage"
+  echo "$stage" > "$S/.stage"
   IMAGE_URL="http://$IMAGE_HOST:8000/portico-$VERSION.qcow2"
 fi
 
@@ -78,7 +84,7 @@ fi
 host=${PC_URL#https://}; host=${host%%:*}
 sshkey=""
 for k in "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/id_rsa.pub"; do [ -r "$k" ] && { sshkey=$(cat "$k"); break; }; done
-cat > "$A/terraform.tfvars" <<VARS
+cat > "$S/terraform.tfvars" <<VARS
 nutanix_endpoint     = "$host"
 nutanix_username     = "$PC_USER"
 nutanix_insecure     = true
@@ -87,7 +93,7 @@ nutanix_subnet_name  = "$SUBNET_NAME"
 nutanix_subnet_ipam  = false
 portico_version      = "$VERSION"
 portico_image_url    = "$IMAGE_URL"
-vm_name              = "portico-appliance"
+vm_name              = "$VM_NAME"
 network = {
   address = "$APPLIANCE_IP"
   prefix  = 24
@@ -101,7 +107,7 @@ VARS
 export TF_VAR_nutanix_password="$PC_PASS"
 t0=$(date +%s)
 tofu -chdir=deploy/tofu/nutanix init -input=false >/dev/null
-tofu -chdir=deploy/tofu/nutanix apply -input=false -auto-approve -var-file="$PWD/$A/terraform.tfvars" -state="$PWD/$A/terraform.tfstate"
+tofu -chdir=deploy/tofu/nutanix apply -input=false -auto-approve -var-file="$PWD/$S/terraform.tfvars" -state="$PWD/$S/terraform.tfstate"
 echo "apply done in $(( $(date +%s) - t0 )) s (image upload included)"
 
 # 6. Wait for the admin listener (cloud-init network path, Review Focus 4).
@@ -118,7 +124,7 @@ for _ in $(seq 1 90); do
         'sudo runuser -u portico -- /usr/local/bin/portico admin set-password -config /etc/portico/portico.yaml' < "$AS/portico-admin-pw" 2>/dev/null \
         && echo "admin password set from $AS/portico-admin-pw" || echo "admin password not set (ssh or set-password failed): use the console"
     fi
-    echo "console: Prism Central > VMs > portico-appliance > Launch console"
+    echo "console: Prism Central > VMs > $VM_NAME > Launch console"
     exit 0
   fi
   sleep 2
