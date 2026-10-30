@@ -284,6 +284,17 @@ func (c *Config) ValidateRuntime() error {
 	return errors.Join(errs...)
 }
 
+// CheckPublicTLS refuses a public listener off the loopback (the tunnel's)
+// without its pair: tenants' sessions travel only under TLS. serve runs
+// it before binding; the default document and the commands that do not
+// listen are not held to it (write-up 36, P3).
+func (c Config) CheckPublicTLS() error {
+	if c.Public.TLS.CertFile == "" && !isLoopbackListen(c.Public.Listen) {
+		return fmt.Errorf("config: public.listen %q is not a loopback address and public.tls is empty; tenants would be served in clear", c.Public.Listen)
+	}
+	return nil
+}
+
 // isLoopbackListen reports whether a listen address binds the loopback
 // only ("127.0.0.1:8443", "[::1]:8443", "localhost:8443"). An empty host
 // (":8443") binds every interface.
