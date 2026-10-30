@@ -203,7 +203,12 @@ with several clusters is measured before it is offered (section 6).
 
 When a tenant is connected to a site whose ready network is on, the
 connection steps after the project (main design 4.4) gain, each
-idempotent by name and recorded like the others:
+idempotent and recorded like the others. Each step finds its object by
+the stored extId; a stored extId that is gone means the object was
+deleted, and the step creates it again, never adopting a same-named
+one. By name only when no extId was ever stored (a create that
+succeeded after its call failed), and only inside the tenant's project
+and VPC (write-up 36). The steps:
 
 1. **external-subnet**: `<project>-ext`, an overlay external subnet
    with NAT (`isExternal`, `isNatEnabled`) in the transit VPC, the
