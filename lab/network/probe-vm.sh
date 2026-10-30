@@ -28,8 +28,18 @@ vm_name="$project-vm"; subnet_name="$project-net"; fip_name="${FIP_NAME:-$projec
 key_file="${SSH_KEY_FILE:-$HOME/.ssh/id_rsa.pub}"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
-by_name() { lab/pc.sh GET "$NET/$1" 2>/dev/null | jq -r --arg n "$2" '.data[]? | select(.name == $n) | .extId'; }
-fip_value() { lab/pc.sh GET "$NET/floating-ips/$1" 2>/dev/null | jq -r '.data.floatingIp.ipv4.value // .data.floatingIpValue // empty'; }
+# by_name KIND NAME: the extId, read again a few times, since a busy Prism
+# Central can time out a list and an empty answer then means nothing.
+by_name() {
+  local id="" _
+  for _ in 1 2 3 4 5; do
+    id=$(lab/pc.sh GET "$NET/$1?\$limit=100" 2>/dev/null | jq -r --arg n "$2" '.data[]? | select(.name == $n) | .extId' 2>/dev/null)
+    [ -z "$id" ] || break
+    sleep 5
+  done
+  printf '%s\n' "$id"
+}
+fip_value() { lab/pc.sh GET "$NET/floating-ips/$1" 2>/dev/null | jq -r '.data.floatingIp.ipv4.value // .data.floatingIpValue // empty' 2>/dev/null; }
 
 # set_fip FIP_EXTID [NIC_EXTID]: associate with the NIC, or disassociate
 set_fip() {
