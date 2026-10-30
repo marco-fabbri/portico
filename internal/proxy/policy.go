@@ -66,6 +66,13 @@ func (p PrismPolicy) Deny(r *http.Request) (rule string, denied bool) {
 	if _, present := r.Header["X-Ntnx-Api-Key"]; present {
 		return "deny-api-key", true
 	}
+	// The rules match the decoded path and the proxy forwards the raw
+	// one: a raw path that decodes to a separator, a dot, a percent or a
+	// control byte is refused rather than trusted to Prism Central's
+	// parser (write-up 36, P1).
+	if rawPathSuspect(r) {
+		return "deny-encoded-path", true
+	}
 	np := NormalizePath(r.URL.Path)
 	switch {
 	case reLocalLogin.MatchString(np):
@@ -76,6 +83,25 @@ func (p PrismPolicy) Deny(r *http.Request) (rule string, denied bool) {
 		return "deny-user-listing", true
 	}
 	return "", false
+}
+
+// rawPathSuspect reports whether the request's raw path encodes a slash,
+// a backslash, a NUL, a dot or a percent, or carries a control byte or a
+// space: the decoded path the rules see would then differ from the one
+// the upstream parses.
+func rawPathSuspect(r *http.Request) bool {
+	raw := strings.ToLower(r.URL.EscapedPath())
+	for _, seq := range []string{"%2f", "%5c", "%2e", "%25"} {
+		if strings.Contains(raw, seq) {
+			return true
+		}
+	}
+	for i := 0; i < len(r.URL.Path); i++ {
+		if r.URL.Path[i] <= 0x20 || r.URL.Path[i] == 0x7f {
+			return true
+		}
+	}
+	return false
 }
 
 // Allowed reports whether the path is inside the allow-list. An entry ending
