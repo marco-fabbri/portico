@@ -41,7 +41,7 @@ Central finds tenants built from the same pieces.
    the floating IPs. Each step is recorded
    and retried like the existing connection steps.
 3. **One address plan.** The MSP sets one tenant address pool (for
-   example `10.100.0.0/16`); each tenant gets a `/24` from it by its
+   example `10.128.0.0/16`); each tenant gets a `/24` from it by its
    tenant number, the same on every site, so a VM keeps its addressing
    when it moves between sites. A tenant may have an exception when the
    default collides with the customer's own network.
@@ -166,7 +166,9 @@ with several clusters is measured before it is offered (section 6).
 ### 4.2 Address plan
 
 - **MSP setting** (Settings, "Tenant networks"): the tenant address pool,
-  a private IPv4 prefix between `/8` and `/20`, default `10.100.0.0/16`.
+  a private IPv4 prefix between `/8` and `/20`, default `10.128.0.0/16`,
+  clear of the subnets Prism Central's microservices reserve
+  (`192.168.5.0/24`, `10.100.0.0/16`, `10.200.32.0/24`; ADR 0009).
   It can be changed only while no built network uses one of its `/24`s;
   a change moves the tenants' unused pool `/24`s into the new pool
   (Marco, 2026-10-30, ADR 0008: fixing it at the first assigned subnet
