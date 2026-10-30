@@ -203,8 +203,8 @@ func ipConfig(p netip.Prefix, gw, first, last netip.Addr) []map[string]any {
 }
 
 // createWithTask posts body, waits for its task, then returns the stored
-// entity of that name through find.
-func createWithTask[T any](ctx context.Context, c *Client, path, name string, body any, find func(context.Context) ([]T, error), nameOf func(T) string) (*T, error) {
+// entity through pick, which reads the list back.
+func createWithTask[T any](ctx context.Context, c *Client, path, name string, body any, find func(context.Context) ([]T, error), pick func([]T) *T) (*T, error) {
 	var task taskRef
 	if _, err := c.do(ctx, http.MethodPost, path, "", body, "", &task); err != nil {
 		return nil, err
@@ -216,17 +216,42 @@ func createWithTask[T any](ctx context.Context, c *Client, path, name string, bo
 	if err != nil {
 		return nil, err
 	}
-	for i := range all {
-		if nameOf(all[i]) == name {
-			return &all[i], nil
-		}
+	if got := pick(all); got != nil {
+		return got, nil
 	}
 	return nil, notFound(name)
 }
 
-func subnetName(s Subnet) string  { return s.Name }
-func vpcName(v VPC) string        { return v.Name }
-func fipName(f FloatingIP) string { return f.Name }
+// inProject picks, among the objects of that name for which also holds,
+// the one in the project, else one without a project (Prism Central
+// drops it on some creates, write-up 34), never another project's
+// (write-up 36 review).
+func inProject[T any](name, project string, nameOf, projectOf func(T) string, also func(T) bool) func([]T) *T {
+	return func(all []T) *T {
+		var orphan *T
+		for i := range all {
+			if nameOf(all[i]) != name || (also != nil && !also(all[i])) {
+				continue
+			}
+			switch projectOf(all[i]) {
+			case project:
+				return &all[i]
+			case "":
+				if orphan == nil {
+					orphan = &all[i]
+				}
+			}
+		}
+		return orphan
+	}
+}
+
+func subnetName(s Subnet) string     { return s.Name }
+func subnetProject(s Subnet) string  { return s.ProjectExtID }
+func vpcName(v VPC) string           { return v.Name }
+func vpcProject(v VPC) string        { return v.ProjectExtID }
+func fipName(f FloatingIP) string    { return f.Name }
+func fipProject(f FloatingIP) string { return f.ProjectExtID }
 
 // CreateOverlayExternalSubnet creates a tenant's NAT overlay external
 // subnet in the transit VPC vpcExtID; it belongs to no project (design
@@ -234,14 +259,16 @@ func fipName(f FloatingIP) string { return f.Name }
 func (c *Client) CreateOverlayExternalSubnet(ctx context.Context, name, vpcExtID string, p netip.Prefix, gw, first, last netip.Addr) (*Subnet, error) {
 	body := map[string]any{"name": name, "subnetType": "OVERLAY", "vpcReference": vpcExtID, "isExternal": true, "isNatEnabled": true,
 		"ipConfig": ipConfig(p, gw, first, last)}
-	return createWithTask(ctx, c, PathNetworking+"/subnets", name, body, c.ListSubnets, subnetName)
+	return createWithTask(ctx, c, PathNetworking+"/subnets", name, body, c.ListSubnets,
+		inProject(name, "", subnetName, subnetProject, func(s Subnet) bool { return s.VPCExtID == vpcExtID }))
 }
 
 // CreateOverlaySubnet creates a tenant's internal subnet in its VPC.
 func (c *Client) CreateOverlaySubnet(ctx context.Context, name, projectExtID, vpcExtID string, p netip.Prefix, gw, first, last netip.Addr) (*Subnet, error) {
 	body := map[string]any{"name": name, "subnetType": "OVERLAY", "projectExtId": projectExtID, "vpcReference": vpcExtID,
 		"ipConfig": ipConfig(p, gw, first, last)}
-	return createWithTask(ctx, c, PathNetworking+"/subnets", name, body, c.ListSubnets, subnetName)
+	return createWithTask(ctx, c, PathNetworking+"/subnets", name, body, c.ListSubnets,
+		inProject(name, projectExtID, subnetName, subnetProject, func(s Subnet) bool { return s.VPCExtID == vpcExtID }))
 }
 
 // ShareSubnet shares a subnet with a project; Prism Central refuses a VPC
@@ -310,7 +337,7 @@ func (c *Client) CreateVPC(ctx context.Context, name, projectExtID, externalSubn
 	body := map[string]any{"name": name, "vpcType": "REGULAR", "projectExtId": projectExtID,
 		"externalSubnets":   []map[string]string{{"subnetReference": externalSubnetExtID}},
 		"commonDhcpOptions": map[string]any{"domainNameServers": servers}}
-	return createWithTask(ctx, c, PathNetworking+"/vpcs", name, body, c.ListVPCs, vpcName)
+	return createWithTask(ctx, c, PathNetworking+"/vpcs", name, body, c.ListVPCs, inProject(name, projectExtID, vpcName, vpcProject, nil))
 }
 
 // DeleteVPC deletes a VPC (its routes go with it) and waits for the task.
@@ -400,7 +427,7 @@ func (c *Client) GetFloatingIP(ctx context.Context, extID string) (*FloatingIP, 
 // an external subnet.
 func (c *Client) CreateFloatingIP(ctx context.Context, name, projectExtID, externalSubnetExtID string) (*FloatingIP, error) {
 	body := map[string]string{"name": name, "projectExtId": projectExtID, "externalSubnetReference": externalSubnetExtID}
-	return createWithTask(ctx, c, PathNetworking+"/floating-ips", name, body, c.ListFloatingIPs, fipName)
+	return createWithTask(ctx, c, PathNetworking+"/floating-ips", name, body, c.ListFloatingIPs, inProject(name, projectExtID, fipName, fipProject, nil))
 }
 
 // DeleteFloatingIP deletes a floating IP and waits for the task. Prism

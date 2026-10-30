@@ -389,3 +389,57 @@ func TestBuildNetworkFailsOnAFailedListNotAbsent(t *testing.T) {
 		}
 	}
 }
+
+// A subnet Prism Central created without its project, whose create call
+// never stored an extId (write-up 34: one create in three), is found by
+// name and repaired by Retry network (write-up 36 review, I3).
+func TestRetryNetworkRepairsAnOrphanWithoutExtID(t *testing.T) {
+	e := newNetEnv(t)
+	e.create(t, "acme")
+	e.svc.Wait()
+	pl := e.place(t, "acme")
+	old := pl.SubnetExtID
+	for i := range e.pc.Subnets {
+		if e.pc.Subnets[i].ExtID == old {
+			e.pc.Subnets[i].ProjectExtID = ""
+		}
+	}
+	pl.SubnetExtID, pl.NetState = "", store.NetFailed
+	if err := e.st.UpdatePlacement(context.Background(), pl); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.RetryNetwork(context.Background(), "acme", pl.SiteID); err != nil {
+		t.Fatalf("RetryNetwork: %v", err)
+	}
+	e.svc.Wait()
+	pl = e.place(t, "acme")
+	if pl.NetState != store.NetReady || pl.SubnetExtID == old || pl.SubnetExtID == "" || e.pc.HasSubnet(old) || e.pc.Creates["CreateOverlaySubnet"] != 2 {
+		t.Fatalf("placement = %+v, creates %d, old left %v", pl, e.pc.Creates["CreateOverlaySubnet"], e.pc.HasSubnet(old))
+	}
+}
+
+// A stored extId that points into another project is never deleted: the
+// network fails and says so.
+func TestRetryNetworkRefusesAStoredObjectOfAnotherProject(t *testing.T) {
+	e := newNetEnv(t)
+	e.create(t, "acme")
+	e.svc.Wait()
+	pl := e.place(t, "acme")
+	for i := range e.pc.VPCs {
+		if e.pc.VPCs[i].ExtID == pl.VPCExtID {
+			e.pc.VPCs[i].ProjectExtID = "other-project"
+		}
+	}
+	pl.NetState = store.NetFailed
+	if err := e.st.UpdatePlacement(context.Background(), pl); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.RetryNetwork(context.Background(), "acme", pl.SiteID); err != nil {
+		t.Fatalf("RetryNetwork: %v", err)
+	}
+	e.svc.Wait()
+	pl = e.place(t, "acme")
+	if pl.NetState != store.NetFailed || !strings.Contains(pl.NetError, "another project") || e.pc.CallCount("DeleteVPC") != 0 {
+		t.Fatalf("placement = %+v, deletes %d", pl, e.pc.CallCount("DeleteVPC"))
+	}
+}
