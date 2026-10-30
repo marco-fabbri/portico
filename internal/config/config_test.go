@@ -316,3 +316,30 @@ func TestValidateRefusesEqualPublicHosts(t *testing.T) {
 		t.Fatalf("equal hosts: %v", err)
 	}
 }
+
+// Tenants' sessions travel only under TLS: a public listener off the
+// loopback without a pair is refused (write-up 36, P3).
+func TestValidateRefusesCleartextPublicListenerOffLoopback(t *testing.T) {
+	cases := []struct {
+		listen  string
+		wantErr bool
+	}{
+		{":443", true},
+		{"0.0.0.0:443", true},
+		{"127.0.0.1:8081", false},
+	}
+	for _, c := range cases {
+		cfg, err := Load("testdata/minimal.yaml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Public.Listen, cfg.Public.TLS = c.listen, TLS{}
+		err = cfg.CheckPublicTLS()
+		if c.wantErr && (err == nil || !strings.Contains(err.Error(), "public.listen") || !strings.Contains(err.Error(), "public.tls is empty")) {
+			t.Errorf("%s: err = %v, want a refusal naming public.listen and public.tls", c.listen, err)
+		}
+		if !c.wantErr && err != nil {
+			t.Errorf("%s: err = %v", c.listen, err)
+		}
+	}
+}

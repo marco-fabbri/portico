@@ -2,8 +2,8 @@
 # Secrets are never written here: they are referenced by file path.
 
 public:
-  listen: ":443"                 # tunnel mode: "127.0.0.1:8081" with no tls block (8080 is Keycloak)
-  tls:                           # both empty = plain HTTP behind cloudflared
+  listen: ":443"                 # tunnel mode: "127.0.0.1:8081" with empty cert_file and key_file (keep the lines; 8080 is Keycloak)
+  tls:                           # both empty = plain HTTP behind cloudflared, on the loopback only
     cert_file: /etc/portico/tls/public.crt
     key_file: /etc/portico/tls/public.key
   portal_host: portal.msp.example # required: public name of the portal (every site behind it;
