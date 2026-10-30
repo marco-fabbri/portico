@@ -518,9 +518,11 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string) 
 			if err != nil {
 				return "", err
 			}
+			// Only the membership in this project: the group may be foreign
+			// and hold roles elsewhere (write-up 36, P5).
 			n := 0
 			for _, rm := range rms {
-				if rm.IdentityExtID != p.SAMLGroupExtID {
+				if rm.IdentityExtID != p.SAMLGroupExtID || rm.ProjectExtID != p.ProjectExtID {
 					continue
 				}
 				if _, err := tolerate("role membership "+rm.ExtID, pc.DeleteRoleMembership(ctx, rm.ExtID)); err != nil {
