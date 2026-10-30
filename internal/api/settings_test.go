@@ -67,7 +67,7 @@ func fakePC(key string, seen *[]string) http.Handler {
 		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/config/clusters"):
-			w.Write([]byte(`{"data":[{"extId":"cl-1","name":"NTNX-01","config":{"clusterFunction":["AOS"]}}]}`))
+			w.Write([]byte(`{"data":[{"extId":"cl-1","name":"cluster-1","config":{"clusterFunction":["AOS"]}}]}`))
 		case strings.HasSuffix(r.URL.Path, "/config/storage-containers"):
 			w.Write([]byte(`{"data":[{"containerExtId":"sc-1","name":"default"}]}`))
 		default:

@@ -8,8 +8,8 @@ import (
 
 func TestPickDefaultsSingleAOSCluster(t *testing.T) {
 	cls := []nutanix.Cluster{
-		{ExtID: "pc", Name: "NTNX-PC-01", IsPrismCentral: true},
-		{ExtID: "cl-1", Name: "NTNX-01", IsAOS: true},
+		{ExtID: "pc", Name: "cluster-pc", IsPrismCentral: true},
+		{ExtID: "cl-1", Name: "cluster-1", IsAOS: true},
 	}
 	cl, _ := PickDefaults(cls, nil)
 	if cl != "cl-1" {
@@ -19,8 +19,8 @@ func TestPickDefaultsSingleAOSCluster(t *testing.T) {
 
 func TestPickDefaultsSeveralClustersFirstByName(t *testing.T) {
 	cls := []nutanix.Cluster{
-		{ExtID: "cl-2", Name: "NTNX-02", IsAOS: true},
-		{ExtID: "cl-1", Name: "NTNX-01", IsAOS: true},
+		{ExtID: "cl-2", Name: "cluster-2", IsAOS: true},
+		{ExtID: "cl-1", Name: "cluster-1", IsAOS: true},
 	}
 	cl, _ := PickDefaults(cls, nil)
 	if cl != "cl-1" {
@@ -29,7 +29,7 @@ func TestPickDefaultsSeveralClustersFirstByName(t *testing.T) {
 }
 
 func TestPickDefaultsPrefersDefaultContainer(t *testing.T) {
-	cls := []nutanix.Cluster{{ExtID: "cl-1", Name: "NTNX-01", IsAOS: true}}
+	cls := []nutanix.Cluster{{ExtID: "cl-1", Name: "cluster-1", IsAOS: true}}
 	scs := []nutanix.StorageContainer{
 		{ExtID: "big", Name: "big", ClusterExtID: "cl-1", FreeBytes: 9000},
 		{ExtID: "def", Name: "default-container-123", ClusterExtID: "cl-1", FreeBytes: 10},
@@ -41,7 +41,7 @@ func TestPickDefaultsPrefersDefaultContainer(t *testing.T) {
 }
 
 func TestPickDefaultsSkipsObjectsAndInternal(t *testing.T) {
-	cls := []nutanix.Cluster{{ExtID: "cl-1", Name: "NTNX-01", IsAOS: true}}
+	cls := []nutanix.Cluster{{ExtID: "cl-1", Name: "cluster-1", IsAOS: true}}
 	scs := []nutanix.StorageContainer{
 		{ExtID: "obj", Name: "objectsl889411dccd9a44125aa3e31c2596dcf9", ClusterExtID: "cl-1", IsObjects: true, FreeBytes: 9000},
 		{ExtID: "int", Name: "NutanixMetadataContainer", ClusterExtID: "cl-1", IsInternal: true, IsSystem: true, FreeBytes: 8000},
@@ -53,7 +53,7 @@ func TestPickDefaultsSkipsObjectsAndInternal(t *testing.T) {
 }
 
 func TestPickDefaultsMostFreeThenName(t *testing.T) {
-	cls := []nutanix.Cluster{{ExtID: "cl-1", Name: "NTNX-01", IsAOS: true}}
+	cls := []nutanix.Cluster{{ExtID: "cl-1", Name: "cluster-1", IsAOS: true}}
 	scs := []nutanix.StorageContainer{
 		{ExtID: "b", Name: "bravo", ClusterExtID: "cl-1", FreeBytes: 50},
 		{ExtID: "c", Name: "charlie", ClusterExtID: "cl-1", FreeBytes: 70},
@@ -66,8 +66,8 @@ func TestPickDefaultsMostFreeThenName(t *testing.T) {
 
 func TestPickDefaultsOnlyOnThatCluster(t *testing.T) {
 	cls := []nutanix.Cluster{
-		{ExtID: "cl-1", Name: "NTNX-01", IsAOS: true},
-		{ExtID: "cl-2", Name: "NTNX-02", IsAOS: true},
+		{ExtID: "cl-1", Name: "cluster-1", IsAOS: true},
+		{ExtID: "cl-2", Name: "cluster-2", IsAOS: true},
 	}
 	scs := []nutanix.StorageContainer{{ExtID: "other", Name: "default-container-9", ClusterExtID: "cl-2"}}
 	cl, sc := PickDefaults(cls, scs)
@@ -77,7 +77,7 @@ func TestPickDefaultsOnlyOnThatCluster(t *testing.T) {
 }
 
 func TestPickDefaultsNothingEligible(t *testing.T) {
-	cls := []nutanix.Cluster{{ExtID: "pc", Name: "NTNX-PC-01", IsPrismCentral: true}}
+	cls := []nutanix.Cluster{{ExtID: "pc", Name: "cluster-pc", IsPrismCentral: true}}
 	cl, sc := PickDefaults(cls, nil)
 	if cl != "" || sc != "" {
 		t.Fatalf("picked %q %q", cl, sc)

@@ -34,7 +34,7 @@ const TrustInterval = 5 * time.Minute
 
 // IncompleteError is a probe or trust check finding the site's setup
 // broken. Immediate (a trust or client missing) counts at once; a refused
-// key counts after FailuresToUnreachable in a row (write-up 25: NTNX-01's
+// key counts after FailuresToUnreachable in a row (write-up 25: a Prism Central's
 // IAM answered isolated 401s).
 type IncompleteError struct {
 	Reason    string

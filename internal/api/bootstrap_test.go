@@ -208,7 +208,7 @@ func (f *fakePCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
 		w.Write([]byte(`<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://prism.example.test/api/iam/authn"><md:SPSSODescriptor><md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://prism.example.test/api/iam/authn/callback" index="1"/></md:SPSSODescriptor></md:EntityDescriptor>`))
 	case strings.HasSuffix(p, "/config/clusters"):
-		reply(200, []map[string]any{{"extId": "cl-1", "name": "NTNX-01", "config": map[string]any{"clusterFunction": []string{"AOS"}}}})
+		reply(200, []map[string]any{{"extId": "cl-1", "name": "cluster-1", "config": map[string]any{"clusterFunction": []string{"AOS"}}}})
 	case strings.HasSuffix(p, "/config/storage-containers"):
 		reply(200, []map[string]any{{"containerExtId": "sc-1", "name": "default"}})
 	case strings.HasSuffix(p, "/authn/users") && r.Method == "GET":

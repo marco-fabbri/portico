@@ -174,10 +174,10 @@ func TestTargetsFragment(t *testing.T) {
 	e := newEnv(t, true)
 	withTwoSites(t, e)
 	e.login(t)
-	e.pc.Clusters = []nutanix.Cluster{{ExtID: "cl-a", Name: "NTNX-01", IsAOS: true}}
+	e.pc.Clusters = []nutanix.Cluster{{ExtID: "cl-a", Name: "cluster-1", IsAOS: true}}
 	e.pc.Containers = []nutanix.StorageContainer{{ExtID: "sc-a", Name: "default-container", ClusterExtID: "cl-a"}}
 	body := e.do("GET", "/targets?site=site-a&form=connect", nil, true).Body.String()
-	if strings.Contains(body, "<html") || !strings.Contains(body, `name="cluster_ext_id"`) || !strings.Contains(body, `name="storage_container_ext_id"`) || !strings.Contains(body, "(site default)") || !strings.Contains(body, "NTNX-01") {
+	if strings.Contains(body, "<html") || !strings.Contains(body, `name="cluster_ext_id"`) || !strings.Contains(body, `name="storage_container_ext_id"`) || !strings.Contains(body, "(site default)") || !strings.Contains(body, "cluster-1") {
 		t.Fatalf("connect fragment:\n%s", body)
 	}
 	body = e.do("GET", "/targets?site=site-a&form=create", nil, true).Body.String()

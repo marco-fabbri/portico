@@ -12,16 +12,16 @@ import (
 func TestPassthroughForwardsBasicAuthUnchanged(t *testing.T) {
 	up, got := recordingUpstream(t, false, nil)
 	u, _ := url.Parse(up.URL)
-	prism := NewUpstream(UpstreamOptions{Target: u, HostHeader: "10.23.210.190:9440", Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	prism := NewUpstream(UpstreamOptions{Target: u, HostHeader: "10.0.210.20:9440", Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	h := NewPassthrough(prism, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	r := httptest.NewRequest("GET", "https://10.23.210.190:9440/PrismGateway/services/rest/v1/cluster", nil)
+	r := httptest.NewRequest("GET", "https://10.0.210.20:9440/PrismGateway/services/rest/v1/cluster", nil)
 	r.Header.Set("Authorization", "Basic YWRtaW46cHc=")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, r)
 	if rec.Code != 200 || len(*got) != 1 {
 		t.Fatalf("got %d upstream %d", rec.Code, len(*got))
 	}
-	if (*got)[0].Header.Get("Authorization") != "Basic YWRtaW46cHc=" || (*got)[0].Host != "10.23.210.190:9440" {
+	if (*got)[0].Header.Get("Authorization") != "Basic YWRtaW46cHc=" || (*got)[0].Host != "10.0.210.20:9440" {
 		t.Errorf("upstream saw %+v", (*got)[0])
 	}
 }

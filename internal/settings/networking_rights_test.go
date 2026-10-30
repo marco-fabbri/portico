@@ -83,7 +83,7 @@ func TestSetupResyncsRoleOperations(t *testing.T) {
 	}
 }
 
-// Prism Central refused the update of the lab role (write-up 34): the
+// Prism Central refused the update of a role made by hand (write-up 34): the
 // networking role, named by Portico's policy only, is made again.
 func TestSetupReplacesRefusedNetworkingRole(t *testing.T) {
 	f := setupEnv(t)

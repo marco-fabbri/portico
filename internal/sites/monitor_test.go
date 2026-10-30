@@ -114,7 +114,7 @@ func TestRunProbesAtOnceAndStops(t *testing.T) {
 
 // One slow answer from a Prism Central must not lock its tenants out
 // (write-up 21: the clusters call took 9 to 30 s for three minutes on
-// NTNX-01, then 0.6 s again): only FailuresToUnreachable failed probes in a
+// cluster-1, then 0.6 s again): only FailuresToUnreachable failed probes in a
 // row make a site unreachable, and one answer makes it available again.
 func TestUnreachableOnlyAfterConsecutiveFailures(t *testing.T) {
 	var down atomic.Bool

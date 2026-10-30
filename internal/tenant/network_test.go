@@ -15,12 +15,12 @@ import (
 var netSteps = []string{"net-external-subnet", "net-share", "net-vpc", "net-default-route", "net-subnet", "net-floating-ips", "net-read-back"}
 
 // newNetEnv is newEnv with the site's ready network on: a routed transit
-// VPC whose externally routable prefix is 10.23.211.0/24, as on NTNX-01.
+// VPC whose externally routable prefix is 198.51.100.0/24, as on cluster-1.
 func newNetEnv(t *testing.T) *env {
 	t.Helper()
 	e := newEnv(t)
 	e.pc.VPCs = append(e.pc.VPCs, nutanix.VPC{ExtID: "vpc-transit", Name: "portico-transit", Type: "TRANSIT",
-		RoutablePrefixes: []netip.Prefix{netip.MustParsePrefix("10.23.211.0/24")}})
+		RoutablePrefixes: []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")}})
 	sites := e.svc.Sites()
 	sites[0].Network = SiteNetwork{Enabled: true, TransitVPCExtID: "vpc-transit", DNS: []netip.Addr{netip.MustParseAddr("1.1.1.1")}}
 	e.svc.SetSites(sites)
@@ -57,12 +57,12 @@ func TestConnectBuildsNetwork(t *testing.T) {
 		}
 	}
 	pl, tn := e.place(t, "acme"), e.get(t, "acme")
-	if pl.Status != store.PlacementActive || pl.NetState != store.NetReady || pl.NetError != "" || pl.TransitPrefix != "10.23.211.0/28" || tn.Subnet != "10.128.0.0/24" {
+	if pl.Status != store.PlacementActive || pl.NetState != store.NetReady || pl.NetError != "" || pl.TransitPrefix != "198.51.100.0/28" || tn.Subnet != "10.128.0.0/24" {
 		t.Fatalf("placement = %+v, tenant subnet %q", pl, tn.Subnet)
 	}
 	ext, net := e.pc.SubnetNamed("portico-acme-ext"), e.pc.SubnetNamed("portico-acme-net")
 	vpc := e.pc.VPCNamed("portico-acme-vpc")
-	if ext == nil || !ext.External || ext.VPCExtID != "vpc-transit" || ext.Prefix != netip.MustParsePrefix("10.23.211.0/28") || !slices.Contains(ext.SharedWith, pl.ProjectExtID) {
+	if ext == nil || !ext.External || ext.VPCExtID != "vpc-transit" || ext.Prefix != netip.MustParsePrefix("198.51.100.0/28") || !slices.Contains(ext.SharedWith, pl.ProjectExtID) {
 		t.Fatalf("external subnet = %+v", ext)
 	}
 	if vpc == nil || vpc.ProjectExtID != pl.ProjectExtID || vpc.External[0].SubnetExtID != ext.ExtID {
@@ -112,7 +112,7 @@ func TestTwoTenantsTwoSlices(t *testing.T) {
 	e.svc.Wait()
 	e.create(t, "beta")
 	e.svc.Wait()
-	if a, b := e.place(t, "acme"), e.place(t, "beta"); a.TransitPrefix != "10.23.211.0/28" || b.TransitPrefix != "10.23.211.16/28" || b.NetState != store.NetReady {
+	if a, b := e.place(t, "acme"), e.place(t, "beta"); a.TransitPrefix != "198.51.100.0/28" || b.TransitPrefix != "198.51.100.16/28" || b.NetState != store.NetReady {
 		t.Fatalf("slices = %q %q, beta %+v", a.TransitPrefix, b.TransitPrefix, b)
 	}
 }
@@ -124,7 +124,7 @@ func TestFailedHalfwayKeepsSlice(t *testing.T) {
 	e.svc.Wait()
 	e.create(t, "beta")
 	e.svc.Wait()
-	if a, b := e.place(t, "acme"), e.place(t, "beta"); a.TransitPrefix != "10.23.211.0/28" || b.TransitPrefix != "10.23.211.16/28" {
+	if a, b := e.place(t, "acme"), e.place(t, "beta"); a.TransitPrefix != "198.51.100.0/28" || b.TransitPrefix != "198.51.100.16/28" {
 		t.Fatalf("slices = %q %q", a.TransitPrefix, b.TransitPrefix)
 	}
 }
@@ -229,10 +229,10 @@ func TestBuildIsIdempotent(t *testing.T) {
 func TestSliceSkipsTransitSubnets(t *testing.T) {
 	e := newNetEnv(t)
 	e.pc.Subnets = append(e.pc.Subnets, nutanix.Subnet{ExtID: "sub-msp", Name: "msp-probe", VPCExtID: "vpc-transit", External: true,
-		Prefix: netip.MustParsePrefix("10.23.211.0/28")})
+		Prefix: netip.MustParsePrefix("198.51.100.0/28")})
 	e.create(t, "acme")
 	e.svc.Wait()
-	if pl := e.place(t, "acme"); pl.TransitPrefix != "10.23.211.16/28" || pl.NetState != store.NetReady {
+	if pl := e.place(t, "acme"); pl.TransitPrefix != "198.51.100.16/28" || pl.NetState != store.NetReady {
 		t.Fatalf("placement = %+v", pl)
 	}
 }
@@ -244,28 +244,28 @@ func TestStoredSliceRepickedOnOverlap(t *testing.T) {
 	e.pc.FailOnce["CreateOverlayExternalSubnet"] = errors.New("refused")
 	e.create(t, "acme")
 	e.svc.Wait()
-	if pl := e.place(t, "acme"); pl.TransitPrefix != "10.23.211.0/28" || pl.NetState != store.NetFailed {
+	if pl := e.place(t, "acme"); pl.TransitPrefix != "198.51.100.0/28" || pl.NetState != store.NetFailed {
 		t.Fatalf("placement = %+v", pl)
 	}
 	e.pc.Subnets = append(e.pc.Subnets, nutanix.Subnet{ExtID: "sub-msp", Name: "msp-probe", VPCExtID: "vpc-transit", External: true,
-		Prefix: netip.MustParsePrefix("10.23.211.0/28")})
+		Prefix: netip.MustParsePrefix("198.51.100.0/28")})
 	if err := e.svc.RetryNetwork(context.Background(), "acme", "site-a"); err != nil {
 		t.Fatal(err)
 	}
 	e.svc.Wait()
-	if pl := e.place(t, "acme"); pl.TransitPrefix != "10.23.211.16/28" || pl.NetState != store.NetReady {
+	if pl := e.place(t, "acme"); pl.TransitPrefix != "198.51.100.16/28" || pl.NetState != store.NetReady {
 		t.Fatalf("placement = %+v", pl)
 	}
 }
 
 // withTransitExternal gives the transit VPC its VLAN external subnet,
-// 10.23.210.0/24 on the cluster cl.
+// 10.0.210.0/24 on the cluster cl.
 func withTransitExternal(e *env, cl string) {
 	e.pc.Subnets = append(e.pc.Subnets, nutanix.Subnet{ExtID: "ext-routed", Name: "external-routed", Type: "VLAN", External: true,
-		Prefix: netip.MustParsePrefix("10.23.210.0/24"), ClusterExtID: cl})
+		Prefix: netip.MustParsePrefix("10.0.210.0/24"), ClusterExtID: cl})
 	for i := range e.pc.VPCs {
 		if e.pc.VPCs[i].ExtID == "vpc-transit" {
-			e.pc.VPCs[i].External = []nutanix.VPCExternal{{SubnetExtID: "ext-routed", IPs: []netip.Addr{netip.MustParseAddr("10.23.210.200")}}}
+			e.pc.VPCs[i].External = []nutanix.VPCExternal{{SubnetExtID: "ext-routed", IPs: []netip.Addr{netip.MustParseAddr("10.0.210.30")}}}
 		}
 	}
 }
@@ -275,12 +275,12 @@ func withTransitExternal(e *env, cl string) {
 func TestExceptionOverlapsSiteNetwork(t *testing.T) {
 	e := newNetEnv(t)
 	withTransitExternal(e, "cl-1")
-	if _, err := e.svc.Create(context.Background(), CreateRequest{Slug: "acme", DisplayName: "ACME", Subnet: "10.23.210.0/24",
+	if _, err := e.svc.Create(context.Background(), CreateRequest{Slug: "acme", DisplayName: "ACME", Subnet: "10.0.210.0/24",
 		Sites: []PlacementRequest{{Site: "site-a"}}}); err != nil {
 		t.Fatal(err)
 	}
 	e.svc.Wait()
-	if pl := e.place(t, "acme"); pl.NetState != store.NetFailed || !strings.Contains(pl.NetError, "overlaps 10.23.210.0/24") || e.pc.Creates["CreateOverlayExternalSubnet"] != 0 {
+	if pl := e.place(t, "acme"); pl.NetState != store.NetFailed || !strings.Contains(pl.NetError, "overlaps 10.0.210.0/24") || e.pc.Creates["CreateOverlayExternalSubnet"] != 0 {
 		t.Fatalf("placement = %+v", pl)
 	}
 }

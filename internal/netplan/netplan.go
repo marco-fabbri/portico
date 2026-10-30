@@ -64,7 +64,7 @@ func TenantRange(p netip.Prefix) (gw, first, last netip.Addr) {
 
 // TransitRange is a tenant's slice of the routed prefix: the gateway is the
 // first address after the network one, the pool runs from the next one to
-// the address before broadcast (measured on 10.23.211.16/28).
+// the address before broadcast (measured on 198.51.100.16/28).
 func TransitRange(p netip.Prefix) (gw, first, last netip.Addr) {
 	base := toU32(p.Masked().Addr())
 	size := uint32(1) << (32 - p.Bits())

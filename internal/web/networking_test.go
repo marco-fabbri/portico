@@ -25,15 +25,15 @@ func (f *netReader) Controllers(context.Context) ([]nutanix.Controller, error) {
 	return []nutanix.Controller{{Status: "UP"}}, nil
 }
 func (f *netReader) PrismGateway(context.Context) (netip.Addr, netip.Prefix, error) {
-	return f.gateway, netip.MustParsePrefix("10.23.210.175/24"), nil
+	return f.gateway, netip.MustParsePrefix("10.0.210.10/24"), nil
 }
 func (f *netReader) ListClusters(context.Context) ([]nutanix.Cluster, error) {
-	return []nutanix.Cluster{{ExtID: "cl-1", Name: "NTNX-01", Addresses: []netip.Addr{netip.MustParseAddr("10.23.210.173")}}}, nil
+	return []nutanix.Cluster{{ExtID: "cl-1", Name: "cluster-1", Addresses: []netip.Addr{netip.MustParseAddr("10.0.210.11")}}}, nil
 }
 func (f *netReader) ListVPCs(context.Context) ([]nutanix.VPC, error) {
 	return []nutanix.VPC{{ExtID: "vpc-transit", Name: "portico-transit", Type: "TRANSIT",
-		External:         []nutanix.VPCExternal{{SubnetExtID: "ext-routed", IPs: []netip.Addr{netip.MustParseAddr("10.23.210.200")}}},
-		RoutablePrefixes: []netip.Prefix{netip.MustParsePrefix("10.23.211.0/24")}}}, nil
+		External:         []nutanix.VPCExternal{{SubnetExtID: "ext-routed", IPs: []netip.Addr{netip.MustParseAddr("10.0.210.30")}}},
+		RoutablePrefixes: []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")}}}, nil
 }
 func (f *netReader) GetSubnet(_ context.Context, id string) (*nutanix.Subnet, error) {
 	return &nutanix.Subnet{ExtID: id, Name: "external-routed", Type: "VLAN", External: true}, nil
@@ -72,11 +72,11 @@ func storedNetwork(t *testing.T, svc *settings.Service) settings.SiteNetwork {
 
 func TestNetworkingCardChecks(t *testing.T) {
 	e := newEnv(t, true)
-	withNetworking(t, e, &netReader{gateway: netip.MustParseAddr("10.23.210.173")})
+	withNetworking(t, e, &netReader{gateway: netip.MustParseAddr("10.0.210.11")})
 	e.login(t)
 	rec := e.hx("GET", "/setup/sites/site-a/networking", nil)
 	body := rec.Body.String()
-	if rec.Code != 200 || !strings.Contains(body, "an address of the cluster NTNX-01") || !strings.Contains(body, "portico-transit") || !strings.Contains(body, "10.23.211.0/24") {
+	if rec.Code != 200 || !strings.Contains(body, "an address of the cluster cluster-1") || !strings.Contains(body, "portico-transit") || !strings.Contains(body, "198.51.100.0/24") {
 		t.Fatalf("card: %d\n%s", rec.Code, body)
 	}
 	if page := e.do("GET", "/setup/sites/site-a", nil, true).Body.String(); !strings.Contains(page, `hx-get="/setup/sites/site-a/networking"`) {
@@ -86,7 +86,7 @@ func TestNetworkingCardChecks(t *testing.T) {
 
 func TestNetworkingSwitchRefusedWhenNotReady(t *testing.T) {
 	e := newEnv(t, true)
-	svc := withNetworking(t, e, &netReader{gateway: netip.MustParseAddr("10.23.210.173")})
+	svc := withNetworking(t, e, &netReader{gateway: netip.MustParseAddr("10.0.210.11")})
 	e.login(t)
 	rec := e.do("POST", "/setup/sites/site-a/networking", e.form("transit_vpc_ext_id", "vpc-transit", "dns", "1.1.1.1", "integrated", "on", "enabled", "on"), true)
 	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "stays off") || !strings.Contains(rec.Body.String(), "gateway") {
@@ -99,7 +99,7 @@ func TestNetworkingSwitchRefusedWhenNotReady(t *testing.T) {
 
 func TestNetworkingSaveTransit(t *testing.T) {
 	e := newEnv(t, true)
-	svc := withNetworking(t, e, &netReader{gateway: netip.MustParseAddr("10.23.210.254")})
+	svc := withNetworking(t, e, &netReader{gateway: netip.MustParseAddr("10.0.210.1")})
 	e.login(t)
 	rec := e.do("POST", "/setup/sites/site-a/networking", e.form("transit_vpc_ext_id", "vpc-transit", "dns", "1.1.1.1, 8.8.8.8", "integrated", "on", "enabled", "on"), true)
 	if rec.Code != 200 {
@@ -121,8 +121,8 @@ func netPlacement(t *testing.T, e *env, state store.NetState, msg string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.NetState, p.NetError, p.TransitPrefix, p.SNATIP = state, msg, "10.23.211.16/28", "10.23.211.29"
-	p.FloatingIPs = []store.FloatingIP{{ExtID: "fip-1", IP: "10.23.211.18"}}
+	p.NetState, p.NetError, p.TransitPrefix, p.SNATIP = state, msg, "198.51.100.16/28", "198.51.100.29"
+	p.FloatingIPs = []store.FloatingIP{{ExtID: "fip-1", IP: "198.51.100.18"}}
 	if err := e.st.UpdatePlacement(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestTenantPageShowsNetwork(t *testing.T) {
 	e.createTenant(t, "acme")
 	netPlacement(t, e, store.NetReady, "")
 	body := e.do("GET", "/tenants/acme", nil, true).Body.String()
-	for _, want := range []string{"10.23.211.18", "10.23.211.29", "10.23.211.16/28", "10.128.0.0/24", `status-ready`} {
+	for _, want := range []string{"198.51.100.18", "198.51.100.29", "198.51.100.16/28", "10.128.0.0/24", `status-ready`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("the page lacks %q:\n%s", want, body)
 		}

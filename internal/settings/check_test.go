@@ -22,7 +22,7 @@ func fakePC(t *testing.T, key string) *httptest.Server {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/config/clusters"):
 			json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{
-				{"extId": "cl-1", "name": "NTNX-01", "config": map[string]any{"clusterFunction": []string{"AOS"}}},
+				{"extId": "cl-1", "name": "cluster-1", "config": map[string]any{"clusterFunction": []string{"AOS"}}},
 				{"extId": "pc-1", "name": "Unnamed", "config": map[string]any{"clusterFunction": []string{"PRISM_CENTRAL"}}},
 			}})
 		case strings.HasSuffix(r.URL.Path, "/config/storage-containers"):
@@ -43,7 +43,7 @@ func TestCheckPrismCentralListsClustersAndContainers(t *testing.T) {
 	s := sample()
 	s.Sites[0].URL, s.Sites[0].TLSVerify = srv.URL, false
 	res := NewChecker(nil).PrismCentral(context.Background(), s.Sites[0], "good-key")
-	if !res.OK || len(res.Clusters) != 1 || res.Clusters[0].ExtID != "cl-1" || res.Clusters[0].Name != "NTNX-01" {
+	if !res.OK || len(res.Clusters) != 1 || res.Clusters[0].ExtID != "cl-1" || res.Clusters[0].Name != "cluster-1" {
 		t.Fatalf("result = %+v", res)
 	}
 	if len(res.Containers) != 1 || res.Containers[0].ExtID != "sc-1" {

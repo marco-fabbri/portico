@@ -18,8 +18,8 @@ func TestPlacementNetworkRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.NetState, p.NetError = NetFailed, "create VPC: refused"
-	p.TransitPrefix, p.ExtSubnetExtID, p.VPCExtID, p.SubnetExtID, p.SNATIP = "10.23.211.16/28", "oen-1", "vpc-1", "s-1", "10.23.211.29"
-	p.FloatingIPs = []FloatingIP{{ExtID: "fip-1", IP: "10.23.211.18"}, {ExtID: "fip-2", IP: "10.23.211.19"}}
+	p.TransitPrefix, p.ExtSubnetExtID, p.VPCExtID, p.SubnetExtID, p.SNATIP = "198.51.100.16/28", "oen-1", "vpc-1", "s-1", "198.51.100.29"
+	p.FloatingIPs = []FloatingIP{{ExtID: "fip-1", IP: "198.51.100.18"}, {ExtID: "fip-2", IP: "198.51.100.19"}}
 	if err := s.UpdatePlacement(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -27,9 +27,9 @@ func TestPlacementNetworkRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.NetState != NetFailed || got.NetError != "create VPC: refused" || got.TransitPrefix != "10.23.211.16/28" ||
-		got.ExtSubnetExtID != "oen-1" || got.VPCExtID != "vpc-1" || got.SubnetExtID != "s-1" || got.SNATIP != "10.23.211.29" ||
-		len(got.FloatingIPs) != 2 || got.FloatingIPs[0] != (FloatingIP{ExtID: "fip-1", IP: "10.23.211.18"}) || got.FloatingIPs[1].ExtID != "fip-2" {
+	if got.NetState != NetFailed || got.NetError != "create VPC: refused" || got.TransitPrefix != "198.51.100.16/28" ||
+		got.ExtSubnetExtID != "oen-1" || got.VPCExtID != "vpc-1" || got.SubnetExtID != "s-1" || got.SNATIP != "198.51.100.29" ||
+		len(got.FloatingIPs) != 2 || got.FloatingIPs[0] != (FloatingIP{ExtID: "fip-1", IP: "198.51.100.18"}) || got.FloatingIPs[1].ExtID != "fip-2" {
 		t.Fatalf("placement = %+v", got)
 	}
 	fresh := samplePlacement("site-b")

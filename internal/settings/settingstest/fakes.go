@@ -208,7 +208,7 @@ type PC struct {
 
 // ProjectAdminOps are the operations of the double's Project Admin role.
 // It holds Create_Role_Membership, an operation a custom role cannot hold
-// (SYSTEM_DEFINED_ONLY, measured on NTNX-01 2026-10-30).
+// (SYSTEM_DEFINED_ONLY, measured on pc.7.6.0.6 2026-10-30).
 var ProjectAdminOps = []string{"op-View_Project", "op-View_Subnet", "op-Create_Floating_Ip", "op-Delete_Floating_Ip", "op-Update_Floating_Ip", "op-Create_Role_Membership"}
 
 // SystemOnlyOps are the operations of type SYSTEM_DEFINED_ONLY: Prism
@@ -396,7 +396,7 @@ func (f *PC) handle(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
 		fmt.Fprintf(w, `<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="%s"><md:SPSSODescriptor><md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://prism.example.test/api/iam/authn/callback" index="1"/></md:SPSSODescriptor></md:EntityDescriptor>`, entity)
 	case strings.HasSuffix(p, "/config/clusters"):
-		out := []map[string]any{{"extId": "cl-1", "name": "NTNX-01", "config": map[string]any{"clusterFunction": []string{"AOS"}}}}
+		out := []map[string]any{{"extId": "cl-1", "name": "cluster-1", "config": map[string]any{"clusterFunction": []string{"AOS"}}}}
 		if f.Version != "" {
 			out = append(out, map[string]any{"extId": "pc-1", "name": "pc", "config": map[string]any{"clusterFunction": []string{"PRISM_CENTRAL"}, "buildInfo": map[string]any{"version": f.Version}}})
 		}

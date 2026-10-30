@@ -202,8 +202,8 @@ func TestUpstreamUsesHTTP11(t *testing.T) {
 }
 
 func TestPrismTLSFor(t *testing.T) {
-	c, err := PrismTLSFor("10.23.210.175", SiteTrust{})
-	if err != nil || !c.InsecureSkipVerify || c.ServerName != "10.23.210.175" {
+	c, err := PrismTLSFor("10.0.210.10", SiteTrust{})
+	if err != nil || !c.InsecureSkipVerify || c.ServerName != "10.0.210.10" {
 		t.Errorf("verify=false: %+v %v", c, err)
 	}
 	up, _ := recordingUpstream(t, true, nil)
@@ -233,8 +233,8 @@ func TestUpstreamKeepsInboundHostWhenUnset(t *testing.T) {
 	u, _ := url.Parse(up.URL)
 	h := NewUpstream(UpstreamOptions{Target: u, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "https://10.23.210.190:9440/x", nil))
-	if r := (*got)[0]; r.Host != "10.23.210.190:9440" || r.Header.Get("X-Forwarded-Host") != "10.23.210.190:9440" {
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "https://10.0.210.20:9440/x", nil))
+	if r := (*got)[0]; r.Host != "10.0.210.20:9440" || r.Header.Get("X-Forwarded-Host") != "10.0.210.20:9440" {
 		t.Errorf("upstream saw host %q forwarded-host %q", r.Host, r.Header.Get("X-Forwarded-Host"))
 	}
 }

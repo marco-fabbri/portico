@@ -171,7 +171,7 @@ func fakePCVersion(t *testing.T, key, version string) *httptest.Server {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/config/clusters"):
 			json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{
-				{"extId": "cl-1", "name": "NTNX-01", "config": map[string]any{"clusterFunction": []string{"AOS"}, "buildInfo": map[string]any{"version": "7.6"}}},
+				{"extId": "cl-1", "name": "cluster-1", "config": map[string]any{"clusterFunction": []string{"AOS"}, "buildInfo": map[string]any{"version": "7.6"}}},
 				{"extId": "pc-1", "name": "PC", "config": map[string]any{"clusterFunction": []string{"PRISM_CENTRAL"}, "buildInfo": map[string]any{"version": version}}},
 			}})
 		case strings.HasSuffix(r.URL.Path, "/config/storage-containers"):

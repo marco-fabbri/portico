@@ -31,23 +31,23 @@ func TestNextFreeFull(t *testing.T) {
 }
 
 func TestNextFreeTransit(t *testing.T) {
-	got, err := NextFree(pfx("10.23.211.0/24"), TransitBits, []netip.Prefix{pfx("10.23.211.0/28")})
-	if err != nil || got != pfx("10.23.211.16/28") {
+	got, err := NextFree(pfx("198.51.100.0/24"), TransitBits, []netip.Prefix{pfx("198.51.100.0/28")})
+	if err != nil || got != pfx("198.51.100.16/28") {
 		t.Fatalf("NextFree = %v, %v", got, err)
 	}
 }
 
 func TestNextFreeUnalignedTaken(t *testing.T) {
 	// A larger taken prefix covers every slot inside it.
-	got, err := NextFree(pfx("10.23.211.0/24"), TransitBits, []netip.Prefix{pfx("10.23.211.0/27")})
-	if err != nil || got != pfx("10.23.211.32/28") {
+	got, err := NextFree(pfx("198.51.100.0/24"), TransitBits, []netip.Prefix{pfx("198.51.100.0/27")})
+	if err != nil || got != pfx("198.51.100.32/28") {
 		t.Fatalf("NextFree = %v, %v", got, err)
 	}
 }
 
 func TestTransitRange(t *testing.T) {
-	gw, first, last := TransitRange(pfx("10.23.211.16/28"))
-	if gw != addr("10.23.211.17") || first != addr("10.23.211.18") || last != addr("10.23.211.30") {
+	gw, first, last := TransitRange(pfx("198.51.100.16/28"))
+	if gw != addr("198.51.100.17") || first != addr("198.51.100.18") || last != addr("198.51.100.30") {
 		t.Fatalf("TransitRange = %v %v %v", gw, first, last)
 	}
 }
