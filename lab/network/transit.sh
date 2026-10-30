@@ -16,7 +16,7 @@
 # TRANSIT_IP the transit VPC's fixed address on it (the next hop of the
 # upstream router's route; Prism Central wants as many fixed addresses as
 # active gateways, so one gateway), ERP the routed prefix the overlay external
-# subnets are cut from (e.g. 10.23.211.0/24, one /28 per tenant); a
+# subnets are cut from (a block no real network uses, one /28 per tenant); a
 # tenant's floating IP is then reachable without publish.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1

@@ -110,6 +110,12 @@ transit objects?
   network step is idempotent, so Repair and Retry recover; the error
   says what Prism Central answered.
 
+- The routed prefix `10.23.211.0/24` (chosen on 2026-10-29) clashes with
+  the address plan, where the third octet is the VLAN ID: it would be
+  VLAN 211's. The network administrator assigns another block, routes it
+  to `10.23.210.200` and NATs it; the transit VPC is then made again with
+  it, and the Internet line of this acceptance is measured then.
+
 ## How to re-measure after an upgrade
 
 1. `GET /api/iam/v4.1.b3/authz/operations?$filter=operationType eq

@@ -151,10 +151,16 @@ missing:
    fixed address (static, or through a BGP gateway), and the outbound
    NAT of that prefix to the Internet.
 
-Example, as measured (write-up 34): `external-routed` on VLAN 210 with
-the pool `10.23.210.200`-`.219`, the transit VPC `portico-transit` at
-`10.23.210.200` with the routed prefix `10.23.211.0/24`, and on the
-router `10.23.211.0/24 via 10.23.210.200`.
+The routed prefix is not a VLAN: it exists only in the overlay, behind
+the transit VPC, so no switch or hypervisor carries it. Pick a block your
+address plan never uses for a real network, now or later; the router is
+the only place that knows it.
+
+Example: `external-routed` on VLAN 210 with the pool
+`10.23.210.200`-`.219`, the transit VPC `portico-transit` at
+`10.23.210.200` with the routed prefix `198.51.100.0/24` (a
+documentation block: use your own), and on the router
+`198.51.100.0/24 via 10.23.210.200`.
 
 ### Switching it on
 

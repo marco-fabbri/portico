@@ -63,9 +63,9 @@ A tenant:
    "cluster_ext_id": "…", "storage_container_ext_id": "…", "project_id": "portico-acme",
    "project_ext_id": "…", "resource_group_ext_id": "…", "saml_group_ext_id": "…",
    "role_membership_ext_id": "…", "idp_shared": true, "last_error": "",
-   "network": {"state": "ready", "error": "", "transit_prefix": "10.23.211.16/28",
-     "snat_ip": "10.23.211.29", "ext_subnet_ext_id": "…", "vpc_ext_id": "…", "subnet_ext_id": "…",
-     "floating_ips": [{"ext_id": "…", "ip": "10.23.211.18"}]}}]}
+   "network": {"state": "ready", "error": "", "transit_prefix": "198.51.100.16/28",
+     "snat_ip": "198.51.100.29", "ext_subnet_ext_id": "…", "vpc_ext_id": "…", "subnet_ext_id": "…",
+     "floating_ips": [{"ext_id": "…", "ip": "198.51.100.18"}]}}]}
 ```
 
 Tenant statuses: `creating`, `active`, `failed` (with `last_error`, naming
