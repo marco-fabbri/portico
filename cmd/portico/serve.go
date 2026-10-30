@@ -75,6 +75,11 @@ type listener struct {
 // the file does not carry a complete runtime configuration. Apply
 // returns ErrRestart in both modes.
 func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
+	// Before anything binds: a public listener off the loopback without
+	// its pair would serve the tenants in clear (write-up 36, P3).
+	if err := cfg.CheckPublicTLS(); err != nil {
+		return err
+	}
 	st, err := store.OpenSQLite(cfg.Store.Path)
 	if err != nil {
 		return err

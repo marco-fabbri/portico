@@ -499,3 +499,15 @@ func TestServeAppliesTheDefaultBrandingAtStart(t *testing.T) {
 		t.Fatal("runServe did not stop within 2s")
 	}
 }
+
+// A public listener off the loopback without a TLS pair never starts.
+func TestRunServeRefusesCleartextPublicListener(t *testing.T) {
+	prism := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("prism")) }))
+	defer prism.Close()
+	cfg := testServeConfig(t, prism.URL)
+	cfg.Public.Listen = "0.0.0.0:0"
+	err := runServe(context.Background(), cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil || !strings.Contains(err.Error(), "public.tls is empty") {
+		t.Fatalf("runServe = %v, want a refusal naming public.tls", err)
+	}
+}

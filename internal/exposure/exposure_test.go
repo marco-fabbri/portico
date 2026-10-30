@@ -640,3 +640,21 @@ func TestApplyDirectFromTunnelRemovesTheToken(t *testing.T) {
 		t.Fatal("tunnel token left on the appliance")
 	}
 }
+
+// setMode edits the public block only: a file whose public block has no
+// tls lines must not get the pair written into internal.tls (write-up
+// 36, P3).
+func TestSetModeEditsThePublicBlockOnly(t *testing.T) {
+	y := "public:\n  listen: \"127.0.0.1:8081\"\n  portal_host: prism.msp.example\ninternal:\n  admin_listen: \"0.0.0.0:8443\"\n  tls:\n    cert_file: /etc/portico/tls/internal.crt\n    key_file: /etc/portico/tls/internal.key\n"
+	text, err := setMode(y, false)
+	if err == nil || !strings.Contains(err.Error(), "public.tls.cert_file") {
+		t.Fatalf("err = %v", err)
+	}
+	if text != y {
+		t.Fatalf("the text changed:\n%s", text)
+	}
+	text, err = setMode(directYAML, true)
+	if err != nil || !strings.Contains(text, `listen: "127.0.0.1:8081"`) || !strings.Contains(text, `key_file: ""`) {
+		t.Fatalf("%v\n%s", err, text)
+	}
+}

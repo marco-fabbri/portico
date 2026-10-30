@@ -297,16 +297,32 @@ func tunnelMode(y string) bool {
 	return m != nil && strings.Contains(m[0], tunnelListen)
 }
 
+// publicBlockRe is the top-level "public:" block of the process YAML: from
+// its line to the next top-level key or the end.
+var publicBlockRe = regexp.MustCompile(`(?ms)^public:\n.*?(?:^\S|\z)`)
+
 // setMode rewrites the three public lines of the process YAML, comments
 // kept: tunnel mode listens on the loopback with no TLS files, direct
-// mode on :443 with the installed pair. Only the first occurrence of
-// each key is touched (the public block comes first in the file).
+// mode on :443 with the installed pair. Only the public block is edited:
+// a file whose public block lacks a key is refused rather than having
+// the internal block's line rewritten (write-up 36, P3).
 func setMode(y string, tunnel bool) (string, error) {
 	listen, cert, key := directListen, CertPath, KeyPath
 	if tunnel {
 		listen, cert, key = tunnelListen, `""`, `""`
 	}
-	text := y
+	loc := publicBlockRe.FindStringIndex(y)
+	if loc == nil {
+		return y, fmt.Errorf("public block not found in the process settings; edit the file by hand")
+	}
+	// The match ends on the next top-level key's first byte, which stays
+	// outside the edited segment.
+	end := loc[1]
+	if end > loc[0] && y[end-1] != '\n' {
+		end--
+	}
+	head, block, tail := y[:loc[0]], y[loc[0]:end], y[end:]
+	text := block
 	for _, r := range []struct {
 		re   *regexp.Regexp
 		repl string
@@ -317,5 +333,5 @@ func setMode(y string, tunnel bool) (string, error) {
 			return y, fmt.Errorf("%s not found in the process settings in the shape Portico edits (a quoted value); edit the file by hand", r.key)
 		}
 	}
-	return text, nil
+	return head + text + tail, nil
 }
