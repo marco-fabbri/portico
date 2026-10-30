@@ -102,3 +102,34 @@ func TestWatchSiteUnreachableChangesNothing(t *testing.T) {
 		t.Fatalf("an unreachable site changed the state: %+v", pl)
 	}
 }
+
+// A build cut off by a restart is failed at the next start, so Retry
+// network can run it again (review: it stayed building for good).
+func TestRecoverInterruptedNetwork(t *testing.T) {
+	e := readyNet(t)
+	pl := e.place(t, "acme")
+	pl.NetState = store.NetBuilding
+	if err := e.st.UpdatePlacement(context.Background(), pl); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.RecoverInterrupted(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if pl := e.place(t, "acme"); pl.NetState != store.NetFailed || !strings.Contains(pl.NetError, "interrupted by a restart") || pl.Status != store.PlacementActive {
+		t.Fatalf("placement = %+v", pl)
+	}
+}
+
+// A site that does not answer ends the pass on that site: the watch does
+// not hold each of its tenants in turn (review: Busy never cleared).
+func TestWatchStopsAtUnansweredSite(t *testing.T) {
+	e := readyNet(t)
+	e.create(t, "beta")
+	e.svc.Wait()
+	before := e.pc.CallCount("GetSubnet")
+	e.pc.FailOnce["GetSubnet"] = errors.New("dial tcp: i/o timeout")
+	e.svc.WatchNetworks(context.Background())
+	if n := e.pc.CallCount("GetSubnet") - before; n != 1 {
+		t.Fatalf("%d reads after the site stopped answering", n)
+	}
+}

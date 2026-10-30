@@ -715,12 +715,19 @@ func (s *Service) RecoverInterrupted(ctx context.Context) (int, error) {
 		}
 		for j := range ps {
 			p := &ps[j]
+			changed := false
 			switch p.Status {
 			case store.PlacementCreating:
-				p.Status, p.LastError = store.PlacementFailed, "provisioning interrupted by a restart; retry"
+				p.Status, p.LastError, changed = store.PlacementFailed, "provisioning interrupted by a restart; retry", true
 			case store.PlacementRemoving:
-				p.Status, p.LastError = store.PlacementRemoveFailed, "removal interrupted by a restart; remove the site again"
-			default:
+				p.Status, p.LastError, changed = store.PlacementRemoveFailed, "removal interrupted by a restart; remove the site again", true
+			}
+			// A ready network's build has a state of its own: failed, it
+			// gets Retry network (design 4.3).
+			if p.NetState == store.NetBuilding {
+				p.NetState, p.NetError, changed = store.NetFailed, "the build was interrupted by a restart; Retry network", true
+			}
+			if !changed {
 				continue
 			}
 			if err := s.st.UpdatePlacement(ctx, p); err != nil {

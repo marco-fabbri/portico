@@ -43,6 +43,9 @@ func (f *netReader) Routes(context.Context, string) (string, []nutanix.Route, er
 func (f *netReader) MissingOperations(context.Context, string, []string) ([]string, error) {
 	return nil, nil
 }
+func (f *netReader) FindRole(_ context.Context, name string) (*nutanix.Role, error) {
+	return &nutanix.Role{ExtID: "role-pt", DisplayName: name}, nil
+}
 
 // withNetworking is withSetup with the site's service account stored and
 // the Networking card reading r.

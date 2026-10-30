@@ -112,11 +112,21 @@ func (s *Service) AssignSubnets(ctx context.Context) (int, error) {
 }
 
 // transitSlice returns the connection's /28 of the site's routed prefix:
-// the stored one, else the lowest that no connection to the site holds,
-// stored at once. A connection whose network failed keeps its /28.
-func (s *Service) transitSlice(ctx context.Context, pc PrismCentral, p *store.Placement, site Site) (netip.Prefix, error) {
+// the stored one, else the lowest that neither another connection to the
+// site nor a subnet already in the transit VPC holds, stored at once. A
+// connection whose network failed keeps its /28, unless it has no
+// external subnet yet and a transit subnet now overlaps it.
+func (s *Service) transitSlice(ctx context.Context, pc PrismCentral, p *store.Placement, site Site, own string) (netip.Prefix, error) {
+	inTransit, err := transitSubnets(ctx, pc, site.Network.TransitVPCExtID, own)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
 	if p.TransitPrefix != "" {
-		return netip.ParsePrefix(p.TransitPrefix)
+		stored, err := netip.ParsePrefix(p.TransitPrefix)
+		if err != nil || p.ExtSubnetExtID != "" || !overlapsAny(stored, inTransit) {
+			return stored, err
+		}
+		p.TransitPrefix = ""
 	}
 	transit, err := pc.GetVPC(ctx, site.Network.TransitVPCExtID)
 	if err != nil {
@@ -131,7 +141,7 @@ func (s *Service) transitSlice(ctx context.Context, pc PrismCentral, p *store.Pl
 	if err != nil {
 		return netip.Prefix{}, err
 	}
-	var taken []netip.Prefix
+	taken := inTransit
 	for _, o := range others {
 		if o.TenantID == p.TenantID {
 			continue
@@ -149,6 +159,67 @@ func (s *Service) transitSlice(ctx context.Context, pc PrismCentral, p *store.Pl
 		return netip.Prefix{}, err
 	}
 	return slice, nil
+}
+
+// siteFits refuses a ready network the site cannot carry, before anything
+// is created: a tenant subnet on the site's own networks (the routed
+// prefix or the transit VPC's VLAN external subnet) would be unreachable
+// (design 4.2), and the transit VPC serves its own cluster only (4.1).
+func siteFits(ctx context.Context, pc PrismCentral, t *store.Tenant, p *store.Placement, site Site) error {
+	transit, err := pc.GetVPC(ctx, site.Network.TransitVPCExtID)
+	if err != nil {
+		return fmt.Errorf("transit VPC: %w", err)
+	}
+	tenantNet, _ := netip.ParsePrefix(t.Subnet)
+	clash := func(other netip.Prefix, what string) error {
+		if tenantNet.IsValid() && other.IsValid() && tenantNet.Overlaps(other) {
+			return fmt.Errorf("the tenant subnet %s overlaps %s, %s: give the tenant another subnet", tenantNet, other.Masked(), what)
+		}
+		return nil
+	}
+	for _, r := range transit.RoutablePrefixes {
+		if err := clash(r, "the routed prefix of "+transit.Name); err != nil {
+			return err
+		}
+	}
+	for _, x := range transit.External {
+		ext, err := pc.GetSubnet(ctx, x.SubnetExtID)
+		if err != nil {
+			return fmt.Errorf("the transit VPC's external subnet: %w", err)
+		}
+		if err := clash(ext.Prefix, "the external subnet "+ext.Name); err != nil {
+			return err
+		}
+		if ext.ClusterExtID != "" && p.ClusterExtID != "" && ext.ClusterExtID != p.ClusterExtID {
+			return fmt.Errorf("the connection uses the cluster %s and the transit VPC the cluster %s: the ready network serves the transit VPC's cluster only", p.ClusterExtID, ext.ClusterExtID)
+		}
+	}
+	return nil
+}
+
+// transitSubnets lists the prefixes of the subnets in the transit VPC but
+// the tenant's own one (named own).
+func transitSubnets(ctx context.Context, pc PrismCentral, transitExtID, own string) ([]netip.Prefix, error) {
+	subs, err := pc.ListSubnets(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("the transit VPC's subnets: %w", err)
+	}
+	var out []netip.Prefix
+	for _, sub := range subs {
+		if sub.VPCExtID == transitExtID && sub.Name != own && sub.Prefix.IsValid() {
+			out = append(out, sub.Prefix.Masked())
+		}
+	}
+	return out, nil
+}
+
+func overlapsAny(p netip.Prefix, others []netip.Prefix) bool {
+	for _, o := range others {
+		if p.Overlaps(o) {
+			return true
+		}
+	}
+	return false
 }
 
 // errNoProject is an object Prism Central keeps without the project the
@@ -192,10 +263,13 @@ func (s *Service) buildNetwork(ctx context.Context, t *store.Tenant, p *store.Pl
 	}{
 		{"net-external-subnet", func(ctx context.Context) (string, error) {
 			var err error
-			if slice, err = s.transitSlice(ctx, pc, p, site); err != nil {
+			name := project + "-ext"
+			if err := siteFits(ctx, pc, t, p, site); err != nil {
 				return "", err
 			}
-			name := project + "-ext"
+			if slice, err = s.transitSlice(ctx, pc, p, site, name); err != nil {
+				return "", err
+			}
 			sub, err := findSubnet(ctx, pc, p.ExtSubnetExtID, name)
 			if err != nil {
 				return "", err
@@ -480,6 +554,9 @@ func readBack(ctx context.Context, pc PrismCentral, p *store.Placement, project 
 // unassociated floating IPs only, and the floating IPs a VM uses, named
 // "name (ip)".
 func porticoObjects(ctx context.Context, pc PrismCentral, p *store.Placement) (map[string]int, []string, error) {
+	if err := adoptByName(ctx, pc, p); err != nil {
+		return nil, nil, err
+	}
 	counts := map[string]int{}
 	if p.VPCExtID != "" {
 		vpc, err := pc.GetVPC(ctx, p.VPCExtID)
@@ -515,6 +592,46 @@ func porticoObjects(ctx context.Context, pc PrismCentral, p *store.Placement) (m
 	return counts, associated, nil
 }
 
+// adoptByName fills, on a placement that has or began a ready network,
+// the extIds it lacks with the objects Portico names for its project:
+// a create can succeed in Prism Central after its call failed, and what
+// Disconnect does not find stays behind and overlaps the next tenant.
+// The project's own objects must carry its project.
+func adoptByName(ctx context.Context, pc PrismCentral, p *store.Placement) error {
+	if !hasNetwork(p) || p.ProjectID == "" {
+		return nil
+	}
+	project := p.ProjectID
+	if p.ExtSubnetExtID == "" {
+		sub, err := findSubnet(ctx, pc, "", project+"-ext")
+		if err != nil {
+			return err
+		}
+		if sub != nil && sub.External {
+			p.ExtSubnetExtID = sub.ExtID
+		}
+	}
+	if p.VPCExtID == "" {
+		vpc, err := findVPC(ctx, pc, "", project+"-vpc")
+		if err != nil {
+			return err
+		}
+		if vpc != nil && vpc.ProjectExtID == p.ProjectExtID {
+			p.VPCExtID = vpc.ExtID
+		}
+	}
+	if p.SubnetExtID == "" {
+		sub, err := findSubnet(ctx, pc, "", project+"-net")
+		if err != nil {
+			return err
+		}
+		if sub != nil && sub.ProjectExtID == p.ProjectExtID {
+			p.SubnetExtID = sub.ExtID
+		}
+	}
+	return nil
+}
+
 // networkRemoval is the ready network's part of Disconnect (design 4.4),
 // in reverse: Portico's floating IPs (none associated), the subnet, the
 // VPC with its route, the sharing and the external subnet, by stored
@@ -532,6 +649,9 @@ func (s *Service) networkRemoval(pc PrismCentral, p *store.Placement) []removalS
 	}
 	return []removalStep{
 		{"net-floating-ips", func(ctx context.Context) (string, error) {
+			if err := adoptByName(ctx, pc, p); err != nil {
+				return "", err
+			}
 			n := 0
 			for len(p.FloatingIPs) > 0 {
 				f := p.FloatingIPs[0]

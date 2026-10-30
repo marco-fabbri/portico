@@ -45,36 +45,48 @@ func (s *Service) WatchNetworks(ctx context.Context) {
 			if p.NetState != store.NetReady || ctx.Err() != nil {
 				continue
 			}
-			s.watchPlacement(ctx, site, p.TenantID)
+			// A site that did not answer is left for the next pass.
+			if !s.watchPlacement(ctx, site, p.TenantID) {
+				break
+			}
 		}
 	}
 }
 
-func (s *Service) watchPlacement(ctx context.Context, site Site, tenantID string) {
+// watchTimeout bounds the reads of one connection, so the tenant's lock
+// (which the setup and the site removal wait on) is held briefly.
+const watchTimeout = 15 * time.Second
+
+// watchPlacement reads one connection's network; false when the site did
+// not answer.
+func (s *Service) watchPlacement(ctx context.Context, site Site, tenantID string) bool {
 	if !s.acquire(tenantID) {
-		return
+		return true
 	}
 	defer s.release(tenantID)
+	ctx, cancel := context.WithTimeout(ctx, watchTimeout)
+	defer cancel()
 	// The row again, under the lock: an operation may have just ended.
 	p, err := s.st.GetPlacement(ctx, tenantID, site.ID)
 	if err != nil || p.NetState != store.NetReady {
-		return
+		return true
 	}
 	findings, err := networkDrift(ctx, site.PC, p)
 	if err != nil {
 		s.log.Info("network watch: site not read", "site", site.ID, "tenant", tenantID, "err", err.Error())
-		return
+		return false
 	}
 	if len(findings) == 0 {
-		return
+		return true
 	}
 	p.NetState, p.NetError = store.NetFailed, strings.Join(findings, "; ")+": Retry network creates again what is missing"
 	if err := s.st.UpdatePlacement(ctx, p); err != nil {
 		s.log.Error("network watch: state not stored", "site", site.ID, "tenant", tenantID, "err", err.Error())
-		return
+		return true
 	}
 	s.log.Warn("ready network changed in Prism Central", "site", site.ID, "tenant", tenantID, "found", p.NetError)
 	s.changed(tenantID)
+	return true
 }
 
 // networkDrift lists what is deleted or changed among the connection's
