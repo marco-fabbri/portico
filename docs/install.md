@@ -165,11 +165,13 @@ New connections to the site then get their network; a tenant connected
 earlier gets it with **Create ready network** on its page.
 
 The tenant address pool (the setup page's Tenants card, `10.100.0.0/16`
-by default) gives each tenant a `/24`, the same on every site; it cannot
-change once a tenant holds one. A tenant can have a subnet exception
-(the new-tenant form's Advanced section) when its default `/24` collides
-with the customer's own network, and from 0 to 12 floating IPs per site
-(1 by default).
+by default) gives each tenant a `/24`, the same on every site. Choose
+it before switching any site on: it is fixed once a ready network uses
+one of its `/24`s, and until then a change moves the tenants' `/24`s
+into the new pool. A tenant can have a subnet exception (the new-tenant
+form's Advanced section, or its page until its network exists) when its
+`/24` collides with the customer's own network, and from 0 to 12
+floating IPs per site (1 by default).
 
 ## The appliance image
 

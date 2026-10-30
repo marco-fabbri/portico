@@ -167,9 +167,11 @@ with several clusters is measured before it is offered (section 6).
 
 - **MSP setting** (Settings, "Tenant networks"): the tenant address pool,
   a private IPv4 prefix between `/8` and `/20`, default `10.100.0.0/16`.
-  It can be changed only while no tenant has a subnet assigned (my call:
-  the subnets are stored, so a later change would only confuse; a
-  second pool is a later feature if one runs out).
+  It can be changed only while no built network uses one of its `/24`s;
+  a change moves the tenants' unused pool `/24`s into the new pool
+  (Marco, 2026-10-30, ADR 0008: fixing it at the first assigned subnet
+  locked it at the upgrade, before the MSP saw it; a second pool is a
+  later feature if one runs out).
 - **Tenant subnet, stored** (my call, after the builder check): the
   tenant row stores its `/24` once assigned, and every site uses the
   stored value; nothing is recomputed from a formula afterwards. A tenant
@@ -188,10 +190,11 @@ with several clusters is measured before it is offered (section 6).
   to 12 floating IPs, the largest allowance (4.3). Unlike the tenant subnet it differs between sites: it is the
   MSP's public or routed space of that site.
 - **Exception**: in the tenant creation form (under "Advanced", with the
-  floating IP allowance, my call) and on the tenant page until its first
-  ready network exists, the MSP may set another `/24` (any private
-  prefix, checked not to overlap another tenant's subnet or a site's
-  external network). After that the subnet is fixed: changing it means
+  floating IP allowance, my call) and on the tenant page (and
+  `PUT /api/v1/tenants/{id}/subnet`) until its first ready network's
+  subnet exists, the MSP may set another `/24` (any private prefix,
+  checked not to overlap another tenant's subnet at once, and a site's
+  routed prefix or external network when the network is built). After that the subnet is fixed: changing it means
   re-creating the tenant's networks, which Portico does not do.
 
 ### 4.3 Building the ready network
