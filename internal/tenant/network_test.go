@@ -296,3 +296,96 @@ func TestClusterNotTransitCluster(t *testing.T) {
 		t.Fatalf("placement = %+v", pl)
 	}
 }
+
+// Retry network never adopts a same-named subnet the tenant made after
+// deleting Portico's: a stored extId that is gone means "deleted", and
+// the step creates again (write-up 36, P6).
+func TestRetryNetworkIgnoresATenantMadeSubnetOfTheSameName(t *testing.T) {
+	e := newNetEnv(t)
+	e.create(t, "acme")
+	e.svc.Wait()
+	pl := e.place(t, "acme")
+	old := pl.SubnetExtID
+	for i := range e.pc.Subnets {
+		if e.pc.Subnets[i].ExtID == old {
+			e.pc.Subnets = append(e.pc.Subnets[:i], e.pc.Subnets[i+1:]...)
+			break
+		}
+	}
+	e.pc.Subnets = append(e.pc.Subnets, nutanix.Subnet{ExtID: "sub-tenant", Name: "portico-acme-net", Type: "OVERLAY", ProjectExtID: pl.ProjectExtID, VPCExtID: "tenant-own-vpc"})
+	pl.NetState = store.NetFailed
+	if err := e.st.UpdatePlacement(context.Background(), pl); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.RetryNetwork(context.Background(), "acme", pl.SiteID); err != nil {
+		t.Fatalf("RetryNetwork: %v", err)
+	}
+	e.svc.Wait()
+	pl = e.place(t, "acme")
+	if pl.NetState != store.NetReady || pl.SubnetExtID == "sub-tenant" || pl.SubnetExtID == old {
+		t.Fatalf("placement = %+v", pl)
+	}
+	if e.pc.SubnetNamed("portico-acme-net") == nil || !e.pc.HasSubnet("sub-tenant") {
+		t.Fatal("the tenant's subnet was adopted or deleted")
+	}
+}
+
+// A same-named subnet in another project is never adopted.
+func TestRetryNetworkNeverAdoptsByNameAcrossProjects(t *testing.T) {
+	e := newNetEnv(t)
+	e.pc.Subnets = append(e.pc.Subnets, nutanix.Subnet{ExtID: "sub-other", Name: "portico-acme-net", Type: "OVERLAY", ProjectExtID: "other-project", VPCExtID: "vpc-other"})
+	e.create(t, "acme")
+	e.svc.Wait()
+	pl := e.place(t, "acme")
+	if pl.NetState != store.NetReady || pl.SubnetExtID == "sub-other" || !e.pc.HasSubnet("sub-other") {
+		t.Fatalf("placement = %+v", pl)
+	}
+}
+
+// A VPC stored by extId but without its project (the read-back failed
+// once) is deleted and created again by Retry network, as the create
+// path does (write-up 36, P8).
+func TestRetryNetworkRepairsAnObjectWithoutItsProject(t *testing.T) {
+	e := newNetEnv(t)
+	e.create(t, "acme")
+	e.svc.Wait()
+	pl := e.place(t, "acme")
+	old := pl.VPCExtID
+	for i := range e.pc.VPCs {
+		if e.pc.VPCs[i].ExtID == old {
+			e.pc.VPCs[i].ProjectExtID = ""
+		}
+	}
+	pl.NetState = store.NetFailed
+	if err := e.st.UpdatePlacement(context.Background(), pl); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.RetryNetwork(context.Background(), "acme", pl.SiteID); err != nil {
+		t.Fatalf("RetryNetwork: %v", err)
+	}
+	e.svc.Wait()
+	pl = e.place(t, "acme")
+	if pl.NetState != store.NetReady || pl.VPCExtID == old || e.pc.Creates["CreateVPC"] != 2 || e.pc.CallCount("DeleteVPC") != 1 {
+		t.Fatalf("placement = %+v, creates %d, deletes %d", pl, e.pc.Creates["CreateVPC"], e.pc.CallCount("DeleteVPC"))
+	}
+	if vpc := e.pc.VPCNamed("portico-acme-vpc"); vpc == nil || vpc.ProjectExtID != pl.ProjectExtID || vpc.ExtID != pl.VPCExtID {
+		t.Fatalf("vpc = %+v", vpc)
+	}
+}
+
+// A failed list is not "absent": the step fails and creates nothing.
+func TestBuildNetworkFailsOnAFailedListNotAbsent(t *testing.T) {
+	for _, call := range []string{"ListVPCs", "ListSubnets"} {
+		e := newNetEnv(t)
+		e.pc.FailOnce[call] = errors.New("dial tcp: i/o timeout")
+		e.create(t, "acme")
+		e.svc.Wait()
+		pl := e.place(t, "acme")
+		if pl.NetState != store.NetFailed || !strings.Contains(pl.NetError, "i/o timeout") {
+			t.Fatalf("%s: placement = %+v", call, pl)
+		}
+		if call == "ListVPCs" && e.pc.Creates["CreateVPC"] != 0 || call == "ListSubnets" && e.pc.Creates["CreateOverlaySubnet"] != 0 {
+			t.Fatalf("%s: created after a failed list", call)
+		}
+	}
+}
