@@ -16,6 +16,7 @@ import (
 	"github.com/marco-fabbri/portico/internal/nutanix"
 	"github.com/marco-fabbri/portico/internal/proxy"
 	"github.com/marco-fabbri/portico/internal/settings"
+	"github.com/marco-fabbri/portico/internal/tenant"
 )
 
 // NetReader opens the read side of a site's Prism Central for the
@@ -94,9 +95,22 @@ func (h *Handler) networking(ctx context.Context, s settings.Site, n settings.Si
 	if d.Choices, err = netready.TransitChoices(ctx, r); err != nil {
 		d.Error = "The VPCs cannot be read: " + err.Error()
 	}
-	d.Checks = netready.Evaluate(ctx, r, n, s.ServiceAccountExtID, d.Used)
+	d.Checks = netready.Evaluate(ctx, r, n, s.ServiceAccountExtID, d.Used, h.tenantRole(ctx))
 	d.Ready = netready.Ready(d.Checks)
 	return d
+}
+
+// tenantRole is the role the card checks: Portico Tenant while the MSP
+// keeps it as the tenants' role, none for a role of the MSP's choice.
+func (h *Handler) tenantRole(ctx context.Context) string {
+	if h.setup == nil || h.setup.Service == nil {
+		return ""
+	}
+	cur, err := h.setup.Service.Get(ctx)
+	if err != nil || cur.Tenants.Role != tenant.DefaultRole {
+		return ""
+	}
+	return tenant.DefaultRole
 }
 
 func (h *Handler) siteNetworking(w http.ResponseWriter, r *http.Request) {

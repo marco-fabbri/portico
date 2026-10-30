@@ -20,6 +20,7 @@ type fakeReader struct {
 	subnets     map[string]*nutanix.Subnet
 	routes      map[string][]nutanix.Route
 	missing     []string
+	roles       []string
 }
 
 func (f *fakeReader) Controllers(context.Context) ([]nutanix.Controller, error) {
@@ -43,6 +44,15 @@ func (f *fakeReader) MissingOperations(context.Context, string, []string) ([]str
 	return f.missing, nil
 }
 
+func (f *fakeReader) FindRole(_ context.Context, name string) (*nutanix.Role, error) {
+	for _, r := range f.roles {
+		if r == name {
+			return &nutanix.Role{ExtID: "role-" + r, DisplayName: r}, nil
+		}
+	}
+	return nil, &nutanix.APIError{Status: 404, Message: "role " + name + " not found"}
+}
+
 func a(s string) netip.Addr   { return netip.MustParseAddr(s) }
 func p(s string) netip.Prefix { return netip.MustParsePrefix(s) }
 
@@ -64,7 +74,7 @@ func good() *fakeReader {
 }
 
 func picked() settings.SiteNetwork {
-	return settings.SiteNetwork{TransitVPCExtID: "vpc-t", IntegratedConfirmed: true}
+	return settings.SiteNetwork{TransitVPCExtID: "vpc-t", IntegratedConfirmed: true, DNS: []string{"1.1.1.1"}}
 }
 
 func check(t *testing.T, checks []Check, name string) Check {
@@ -79,7 +89,7 @@ func check(t *testing.T, checks []Check, name string) Check {
 }
 
 func TestAllGood(t *testing.T) {
-	cs := Evaluate(context.Background(), good(), picked(), "sa-1", 0)
+	cs := Evaluate(context.Background(), good(), picked(), "sa-1", 0, "")
 	if !Ready(cs) {
 		t.Fatalf("checks = %+v", cs)
 	}
@@ -87,7 +97,7 @@ func TestAllGood(t *testing.T) {
 	for _, c := range cs {
 		names = append(names, c.Name)
 	}
-	if strings.Join(names, ",") != "flow,mode,gateway,transit,transit-valid,rights,pool" {
+	if strings.Join(names, ",") != "flow,mode,gateway,transit,transit-valid,rights,dns,pool" {
 		t.Fatalf("order = %v", names)
 	}
 }
@@ -95,7 +105,7 @@ func TestAllGood(t *testing.T) {
 func TestFlowDown(t *testing.T) {
 	r := good()
 	r.controllers = []nutanix.Controller{{Status: "DOWN"}}
-	c := check(t, Evaluate(context.Background(), r, picked(), "sa-1", 0), "flow")
+	c := check(t, Evaluate(context.Background(), r, picked(), "sa-1", 0, ""), "flow")
 	if c.Status != Failed || c.Message != "Enable Flow Virtual Networking in Prism Central (Integrated mode)" {
 		t.Fatalf("flow = %+v", c)
 	}
@@ -104,7 +114,7 @@ func TestFlowDown(t *testing.T) {
 func TestModeNeedsConfirmation(t *testing.T) {
 	n := picked()
 	n.IntegratedConfirmed = false
-	cs := Evaluate(context.Background(), good(), n, "sa-1", 0)
+	cs := Evaluate(context.Background(), good(), n, "sa-1", 0, "")
 	if c := check(t, cs, "mode"); c.Status != Todo || Ready(cs) {
 		t.Fatalf("mode = %+v", c)
 	}
@@ -113,7 +123,7 @@ func TestModeNeedsConfirmation(t *testing.T) {
 func TestGatewayIsClusterAddress(t *testing.T) {
 	r := good()
 	r.gw = a("10.23.210.173") // NYC1 had its cluster's Data Services IP
-	c := check(t, Evaluate(context.Background(), r, picked(), "sa-1", 0), "gateway")
+	c := check(t, Evaluate(context.Background(), r, picked(), "sa-1", 0, ""), "gateway")
 	if c.Status != Failed || !strings.Contains(c.Message, "10.23.210.173") || !strings.Contains(c.Message, "NTNX-01") {
 		t.Fatalf("gateway = %+v", c)
 	}
@@ -122,19 +132,19 @@ func TestGatewayIsClusterAddress(t *testing.T) {
 func TestGatewayOutsideSubnet(t *testing.T) {
 	r := good()
 	r.gw = a("10.23.220.254")
-	if c := check(t, Evaluate(context.Background(), r, picked(), "sa-1", 0), "gateway"); c.Status != Failed {
+	if c := check(t, Evaluate(context.Background(), r, picked(), "sa-1", 0, ""), "gateway"); c.Status != Failed {
 		t.Fatalf("gateway = %+v", c)
 	}
 }
 
 func TestGatewayOK(t *testing.T) {
-	if c := check(t, Evaluate(context.Background(), good(), picked(), "sa-1", 0), "gateway"); c.Status != OK {
+	if c := check(t, Evaluate(context.Background(), good(), picked(), "sa-1", 0, ""), "gateway"); c.Status != OK {
 		t.Fatalf("gateway = %+v", c)
 	}
 }
 
 func TestTransitNotPicked(t *testing.T) {
-	c := check(t, Evaluate(context.Background(), good(), settings.SiteNetwork{IntegratedConfirmed: true}, "sa-1", 0), "transit")
+	c := check(t, Evaluate(context.Background(), good(), settings.SiteNetwork{IntegratedConfirmed: true}, "sa-1", 0, ""), "transit")
 	if c.Status != Todo || c.Message != "Pick the transit VPC tenants use" {
 		t.Fatalf("transit = %+v", c)
 	}
@@ -151,7 +161,7 @@ func TestTransitInvalid(t *testing.T) {
 	for name, mutate := range cases {
 		r := good()
 		mutate(r)
-		c := check(t, Evaluate(context.Background(), r, picked(), "sa-1", 0), "transit-valid")
+		c := check(t, Evaluate(context.Background(), r, picked(), "sa-1", 0, ""), "transit-valid")
 		if c.Status != Failed || c.Message == "" {
 			t.Fatalf("%s: transit-valid = %+v", name, c)
 		}
@@ -159,7 +169,7 @@ func TestTransitInvalid(t *testing.T) {
 }
 
 func TestPoolWarning(t *testing.T) {
-	cs := Evaluate(context.Background(), good(), picked(), "sa-1", 13)
+	cs := Evaluate(context.Background(), good(), picked(), "sa-1", 13, "")
 	if c := check(t, cs, "pool"); c.Status != Warning || !strings.Contains(c.Message, "13 of 16") || !Ready(cs) {
 		t.Fatalf("pool = %+v", c)
 	}
@@ -168,7 +178,7 @@ func TestPoolWarning(t *testing.T) {
 func TestRightsMissing(t *testing.T) {
 	r := good()
 	r.missing = []string{"Share_Subnet"}
-	cs := Evaluate(context.Background(), r, picked(), "sa-1", 0)
+	cs := Evaluate(context.Background(), r, picked(), "sa-1", 0, "")
 	if c := check(t, cs, "rights"); c.Status != Failed || !strings.Contains(c.Message, "Repair") || !strings.Contains(c.Message, "Share_Subnet") {
 		t.Fatalf("rights = %+v", c)
 	}
@@ -182,5 +192,38 @@ func TestTransitChoices(t *testing.T) {
 	c := ch[0]
 	if c.VPCExtID != "vpc-t" || c.Name != "portico-transit" || c.Address != a("10.23.210.200") || c.RoutedPrefix != p("10.23.211.0/24") || c.Slices != 16 || c.ExternalSubnet != "external-routed" {
 		t.Fatalf("choice = %+v", c)
+	}
+}
+
+// Without DNS servers the tenants' VMs would resolve nothing (review).
+func TestDNSNeeded(t *testing.T) {
+	n := picked()
+	n.DNS = nil
+	cs := Evaluate(context.Background(), good(), n, "sa-1", 0, "")
+	if c := check(t, cs, "dns"); c.Status != Todo || Ready(cs) {
+		t.Fatalf("dns = %+v", c)
+	}
+	if c := check(t, Evaluate(context.Background(), good(), picked(), "sa-1", 0, ""), "dns"); c.Status != OK || !strings.Contains(c.Message, "1.1.1.1") {
+		t.Fatalf("dns = %+v", c)
+	}
+}
+
+// A site set up before 0.2.0 has no Portico Tenant role: its tenants
+// would keep Project Admin, which creates floating IPs (review).
+func TestTenantRoleNeeded(t *testing.T) {
+	cs := Evaluate(context.Background(), good(), picked(), "sa-1", 0, "Portico Tenant")
+	if c := check(t, cs, "tenant-role"); c.Status != Failed || !strings.Contains(c.Message, "Repair the site") || Ready(cs) {
+		t.Fatalf("tenant-role = %+v", c)
+	}
+	r := good()
+	r.roles = []string{"Portico Tenant"}
+	if c := check(t, Evaluate(context.Background(), r, picked(), "sa-1", 0, "Portico Tenant"), "tenant-role"); c.Status != OK {
+		t.Fatalf("tenant-role = %+v", c)
+	}
+	// Another role chosen by the MSP is not checked.
+	for _, c := range Evaluate(context.Background(), good(), picked(), "sa-1", 0, "") {
+		if c.Name == "tenant-role" {
+			t.Fatalf("checked without a role: %+v", c)
+		}
 	}
 }
