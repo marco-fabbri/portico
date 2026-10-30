@@ -658,3 +658,25 @@ func TestSetModeEditsThePublicBlockOnly(t *testing.T) {
 		t.Fatalf("%v\n%s", err, text)
 	}
 }
+
+// The public block as the last block of a file without a final newline:
+// the match ends at the end of the text, not on a next key, and no byte
+// of the block may leak into the tail (write-up 36 review).
+func TestSetModeKeepsALastPublicBlockWithoutFinalNewline(t *testing.T) {
+	y := "internal:\n  admin_listen: \"0.0.0.0:8443\"\npublic:\n  listen: \":443\"\n  tls:\n    cert_file: /etc/portico/tls/public.crt\n    key_file: /etc/portico/tls/public.key"
+	text, err := setMode(y, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "internal:\n  admin_listen: \"0.0.0.0:8443\"\npublic:\n  listen: \"127.0.0.1:8081\"\n  tls:\n    cert_file: \"\"\n    key_file: \"\""
+	if text != want {
+		t.Fatalf("tunnel:\n%q\nwant\n%q", text, want)
+	}
+	back, err := setMode(text, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back != y {
+		t.Fatalf("direct:\n%q\nwant\n%q", back, y)
+	}
+}
