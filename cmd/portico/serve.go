@@ -143,7 +143,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	restart := make(chan struct{})
 	var restartOnce sync.Once
 	// The appliance's Keycloak learns its public name from the hosts card
-	// (the SAML bootstrap needs it before Apply, measured on NTNX-01).
+	// (the SAML bootstrap needs it before Apply, measured on pc.7.6.0.6).
 	if hf := cfg.Keycloak.HostnameFile; hf != "" {
 		settingsSvc.OnChange(func(ctx context.Context, s settings.Settings) error {
 			return settings.WriteKeycloakHostname(hf, s.IDHost)
@@ -251,7 +251,7 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	setup.Busy = tenants.Running
 	// Live state of the sites (design sites §4.1): the probe every 30 s
 	// with a 10 s timeout (write-up 21: the clusters call took 9 to 30 s
-	// for a few minutes on NTNX-01, then 0.6 s again), the maintenance flags, the
+	// for a few minutes on pc.7.6.0.6, then 0.6 s again), the maintenance flags, the
 	// sessions on each site; the index of the tenants' active placements,
 	// dropped when they change.
 	monitor := sites.NewMonitor(st, nil, log)

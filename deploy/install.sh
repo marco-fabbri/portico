@@ -122,7 +122,7 @@ if [ $FIRSTBOOT -eq 1 ]; then
   # they start by themselves once this exits (a blocking systemctl start
   # from here would wait for this very unit).
   # No package, no download: a first boot may have no route to the
-  # Internet yet (measured on NTNX-01: dnf failed on the cloudflared repo
+  # Internet yet (measured on pc.7.6.0.6: dnf failed on the cloudflared repo
   # and the whole first boot with it).
   log "first boot: secrets, TLS pairs, firewall"
   generate_secrets

@@ -294,7 +294,7 @@ func TestWriteThemeDrawsTheArchInTheTextColour(t *testing.T) {
 
 // The Portico mark ships with every theme write, and the theme lists
 // keycloak.v2's styles.css (login.css is gone in Keycloak 26.3: 404 on
-// the lab, so the parent's base styles were not loaded).
+// Keycloak 26.3, so the parent's base styles were not loaded).
 func TestWriteThemeShipsTheMarkAndTheParentStyles(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "theme")
 	if err := WriteTheme(dir, Default()); err != nil {

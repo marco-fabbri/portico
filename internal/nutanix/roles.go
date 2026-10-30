@@ -56,7 +56,7 @@ func (c *Client) OperationExtIDs(ctx context.Context, names []string) (map[strin
 // system-defined role may hold (operationType SYSTEM_DEFINED_ONLY): pc.7.6
 // refuses a custom role holding one with a 400 "invalid operations".
 // Project Admin holds two of them, Create_Role_Membership and
-// Delete_Role_Membership (measured on NTNX-01, 2026-10-30).
+// Delete_Role_Membership (measured on pc.7.6.0.6, 2026-10-30).
 func (c *Client) SystemOnlyOperations(ctx context.Context) ([]string, error) {
 	const systemOnly = "SYSTEM_DEFINED_ONLY"
 	q := url.Values{}

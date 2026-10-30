@@ -21,13 +21,13 @@ func netSubnet(extID, name, project string) map[string]any {
 func TestCreateVPCBody(t *testing.T) {
 	f := newFakePC(t)
 	f.lists[PathNetworking+"/vpcs"] = []any{map[string]any{"extId": "vpc-1", "name": "portico-acme-vpc", "vpcType": "REGULAR", "projectExtId": "p-1",
-		"externalSubnets": []any{map[string]any{"subnetReference": "ext-1", "externalIps": []any{map[string]any{"ipv4": map[string]any{"value": "10.23.211.29"}}}}}}}
+		"externalSubnets": []any{map[string]any{"subnetReference": "ext-1", "externalIps": []any{map[string]any{"ipv4": map[string]any{"value": "198.51.100.29"}}}}}}}
 	c := newClient(t, f, nil)
 	v, err := c.CreateVPC(context.Background(), "portico-acme-vpc", "p-1", "ext-1", []netip.Addr{netip.MustParseAddr("1.1.1.1")})
 	if err != nil {
 		t.Fatalf("CreateVPC: %v", err)
 	}
-	if v.ExtID != "vpc-1" || len(v.External) != 1 || v.External[0].IPs[0] != netip.MustParseAddr("10.23.211.29") {
+	if v.ExtID != "vpc-1" || len(v.External) != 1 || v.External[0].IPs[0] != netip.MustParseAddr("198.51.100.29") {
 		t.Fatalf("vpc = %+v", v)
 	}
 	post := find(f.requests(), "POST", PathNetworking+"/vpcs")
@@ -46,9 +46,9 @@ func TestCreateOverlayExternalSubnetHasNoProject(t *testing.T) {
 	f := newFakePC(t)
 	f.lists[PathNetworking+"/subnets"] = []any{netSubnet("oen-1", "portico-acme-ext", "")}
 	c := newClient(t, f, nil)
-	p := netip.MustParsePrefix("10.23.211.16/28")
+	p := netip.MustParsePrefix("198.51.100.16/28")
 	if _, err := c.CreateOverlayExternalSubnet(context.Background(), "portico-acme-ext", "vpc-1", p,
-		netip.MustParseAddr("10.23.211.17"), netip.MustParseAddr("10.23.211.18"), netip.MustParseAddr("10.23.211.30")); err != nil {
+		netip.MustParseAddr("198.51.100.17"), netip.MustParseAddr("198.51.100.18"), netip.MustParseAddr("198.51.100.30")); err != nil {
 		t.Fatalf("CreateOverlayExternalSubnet: %v", err)
 	}
 	b := find(f.requests(), "POST", PathNetworking+"/subnets").Body
@@ -60,8 +60,8 @@ func TestCreateOverlayExternalSubnetHasNoProject(t *testing.T) {
 	}
 	ip := b["ipConfig"].([]any)[0].(map[string]any)["ipv4"].(map[string]any)
 	pool := ip["poolList"].([]any)[0].(map[string]any)
-	if ip["defaultGatewayIp"].(map[string]any)["value"] != "10.23.211.17" ||
-		pool["startIp"].(map[string]any)["value"] != "10.23.211.18" || pool["endIp"].(map[string]any)["value"] != "10.23.211.30" ||
+	if ip["defaultGatewayIp"].(map[string]any)["value"] != "198.51.100.17" ||
+		pool["startIp"].(map[string]any)["value"] != "198.51.100.18" || pool["endIp"].(map[string]any)["value"] != "198.51.100.30" ||
 		ip["ipSubnet"].(map[string]any)["prefixLength"] != float64(28) {
 		t.Fatalf("ipConfig = %v", ip)
 	}
@@ -120,16 +120,16 @@ func TestFloatingIPAssociation(t *testing.T) {
 	f := newFakePC(t)
 	f.lists[PathNetworking+"/floating-ips"] = []any{
 		map[string]any{"extId": "fip-1", "name": "portico-acme-fip-1", "projectExtId": "p-1", "externalSubnetReference": "oen-1",
-			"floatingIp": map[string]any{"ipv4": map[string]any{"value": "10.23.211.18"}}, "associationStatus": "ASSOCIATED_TO_VNIC",
+			"floatingIp": map[string]any{"ipv4": map[string]any{"value": "198.51.100.18"}}, "associationStatus": "ASSOCIATED_TO_VNIC",
 			"association": map[string]any{"$objectType": "networking.v4.config.VmNicAssociation", "vmNicReference": "nic-1"}},
-		map[string]any{"extId": "fip-2", "name": "portico-acme-fip-2", "floatingIp": map[string]any{"ipv4": map[string]any{"value": "10.23.211.19"}}, "associationStatus": "NOT_ASSOCIATED"},
+		map[string]any{"extId": "fip-2", "name": "portico-acme-fip-2", "floatingIp": map[string]any{"ipv4": map[string]any{"value": "198.51.100.19"}}, "associationStatus": "NOT_ASSOCIATED"},
 	}
 	c := newClient(t, f, nil)
 	fips, err := c.ListFloatingIPs(context.Background())
 	if err != nil {
 		t.Fatalf("ListFloatingIPs: %v", err)
 	}
-	if len(fips) != 2 || !fips[0].Associated || fips[0].AssociatedVMNIC != "nic-1" || fips[0].IP != netip.MustParseAddr("10.23.211.18") || fips[0].ExternalSubnetExtID != "oen-1" {
+	if len(fips) != 2 || !fips[0].Associated || fips[0].AssociatedVMNIC != "nic-1" || fips[0].IP != netip.MustParseAddr("198.51.100.18") || fips[0].ExternalSubnetExtID != "oen-1" {
 		t.Fatalf("fip-1 = %+v", fips[0])
 	}
 	if fips[1].Associated || fips[1].AssociatedVMNIC != "" {
@@ -160,27 +160,27 @@ func v4(s string, bits int) map[string]any {
 	return map[string]any{"ipv4": map[string]any{"value": s, "prefixLength": bits}}
 }
 
-// The shape read from NTNX-01 (write-up 34).
+// The shape read from cluster-1 (write-up 34).
 func TestPrismGatewayParses(t *testing.T) {
 	f := newFakePC(t)
 	f.lists[PathDomainManagers] = []any{map[string]any{"network": map[string]any{"externalNetworks": []any{map[string]any{
-		"defaultGateway": v4("10.23.210.254", 24), "subnetMask": v4("255.255.255.0", 24), "ipAddresses": []any{v4("10.23.210.175", 24)}}}}}}
+		"defaultGateway": v4("10.0.210.1", 24), "subnetMask": v4("255.255.255.0", 24), "ipAddresses": []any{v4("10.0.210.10", 24)}}}}}}
 	c := newClient(t, f, nil)
 	gw, own, err := c.PrismGateway(context.Background())
-	if err != nil || gw != netip.MustParseAddr("10.23.210.254") || own != netip.MustParsePrefix("10.23.210.175/24") {
+	if err != nil || gw != netip.MustParseAddr("10.0.210.1") || own != netip.MustParsePrefix("10.0.210.10/24") {
 		t.Fatalf("PrismGateway = %v %v %v", gw, own, err)
 	}
 }
 
 func TestClusterAddresses(t *testing.T) {
 	f := newFakePC(t)
-	f.lists[PathClusterMgmt+"/config/clusters"] = []any{map[string]any{"extId": "c-1", "name": "NTNX-01",
+	f.lists[PathClusterMgmt+"/config/clusters"] = []any{map[string]any{"extId": "c-1", "name": "cluster-1",
 		"config":  map[string]any{"clusterFunction": []string{"AOS"}},
-		"network": map[string]any{"externalAddress": v4("10.23.210.170", 32), "externalDataServiceIp": v4("10.23.210.173", 32)},
-		"nodes":   map[string]any{"nodeList": []any{map[string]any{"controllerVmIp": v4("10.23.210.172", 32), "hostIp": v4("10.23.210.171", 32)}}}}}
+		"network": map[string]any{"externalAddress": v4("10.0.210.40", 32), "externalDataServiceIp": v4("10.0.210.11", 32)},
+		"nodes":   map[string]any{"nodeList": []any{map[string]any{"controllerVmIp": v4("10.0.210.42", 32), "hostIp": v4("10.0.210.41", 32)}}}}}
 	c := newClient(t, f, nil)
 	cl, err := c.ListClusters(context.Background())
-	if err != nil || len(cl) != 1 || len(cl[0].Addresses) != 4 || cl[0].Addresses[1] != netip.MustParseAddr("10.23.210.173") {
+	if err != nil || len(cl) != 1 || len(cl[0].Addresses) != 4 || cl[0].Addresses[1] != netip.MustParseAddr("10.0.210.11") {
 		t.Fatalf("clusters = %+v, %v", cl, err)
 	}
 }

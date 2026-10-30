@@ -16,7 +16,7 @@ import (
 
 // UpstreamOptions describes one backend behind the proxy.
 type UpstreamOptions struct {
-	// Target is the backend base URL, e.g. https://10.23.210.175:9440 or
+	// Target is the backend base URL, e.g. https://10.0.210.10:9440 or
 	// http://127.0.0.1:8080.
 	Target *url.URL
 	// HostHeader is sent as Host and X-Forwarded-Host: the public name,

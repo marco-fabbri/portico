@@ -121,7 +121,7 @@ func (c *Client) ListStorageContainers(ctx context.Context) ([]StorageContainer,
 
 // ContainerFreeBytes returns a storage container's free bytes, the last
 // sample of the stats API over the past 15 minutes (measured on pc.7.6.0.6
-// as the lab admin: the call needs $startTime and $endTime).
+// as an administrator: the call needs $startTime and $endTime).
 func (c *Client) ContainerFreeBytes(ctx context.Context, extID string) (int64, error) {
 	now := time.Now().UTC()
 	q := url.Values{}

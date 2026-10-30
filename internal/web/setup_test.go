@@ -49,7 +49,7 @@ func withSetup(t *testing.T, e *env, stored bool) (*settings.Service, *httptest.
 		case setupPCEmpty.Load() && (strings.HasSuffix(r.URL.Path, "/config/clusters") || strings.HasSuffix(r.URL.Path, "/config/storage-containers")):
 			w.Write([]byte(`{"data":[]}`))
 		case strings.HasSuffix(r.URL.Path, "/config/clusters"):
-			w.Write([]byte(`{"data":[{"extId":"cl-1","name":"NTNX-01","config":{"clusterFunction":["AOS"]}}]}`))
+			w.Write([]byte(`{"data":[{"extId":"cl-1","name":"cluster-1","config":{"clusterFunction":["AOS"]}}]}`))
 		case strings.HasSuffix(r.URL.Path, "/config/storage-containers"):
 			w.Write([]byte(`{"data":[{"containerExtId":"sc-1","name":"default-container"}]}`))
 		default:
@@ -146,7 +146,7 @@ func TestSetupCheckRendersResultAndPickers(t *testing.T) {
 	e.login(t)
 	rec := e.do("POST", "/setup/sites/site-a/check", e.form("url", pc.URL, "tls_verify", ""), true)
 	body := rec.Body.String()
-	if rec.Code != 200 || !strings.Contains(body, "NTNX-01") || !strings.Contains(body, `value="cl-1"`) || !strings.Contains(body, "default-container") || strings.Contains(body, "<html") {
+	if rec.Code != 200 || !strings.Contains(body, "cluster-1") || !strings.Contains(body, `value="cl-1"`) || !strings.Contains(body, "default-container") || strings.Contains(body, "<html") {
 		t.Fatalf("check fragment: %d %s", rec.Code, body)
 	}
 	rec = e.do("POST", "/setup/sites/site-a/check", e.form("url", pc.URL, "tls_verify", "", "api_key", "wrong"), true)

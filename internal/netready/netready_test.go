@@ -56,19 +56,19 @@ func (f *fakeReader) FindRole(_ context.Context, name string) (*nutanix.Role, er
 func a(s string) netip.Addr   { return netip.MustParseAddr(s) }
 func p(s string) netip.Prefix { return netip.MustParsePrefix(s) }
 
-// good is NTNX-01 as measured in write-up 34.
+// good is cluster-1 as measured in write-up 34.
 func good() *fakeReader {
 	return &fakeReader{
 		controllers: []nutanix.Controller{{Status: "UP"}},
-		gw:          a("10.23.210.254"), pcNet: p("10.23.210.175/24"),
-		clusters: []nutanix.Cluster{{ExtID: "c-1", Name: "NTNX-01", IsAOS: true,
-			Addresses: []netip.Addr{a("10.23.210.170"), a("10.23.210.173"), a("10.23.210.172"), a("10.23.210.171")}}},
+		gw:          a("10.0.210.1"), pcNet: p("10.0.210.10/24"),
+		clusters: []nutanix.Cluster{{ExtID: "c-1", Name: "cluster-1", IsAOS: true,
+			Addresses: []netip.Addr{a("10.0.210.40"), a("10.0.210.11"), a("10.0.210.42"), a("10.0.210.41")}}},
 		vpcs: []nutanix.VPC{
-			{ExtID: "vpc-t", Name: "portico-transit", Type: "TRANSIT", RoutablePrefixes: []netip.Prefix{p("10.23.211.0/24")},
-				External: []nutanix.VPCExternal{{SubnetExtID: "ext-r", IPs: []netip.Addr{a("10.23.210.200")}}}},
+			{ExtID: "vpc-t", Name: "portico-transit", Type: "TRANSIT", RoutablePrefixes: []netip.Prefix{p("198.51.100.0/24")},
+				External: []nutanix.VPCExternal{{SubnetExtID: "ext-r", IPs: []netip.Addr{a("10.0.210.30")}}}},
 			{ExtID: "vpc-x", Name: "other", Type: "REGULAR"},
 		},
-		subnets: map[string]*nutanix.Subnet{"ext-r": {ExtID: "ext-r", Name: "external-routed", Type: "VLAN", External: true, NAT: false, Prefix: p("10.23.210.0/24")}},
+		subnets: map[string]*nutanix.Subnet{"ext-r": {ExtID: "ext-r", Name: "external-routed", Type: "VLAN", External: true, NAT: false, Prefix: p("10.0.210.0/24")}},
 		routes:  map[string][]nutanix.Route{"vpc-t": {{Destination: p("0.0.0.0/0"), NextHopType: "EXTERNAL_SUBNET", NextHopExtID: "ext-r"}}},
 	}
 }
@@ -122,16 +122,16 @@ func TestModeNeedsConfirmation(t *testing.T) {
 
 func TestGatewayIsClusterAddress(t *testing.T) {
 	r := good()
-	r.gw = a("10.23.210.173") // NYC1 had its cluster's Data Services IP
+	r.gw = a("10.0.210.11") // NYC1 had its cluster's Data Services IP
 	c := check(t, Evaluate(context.Background(), r, picked(), "sa-1", 0, ""), "gateway")
-	if c.Status != Failed || !strings.Contains(c.Message, "10.23.210.173") || !strings.Contains(c.Message, "NTNX-01") {
+	if c.Status != Failed || !strings.Contains(c.Message, "10.0.210.11") || !strings.Contains(c.Message, "cluster-1") {
 		t.Fatalf("gateway = %+v", c)
 	}
 }
 
 func TestGatewayOutsideSubnet(t *testing.T) {
 	r := good()
-	r.gw = a("10.23.220.254")
+	r.gw = a("10.0.220.254")
 	if c := check(t, Evaluate(context.Background(), r, picked(), "sa-1", 0, ""), "gateway"); c.Status != Failed {
 		t.Fatalf("gateway = %+v", c)
 	}
@@ -190,7 +190,7 @@ func TestTransitChoices(t *testing.T) {
 		t.Fatalf("choices = %+v, %v", ch, err)
 	}
 	c := ch[0]
-	if c.VPCExtID != "vpc-t" || c.Name != "portico-transit" || c.Address != a("10.23.210.200") || c.RoutedPrefix != p("10.23.211.0/24") || c.Slices != 16 || c.ExternalSubnet != "external-routed" {
+	if c.VPCExtID != "vpc-t" || c.Name != "portico-transit" || c.Address != a("10.0.210.30") || c.RoutedPrefix != p("198.51.100.0/24") || c.Slices != 16 || c.ExternalSubnet != "external-routed" {
 		t.Fatalf("choice = %+v", c)
 	}
 }

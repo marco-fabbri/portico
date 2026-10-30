@@ -107,7 +107,7 @@ func (f *fakePCAdmin) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case strings.HasSuffix(p, "/config/clusters"):
-		reply(200, []map[string]any{{"extId": "cl-1", "name": "NTNX-01", "config": map[string]any{"clusterFunction": []string{"AOS"}}}})
+		reply(200, []map[string]any{{"extId": "cl-1", "name": "cluster-1", "config": map[string]any{"clusterFunction": []string{"AOS"}}}})
 	case strings.HasSuffix(p, "/config/storage-containers"):
 		reply(200, []map[string]any{{"containerExtId": "sc-1", "name": "default"}})
 	case p == nutanix.PathIAM0+"/authn/users":

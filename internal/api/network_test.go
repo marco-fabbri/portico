@@ -50,8 +50,8 @@ func TestTenantJSONShowsNetwork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.NetState, p.TransitPrefix, p.SNATIP = store.NetReady, "10.23.211.16/28", "10.23.211.29"
-	p.FloatingIPs = []store.FloatingIP{{ExtID: "fip-1", IP: "10.23.211.18"}}
+	p.NetState, p.TransitPrefix, p.SNATIP = store.NetReady, "198.51.100.16/28", "198.51.100.29"
+	p.FloatingIPs = []store.FloatingIP{{ExtID: "fip-1", IP: "198.51.100.18"}}
 	if err := e.st.UpdatePlacement(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestTenantJSONShowsNetwork(t *testing.T) {
 	}
 	net := out["placements"].([]any)[0].(map[string]any)["network"].(map[string]any)
 	fips := net["floating_ips"].([]any)
-	if net["state"] != "ready" || net["transit_prefix"] != "10.23.211.16/28" || net["snat_ip"] != "10.23.211.29" || len(fips) != 1 || fips[0].(map[string]any)["ip"] != "10.23.211.18" {
+	if net["state"] != "ready" || net["transit_prefix"] != "198.51.100.16/28" || net["snat_ip"] != "198.51.100.29" || len(fips) != 1 || fips[0].(map[string]any)["ip"] != "198.51.100.18" {
 		t.Fatalf("network: %v", net)
 	}
 }

@@ -606,7 +606,7 @@ func TestCreateNilSitesWithSeveralConfiguredHasNone(t *testing.T) {
 
 func TestTargetsMarkSiteDefaults(t *testing.T) {
 	e := newEnv2(t)
-	e.pcA.Clusters = []nutanix.Cluster{{ExtID: "pc", Name: "prism-central", IsPrismCentral: true}, {ExtID: "cl-a", Name: "NTNX-01", IsAOS: true}}
+	e.pcA.Clusters = []nutanix.Cluster{{ExtID: "pc", Name: "prism-central", IsPrismCentral: true}, {ExtID: "cl-a", Name: "cluster-1", IsAOS: true}}
 	e.pcA.Containers = []nutanix.StorageContainer{
 		{ExtID: "sc-other", Name: "bulk", ClusterExtID: "cl-a"},
 		{ExtID: "sys", Name: "NutanixManagementShare", ClusterExtID: "cl-a", IsSystem: true},
@@ -616,11 +616,11 @@ func TestTargetsMarkSiteDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Clusters) != 1 || got.Clusters[0] != (Target{ExtID: "cl-a", Name: "NTNX-01", SiteDefault: true}) {
+	if len(got.Clusters) != 1 || got.Clusters[0] != (Target{ExtID: "cl-a", Name: "cluster-1", SiteDefault: true}) {
 		t.Fatalf("clusters = %+v", got.Clusters)
 	}
-	if len(got.Containers) != 2 || got.Containers[0] != (Target{ExtID: "sc-a", Name: "default-container", ClusterName: "NTNX-01", SiteDefault: true}) ||
-		got.Containers[1] != (Target{ExtID: "sc-other", Name: "bulk", ClusterName: "NTNX-01"}) {
+	if len(got.Containers) != 2 || got.Containers[0] != (Target{ExtID: "sc-a", Name: "default-container", ClusterName: "cluster-1", SiteDefault: true}) ||
+		got.Containers[1] != (Target{ExtID: "sc-other", Name: "bulk", ClusterName: "cluster-1"}) {
 		t.Fatalf("containers = %+v", got.Containers)
 	}
 }

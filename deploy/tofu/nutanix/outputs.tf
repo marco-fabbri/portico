@@ -14,7 +14,7 @@ output "admin_url" {
 }
 
 # A template that renders invalid YAML would make cloud-init drop the whole
-# document silently (measured on NTNX-01: no user, no network). Decoding it
+# document silently (measured on pc.7.6.0.6: no user, no network). Decoding it
 # here fails the plan instead.
 output "cloud_init_valid" {
   description = "true when the rendered cloud-init user data is valid YAML"
