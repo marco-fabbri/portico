@@ -170,8 +170,10 @@ func Defaults() Settings {
 // design 4.3), created on each site by its setup run.
 const DefaultTenantRole = "Portico Tenant"
 
-// DefaultAddressPool is the tenant address pool of a fresh document.
-const DefaultAddressPool = "10.100.0.0/16"
+// DefaultAddressPool is the tenant address pool of a fresh document. It
+// keeps clear of the subnets Prism Central's microservices reserve
+// (192.168.5.0/24, 10.100.0.0/16, 10.200.32.0/24): ADR 0009.
+const DefaultAddressPool = "10.128.0.0/16"
 
 // upgradeTenants fills what a document written before 0.2.0 lacks: the
 // pool, and the tenant role. Project Admin was 0.1.0's default, not a

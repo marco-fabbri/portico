@@ -8,7 +8,9 @@ import (
 
 func TestSettingsDefaultPool(t *testing.T) {
 	d := Defaults()
-	if d.Tenants.AddressPool != "10.100.0.0/16" || d.Tenants.Role != "Portico Tenant" {
+	// Not 10.100.0.0/16: Prism Central's microservices use it for their
+	// pods (ADR 0009).
+	if d.Tenants.AddressPool != "10.128.0.0/16" || d.Tenants.Role != "Portico Tenant" {
 		t.Fatalf("defaults = %+v", d.Tenants)
 	}
 }
@@ -45,8 +47,36 @@ func TestLoadMovesProjectAdminToPorticoTenant(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got.Tenants.Role != c.want || got.Tenants.AddressPool != "10.100.0.0/16" {
+		if got.Tenants.Role != c.want || got.Tenants.AddressPool != DefaultAddressPool {
 			t.Fatalf("stored %q: tenants = %+v", c.stored, got.Tenants)
 		}
+	}
+}
+
+// A document without a pool gets the default when it is read, and any save
+// stores it: switching a site's ready network on is a save, so a document
+// still without a pool has no built network, and a new default moves
+// nothing that was built (ADR 0009).
+func TestSaveStoresTheFilledPool(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	raw, _ := json.Marshal(map[string]any{"tenants": map[string]any{"project_prefix": "portico"}})
+	if err := st.SetSetting(ctx, SettingKey, raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewService(st, sealerFor(t, 1)).Patch(ctx, func(s *Settings) { s.Tenants.GroupPrefix = "tenant-" }); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetSetting(ctx, SettingKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Tenants struct {
+			AddressPool string `json:"address_pool"`
+		} `json:"tenants"`
+	}
+	if err := json.Unmarshal(stored, &doc); err != nil || doc.Tenants.AddressPool != DefaultAddressPool {
+		t.Fatalf("stored pool = %q, %v", doc.Tenants.AddressPool, err)
 	}
 }

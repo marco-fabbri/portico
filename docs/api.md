@@ -58,7 +58,7 @@ A tenant:
 ```json
 {"id": "acme", "display_name": "ACME Cloud", "status": "active", "contacts": "ops@acme.example",
  "keycloak_group_id": "…", "last_error": "", "created_at": "…", "updated_at": "…",
- "subnet": "10.100.0.0/24", "subnet_exception": false, "floating_ips": 1,
+ "subnet": "10.128.0.0/24", "subnet_exception": false, "floating_ips": 1,
  "placements": [{"site": "az-it-mi1", "code": "AZ-IT-MI1", "status": "active",
    "cluster_ext_id": "…", "storage_container_ext_id": "…", "project_id": "portico-acme",
    "project_ext_id": "…", "resource_group_ext_id": "…", "saml_group_ext_id": "…",

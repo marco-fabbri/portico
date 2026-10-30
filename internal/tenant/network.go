@@ -16,7 +16,7 @@ import (
 
 // DefaultAddressPool is where the tenants' /24s come from unless the MSP
 // sets another pool (tenant networking design 4.2).
-var DefaultAddressPool = netip.MustParsePrefix("10.100.0.0/16")
+var DefaultAddressPool = netip.MustParsePrefix("10.128.0.0/16")
 
 // DefaultAllowance is a new tenant's floating IPs per site (design 4.3).
 const DefaultAllowance = 1

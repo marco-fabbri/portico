@@ -170,8 +170,11 @@ mode, and switch it on. The switch stays off until every check passes.
 New connections to the site then get their network; a tenant connected
 earlier gets it with **Create ready network** on its page.
 
-The tenant address pool (the setup page's Tenants card, `10.100.0.0/16`
-by default) gives each tenant a `/24`, the same on every site. Choose
+The tenant address pool (the setup page's Tenants card, `10.128.0.0/16`
+by default) gives each tenant a `/24`, the same on every site. Keep it
+clear of the subnets Prism Central's microservices use internally,
+`192.168.5.0/24`, `10.100.0.0/16` and `10.200.32.0/24` unless they were
+changed when Prism Central was deployed, and of your own networks. Choose
 it before switching any site on: it is fixed once a ready network uses
 one of its `/24`s, and until then a change moves the tenants' `/24`s
 into the new pool. A tenant can have a subnet exception (the new-tenant
