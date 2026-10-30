@@ -40,7 +40,7 @@ func rightsRefusal(target, what, op string, err error) string {
 }
 
 // updateRefused is an update Prism Central turned down on its content, not
-// on the account's rights (seen: 400 on the lab role, write-up 34).
+// on the account's rights (seen: 400 on a role made by hand, write-up 34).
 func updateRefused(err error) bool {
 	var apiErr *nutanix.APIError
 	return errors.As(err, &apiErr) && apiErr.Status >= 400 && apiErr.Status < 500 &&

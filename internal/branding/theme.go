@@ -76,14 +76,14 @@ func writeAtomic(path string, data []byte) error {
 
 // styles lists the parent's base sheet first: keycloak.v2 on Keycloak
 // 26.3 ships css/styles.css (css/login.css of older releases is gone, 404
-// on the lab, so the parent's styles were not loaded until this line).
+// on Keycloak 26.3, so the parent's styles were not loaded until this line).
 const themeProperties = `parent=keycloak.v2
 import=common/keycloak
 styles=css/styles.css css/portico.css
 `
 
 // themeCSS restyles the keycloak.v2 login page (PatternFly 5 markup
-// measured on the lab: body#keycloak-bg, .pf-v5-c-login__container with
+// measured on Keycloak 26.3: body#keycloak-bg, .pf-v5-c-login__container with
 // header#kc-header and main.pf-v5-c-login__main) as one centred column on
 // the background colour: the header (logo, text, claim, in the text
 // colour, Red Hat Display) above the card, "Powered by Portico" under it

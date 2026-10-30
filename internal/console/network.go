@@ -57,7 +57,7 @@ func Validate(c NetConfig) error {
 }
 
 // Keyfile renders a NetworkManager keyfile for the interface: manual
-// IPv4, IPv6 off (the lab's cloud-init writes the same shape).
+// IPv4, IPv6 off (cloud-init writes the same shape).
 func Keyfile(name string, c NetConfig) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "[connection]\nid=%s\ntype=ethernet\ninterface-name=%s\nautoconnect=true\n\n", name, name)
