@@ -99,9 +99,12 @@ func apiClient() *http.Client {
 	return &http.Client{Transport: &http.Transport{DisableKeepAlives: true}, Timeout: 5 * time.Second}
 }
 
+// waitHealthy returns at the first 200 from /healthz; the deadline only
+// bounds a listener that never comes up. A loaded CI runner took 3.08 s
+// once (run 41161824639), so it is generous.
 func waitHealthy(t *testing.T, addr string) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		resp, err := http.Get("http://" + addr + "/healthz")
 		if err == nil && resp.StatusCode == 200 {
