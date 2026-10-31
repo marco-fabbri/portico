@@ -102,7 +102,7 @@ model. Small MSPs have no turnkey answer.
 - **All project text in English**: code, comments, docs, commit messages, UI
   strings. Only the conversation with Marco is in Italian.
 - Supported Prism Central: **pc.7.6 and later**, tested on pc.7.6 / AOS 7.6
-  (cluster NTNX-01). Reason: pc.7.6 (released 2026-07-27) introduced a new
+  (a single-node cluster). Reason: pc.7.6 (released 2026-07-27) introduced a new
   Projects framework ("Projects 2.0"): project scope extended to VMs, images,
   networking, Flow security, DR, alerts and tasks; entity-level authorization
   policies on top of RBAC; per-project-per-cluster quotas; project-scoped
@@ -132,7 +132,7 @@ model. Small MSPs have no turnkey answer.
   set to the public name (write-up 04).
 - Appliance footprint target: 2 vCPU, 6 GiB RAM, 40 GiB disk (Portico +
   Keycloak + PostgreSQL + cloudflared on one VM).
-- Lab: NTNX-01, single node, Prism Central `https://10.23.210.175:9440`,
+- Lab: a single-node cluster, Prism Central `https://10.23.210.175:9440`,
   VLAN 210 `10.23.210.0/24`, gateway `.254`, free IPs from `.190` (arping is
   not possible from the Mac, which reaches the VLAN through a VPN: verify
   with ping plus the Prism Central VM NIC list, as `lab/vm/create-vm.sh`
@@ -859,7 +859,7 @@ portico/
   LICENSE                   Apache-2.0
   docs/
     superpowers/specs/      this design
-    lab/                    measurements from NTNX-01
+    lab/                    measurements from the cluster
     adr/                    architecture decision records
   cmd/portico/              main: serve | console | provision | ...
   internal/
@@ -888,7 +888,7 @@ portico/
 - Session cookie parameters, CSRF handling, rate limiting on the public
   listener.
 - Test strategy: unit tests for policy and provisioning; integration tests
-  against a recorded Prism Central API; lab runs against NTNX-01 scripted but
+  against a recorded Prism Central API; lab runs against the cluster scripted but
   manual to launch.
 
 ## 9. Milestones
@@ -897,13 +897,13 @@ portico/
 |---|---|---|
 | 0 | Lab measurements (section 6) | done 2026-10-17: write-ups in `docs/lab/`, design updated |
 | 1 | Core binary: proxy + OIDC session + policy + internal listener | done 2026-10-17 (write-up 09): a browser through Portico reaches Prism Central only after Keycloak login; `curl -u admin:…` through the public path gets 403 from Portico |
-| 2a | Tenant arrival, API | done 2026-10-18 (write-up 11): `POST /api/v1/tenants` creates project + resource group + SAML group + IdP sharing + role membership + Keycloak group, records every step, visibility check passes on NTNX-01; first user, disable/enable, clean deletion |
+| 2a | Tenant arrival, API | done 2026-10-18 (write-up 11): `POST /api/v1/tenants` creates project + resource group + SAML group + IdP sharing + role membership + Keycloak group, records every step, visibility check passes on the cluster; first user, disable/enable, clean deletion |
 | 2b | Tenant arrival, admin UI | done 2026-10-18 (write-up 12): admin UI over the API with the break-glass login (tenant list, create, detail with steps and visibility, users, disable/enable, delete), the 2a review minors absorbed, every `Authorization` scheme refused on the public name after measuring the console, Prism Central's Sign Out path allowed |
 | 2c | Tenant arrival, tenant-facing pages | done 2026-10-18 (write-up 13): branding settings in the store, landing page that starts SAML itself, Keycloak theme, branded identity-provider-down page; a tenant user goes from the public URL to the console with one Keycloak login and no Nutanix login page |
 | 2d | Setup wizard, settings and secrets at rest | done 2026-10-18 (write-up 14): settings in the store sealed with the master key; `portico settings import` and `settings show`; setup page with connectivity checks and pickers; Apply = controlled restart; the lab runs from the store with no secret file on the VM |
 | 2e | Bootstrap and setup mode | done 2026-10-18 (write-up 15): a fresh appliance (process YAML, empty store) starts in setup mode and is configured card by card from the setup page; Portico creates the service account and its key in Prism Central, the Keycloak realm and clients, and the SAML identity provider from one-time credentials; the service account cannot create the IdP (`Project Manager_acp`), so that step asks for an administrator once; 41 s end to end on the lab |
 | 2f | Minor sweep after 2d and 2e | done 2026-10-18 (write-up 16): the deferred minors of write-ups 14 and 15 closed with a test each (password policy on the realm Portico creates, login restarted once when its state expired, logo above the realm name, URL with credentials refused, store failures as 500, typed Keycloak errors, no start limit on the service); the older deferred findings live in `docs/backlog.md` |
-| 3 | Appliance image | done 2026-10-20 (write-up 19): Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted in NTNX-01 |
+| 3 | Appliance image | done 2026-10-20 (write-up 19): Rocky 9 qcow2 with CIS L1 report, console wizard, cloudflared option, imported and booted on the cluster |
 | 4 | Sites | done 2026-10-23 (write-ups 21, 23 to 25): several Prism Centrals behind one Portico, shown to tenants as sites on one public name (design `2026-10-20-sites-design.md`, ADR 0004); accepted on the appliance with one site (write-up 21), the two-site live test when a second pc.7.6 lab cluster is up |
 | 5 | Backlog sweep | done 2026-10-25 (write-ups 27 and 28): the findings in `docs/backlog.md` that must not ship in a release closed with a test each |
 | 6 | First release (step 1 complete) | done 2026-10-27 (write-ups 29, 30, 33): README, install guide, release artefacts, known limits documented; tag `v0.1.0` published, its image downloaded by Prism Central from GitHub and its installer run from the public release |
