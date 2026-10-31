@@ -1,13 +1,12 @@
 # Backlog: deferred findings
 
-Findings the final reviews of Milestones 2a, 2b and 2c graded Minor and
-that no milestone has closed yet, one line each with the code or script
-they concern. They are grouped by area, not by milestone (several were
-raised more than once). An item leaves this file when a milestone closes
-it; the Milestone 2f sweep closed the 2d and 2e items listed at the end,
-and the Milestone 5 sweep (plan of 2026-10-24) the release blockers.
-The known limits of each release (`docs/releases/`) are drawn from this
-file.
+Findings graded Minor by the reviews since Milestone 2, design items kept
+open with Marco, and measurements still to make, one entry each with the
+code or script they concern. They are grouped by area, not by milestone
+(several were raised more than once). An entry leaves this file when a
+release closes it; the closures are in the lab write-ups and the release
+notes, not here. The known limits of each release (`docs/releases/`) are
+drawn from this file.
 
 ## Public path, sessions, proxy
 
@@ -67,10 +66,10 @@ file.
 - The tenant step retry of Milestone 5 covers 500, 502 and 503 only: a
   gateway `504 upstream request timeout` on a create step, and a `401
   AUTHENTICATION_REQUIRED` from a key that worked a second earlier (an
-  IAM hiccup of NTNX-01 under load, write-up 28), fail the tenant and
-  leave the Retry to the MSP, which then succeeds at once. Retry a 504
-  on a create when the entity does not exist yet, and a 401 once after a
-  short pause (`internal/tenant/provision.go`).
+  IAM hiccup of the Prism Central under load, write-up 28), fail the
+  tenant and leave the Retry to the MSP, which then succeeds at once.
+  Retry a 504 on a create when the entity does not exist yet, and a 401
+  once after a short pause (`internal/tenant/provision.go`).
 - The setup's "check keycloak" and "check oidc" pass with a broken login
   page (write-up 29: a theme without a readable `parent` answered 500):
   the OIDC check could fetch the realm's login page and expect 200
@@ -92,15 +91,6 @@ file.
   white card and no lockup (Marco's recording, 2026-10-19): give that
   page the lockup and hide the empty card in the generated theme
   (`internal/branding/theme.go`).
-
-- Setup as a list of connected services: today the store holds one Prism
-  Central and the setup page is five cards; an MSP may run several (six
-  is a real case) and later NKP. Needs a Prism Central table (name, URL,
-  service account, SAML IdP, clusters), the Prism Central key on the
-  tenant, one public host per Prism Central (Prism uses absolute paths),
-  one SAML trust each, a "Connected services" page with add and edit, and
-  the Prism Central picker on "New tenant". Design §2 step 2; its own
-  milestone after the appliance image (Marco, 2026-10-19).
 - The admin UI mockup (2026-10-19) shows data the pages do not have yet:
   counters above the tenant list (active, disabled, last visibility
   check), a users column, a Prism Central health dot in the header,
@@ -141,15 +131,12 @@ file.
   (a developer's gitignored tfvars would ride along until the cleanup);
   `ParseKeyfile` does not check the `[ipv4]` section;
   tunnel mode is not measured with a real Cloudflare tunnel yet.
-
 - `deploy/tofu/nutanix` is validated by `tofu validate` and the CI boot
   test renders its template; a `tofu test` with a mock provider would
   also cover the VM resource's arguments (write-up 19).
 - The image carries `openscap-scanner` and `scap-security-guide`
   (160 MB) so an appliance can be re-scanned in place; drop them and
   document a scan from outside if the image must shrink further.
-
-- Theme caches off in production are a Milestone 3 image requirement.
 - The qcow2 carries no container image: PostgreSQL and Keycloak are
   pulled from docker.io and quay.io at first boot (write-up 29), so a
   first boot without egress never gets an identity provider, and on a
@@ -208,21 +195,6 @@ surface or the admin authentication path, so they wait for a decision.
   use (`edge-router.sh`), `lab/portico/deploy.sh`, `undeploy.sh`, the
   lab `portico.yaml` files, and their lines in `lab/test_scripts.sh` and
   `lab/README.md`.
-
-## Closed in Milestone 2f (write-up 16)
-
-From Milestone 2d: realm typo reported as a refused secret; empty pickers
-without `required`; store I/O errors answered as 400; secret inputs with
-`autocomplete="off"`; `portico.service` start limit; test gaps (plaintext
-secret in the store, refused import leaving the document unchanged).
-
-From Milestone 2e: revoked key still listed in the failure result and
-`key_expires` rendering the zero time; Prism Central URL with userinfo
-stored and logged; Keycloak errors classified by substring; SAML log line
-without the defaulted name; failed bootstrap fragment resetting typed
-fields; no password policy on the realm the bootstrap creates; bare
-"login state missing" page after the 10-minute login cookie; realm name
-drawn across the logo on the Keycloak login page.
 
 ## Sites (Milestone 4)
 
@@ -287,12 +259,11 @@ drawn across the logo on the Keycloak login page.
   a maintenance change is logged twice (monitor and API); re-running
   `install.sh` on an appliance also upgrades the packages it installs
   (cloudflared went to 2026.10.2), which docs/install.md does not say.
-- The service account's role (`Project Manager_acp`) cannot list
-  floating IPs (403, write-up 25) nor Flow security policies, so
-  Disconnect does not count them and relies on Prism Central refusing to
-  delete a project that still holds one. A role or an authorization
-  policy granting those reads is to be measured; the one-step setup of
-  sites (Part C) creates no custom role.
+- The service account's role (`Project Manager_acp`) cannot list Flow
+  security policies, so Disconnect does not count them and relies on
+  Prism Central refusing to delete a project that still holds one (the
+  floating IPs of write-up 25 are read through the Portico Networking
+  policy since 0.2.0). A policy granting that read is to be measured.
 - The other node of a pair reads the sites every 30 seconds but the
   maintenance flags only at its start: a site put in maintenance on one
   node still takes new entries on the other until it restarts.
@@ -310,7 +281,8 @@ drawn across the logo on the Keycloak login page.
 - The *Portico Networking* policy filters every entity type with `*`
   (`internal/settings/networking_rights.go`); a filter limited to the
   transit VPC, its external subnet and the tenants' projects is spec 6.1,
-  to be measured.
+  to be measured. With the adoption rule scoped to the project (0.2.2)
+  this is the widest open item.
 - An update of a role's operations answered 400 in the lab before the
   code sent the full role; the product now replaces the networking role
   when its update is refused and keeps the tenant role. Measure the PUT
@@ -345,8 +317,6 @@ the code when taken, and the structural items.
   leaves a wrong one in place (`cmd/portico/serve.go`).
 - A failed later bind leaves the earlier listeners serving and does not
   call `wait()` (`cmd/portico/serve.go`, `serveListeners`).
-- The access log's `session` field means "cookie present", not "valid"
-  (also under "Public path, sessions, proxy").
 - Lab-name clean-up left the appliance's `portico.appliance.yaml` note
   on backing the master key up "with the store": a backup holding both
   defeats encryption at rest; say to keep them apart.
@@ -386,10 +356,6 @@ the code when taken, and the structural items.
 - Lowering the allowance deletes any `<project>-fip-N` in the project,
   one the tenant made itself under the Project Admin fallback included
   (`matchAllowance`).
-- The Portico Networking policy filters every subnet, VPC, route table
-  and floating IP of the Prism Central (also under "Tenant ready network
-  (0.2.0)"): with the adoption rule now scoped to the project, this is
-  the widest open item.
 
 ### Admin side
 
@@ -401,7 +367,6 @@ the code when taken, and the structural items.
   `setMode`).
 - The `install.sh` comment "measured on pc.7.6.0.6: dnf failed" ties
   the appliance's dnf to the Prism Central version; wording only.
-
 - A site's stored API key follows a URL change: `CheckSite` refuses to
   send it to another host, `UpdateSite` keeps it when only the URL
   changes (`internal/api/sites.go`).
@@ -439,7 +404,6 @@ the code when taken, and the structural items.
   unchanged (no pc.7.6 parser known to decode it, unmeasured), and
   would answer 403 to a console path carrying `%20` or `%25`; recorded
   paths carry `%` only in queries, not replayed on a live console.
-
 - No CSRF test walks every route; the lists miss `/password`,
   `/setup/realm/retry`, the site networking, maintenance, disconnect
   and tenants routes, and the connection and network routes.
