@@ -353,9 +353,20 @@ the code when taken, and the structural items.
 
 ### Provisioning
 
-- The read-back of a create goes by name, not by the task's entity;
-  with two same-named objects the stored extId can be the wrong one
-  (`internal/nutanix/networking.go` `createWithTask`, `projects.go`).
+- The read-back of a networking create picks the object in the project,
+  else one without a project, never another project's (0.2.2); it still
+  goes by name, not by the task's entity, and `projects.go` reads back
+  by name alone.
+- A stored extId that answers 404 means "create again", with no name
+  fallback; a spurious 404 on pc.7.6 is unmeasured and would leave an
+  orphan that `adoptByName` never fills (`internal/tenant/network.go`).
+- The `-ext` subnet is adopted by name inside the transit VPC by the
+  build step and by `External && no project` by `adoptByName`; the rule
+  "a real -ext carries no project" is not recorded as measured in
+  write-ups 34 and 35.
+- `Disconnect` filters role memberships on `projectExtId`, which the
+  list shape of `ListRoleMemberships` is not measured to carry; check
+  "1 deleted" on the next real Disconnect (`internal/tenant/provision.go`).
 - `createWithTask`, `CreateProject`, `CreateResourceGroup` and
   `CreateDefaultRoute` call `WaitTask("")` on an empty task id and
   report a failure after a create that succeeded.
@@ -381,6 +392,15 @@ the code when taken, and the structural items.
   the widest open item.
 
 ### Admin side
+
+- The tenant address pool lock is not applied in setup mode (`h.svc`
+  is nil), as before 0.2.2.
+- `exposure apply` refuses with "edit the file by hand" some valid
+  files: CRLF line ends, `public:` followed by a comment or trailing
+  spaces, a column-0 comment inside the block (`internal/exposure/apply.go`
+  `setMode`).
+- The `install.sh` comment "measured on pc.7.6.0.6: dnf failed" ties
+  the appliance's dnf to the Prism Central version; wording only.
 
 - A site's stored API key follows a URL change: `CheckSite` refuses to
   send it to another host, `UpdateSite` keeps it when only the URL
@@ -410,6 +430,15 @@ the code when taken, and the structural items.
   stores 0.
 
 ### Test gaps not closed by the fix pass
+
+- One create call across a transient poll error is proven at `WaitTask`
+  level only; the tenant fake never calls `WaitTask`.
+- `TestEncodedPathIsRefusedBeforeTheUpstream` sends a session; a test
+  without one would pin "refused before the session check".
+- The encoded-path rule lets overlong UTF-8 (`%c0%af`) through
+  unchanged (no pc.7.6 parser known to decode it, unmeasured), and
+  would answer 403 to a console path carrying `%20` or `%25`; recorded
+  paths carry `%` only in queries, not replayed on a live console.
 
 - No CSRF test walks every route; the lists miss `/password`,
   `/setup/realm/retry`, the site networking, maintenance, disconnect
