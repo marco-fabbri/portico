@@ -178,6 +178,11 @@ func (h *Handler) siteNetworkingSave(w http.ResponseWriter, r *http.Request) {
 		}
 		d.Refused = "Saved, but the ready network stays off until every check passes: " + strings.Join(open, "; ")
 	}
+	if ok, why := n.SwitchAllowed(); n.Enabled && !ok {
+		n.Enabled = false
+		status = http.StatusUnprocessableEntity
+		d.Refused = "Saved, but the ready network stays off: " + why
+	}
 	out, err := h.setup.UpdateSite(r.Context(), s.ID, func(site *settings.Site) { site.Network = n })
 	if err != nil {
 		d.Refused = err.Error()
