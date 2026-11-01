@@ -282,3 +282,35 @@ func TestCreateVLANSubnetIsUnmanaged(t *testing.T) {
 		}
 	}
 }
+
+// pc.7.6.0.6 reports the system project `_internal` (all zeros) as the
+// projectExtId of a subnet created without a project (write-up 39): to
+// Portico that is no project, so the external subnet it just created is
+// found, a tenant's object put there is the orphan Retry network repairs,
+// and a VPC or floating IP there carries no project.
+func TestSystemProjectReadsAsNoProject(t *testing.T) {
+	f := newFakePC(t)
+	c := newClient(t, f, nil)
+	pr := netip.MustParsePrefix("100.96.0.0/28")
+	gw, first, last := netip.MustParseAddr("100.96.0.1"), netip.MustParseAddr("100.96.0.2"), netip.MustParseAddr("100.96.0.14")
+	f.lists[PathNetworking+"/subnets"] = []any{netSubnet("s-ext", "portico-acme-ext", SystemProject)}
+	sub, err := c.CreateOverlayExternalSubnet(context.Background(), "portico-acme-ext", "vpc-1", pr, gw, first, last)
+	if err != nil || sub.ExtID != "s-ext" || sub.ProjectExtID != "" {
+		t.Fatalf("external subnet = %+v, %v", sub, err)
+	}
+	f.lists[PathNetworking+"/subnets"] = []any{netSubnet("s-dropped", "portico-acme-net", SystemProject)}
+	sub, err = c.CreateOverlaySubnet(context.Background(), "portico-acme-net", "p-1", "vpc-1", pr, gw, first, last)
+	if err != nil || sub.ExtID != "s-dropped" || sub.ProjectExtID != "" {
+		t.Fatalf("tenant subnet = %+v, %v", sub, err)
+	}
+	f.lists[PathNetworking+"/vpcs"] = []any{map[string]any{"extId": "v-1", "name": "portico-acme-vpc", "vpcType": "REGULAR", "projectExtId": SystemProject}}
+	f.lists[PathNetworking+"/floating-ips"] = []any{map[string]any{"extId": "f-1", "name": "portico-acme-fip-1", "projectExtId": SystemProject}}
+	vpcs, err := c.ListVPCs(context.Background())
+	if err != nil || len(vpcs) != 1 || vpcs[0].ProjectExtID != "" {
+		t.Fatalf("vpcs = %+v, %v", vpcs, err)
+	}
+	fips, err := c.ListFloatingIPs(context.Background())
+	if err != nil || len(fips) != 1 || fips[0].ProjectExtID != "" {
+		t.Fatalf("floating IPs = %+v, %v", fips, err)
+	}
+}
