@@ -364,8 +364,10 @@ func closeIdle(rt http.RoundTripper) func() {
 // peeringRefresh is the monitor's refresh of a site's BGP peering
 // (prefix-routing design 4.6): the stored peering read at every run, so a
 // site whose peering was built since is covered; nothing while a build
-// runs (the Routing section marks it) or when nothing is built; the state
-// stored only when it changed, so the settings do not churn every probe.
+// runs (the Routing section marks it), when the last operation failed
+// (its error stays until Repair: the session may still be UP with the
+// old peer, write-up 39) or when nothing is built; the state stored only
+// when it changed, so the settings do not churn every probe.
 func (r *siteRuntime) peeringRefresh(siteID string, pc *nutanix.Client) sites.Prober {
 	return func(ctx context.Context) error {
 		if r.deps.settings == nil {
@@ -380,7 +382,7 @@ func (r *siteRuntime) peeringRefresh(siteID string, pc *nutanix.Client) sites.Pr
 			return nil
 		}
 		p := site.Network.Peering
-		if p.State == settings.PeeringBuilding || (p.LocalGatewayExtID == "" && p.SessionExtID == "") {
+		if p.State == settings.PeeringBuilding || p.State == settings.PeeringFailed || (p.LocalGatewayExtID == "" && p.SessionExtID == "") {
 			return nil
 		}
 		out, err := peering.New(pc, r.deps.log, nil).Refresh(ctx, p)
