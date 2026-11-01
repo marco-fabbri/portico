@@ -282,8 +282,9 @@ func (f *fakePC) UpdateSubnetGateway(_ context.Context, extID string, gw netip.A
 
 // fakeEdge builds edge VMs into the fake, each with a fresh extId.
 type fakeEdge struct {
-	f    *fakePC
-	fail error
+	f         *fakePC
+	fail      error
+	failPower error // the VM is created, its power-on fails
 }
 
 func (e *fakeEdge) Build(_ context.Context, site settings.Site, p settings.SitePeering) (string, error) {
@@ -291,9 +292,9 @@ func (e *fakeEdge) Build(_ context.Context, site settings.Site, p settings.SiteP
 	if e.fail != nil {
 		return "", e.fail
 	}
-	v := nutanix.VM{ExtID: e.f.id("edge"), Name: "portico-s1-edge", ClusterExtID: "cl-1", PowerOn: true, Categories: []string{"portico:edge"}}
+	v := nutanix.VM{ExtID: e.f.id("edge"), Name: "portico-s1-edge", ClusterExtID: "cl-1", PowerOn: e.failPower == nil, Categories: []string{"portico:edge"}}
 	e.f.vms[v.ExtID] = v
-	return v.ExtID, nil
+	return v.ExtID, e.failPower
 }
 
 // index returns the position of the first call starting with prefix, -1 when none.
