@@ -99,7 +99,9 @@ func (h *Handler) routingView(s settings.Site, n settings.SiteNetwork, choices [
 		v.CanBackToEdge = built && !v.Building && p.EdgeVMExtID != ""
 		v.CanDelete = !v.Building && p.EdgeVMExtID != ""
 		if p.EdgeVMExtID != "" {
-			v.LinesTitle, v.Lines = "On your core", []string{"Remove the static route " + netready.CoreRoute(routed, p) + " once the edge router is deleted"}
+			// The kept edge is off: a static route to it is dead, and one
+			// without a metric beats the route learnt from your router.
+			v.LinesTitle, v.Lines = "On your core", []string{"Remove the static route " + netready.CoreRoute(routed, p) + ": the edge router is off and your router learns the prefix by BGP"}
 		}
 	case settings.PeerEdge:
 		if !p.RouteAdded && built {
