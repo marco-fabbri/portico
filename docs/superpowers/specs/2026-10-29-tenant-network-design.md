@@ -339,7 +339,7 @@ gets the role from its "Repair" after the upgrade; until then its
 networking check fails with that instruction. The pre-created path
 (Advanced) documents the same role for an MSP that prefers to create it.
 
-`lab/auth/networking-role.sh` creates exactly this role and policy for
+The lab's networking-role script creates exactly this role and policy for
 the measurement.
 
 ### 4.6 What the tenant sees
@@ -370,8 +370,8 @@ tenant page shows them, and the MSP tells the tenant).
 ## 6. To measure before the code is final
 
 1. The networking role of 4.5 as the service account
-   (`lab/auth/networking-role.sh` then `lab/network/transit.sh` and
-   `lab/network/tenant-network.sh` with the key): enough for the seven
+   (the lab's networking-role, transit and tenant-network scripts with
+   the key): enough for the seven
    steps and their removal, `<project>-ext` included? Which entity filter scopes the subnet part to the transit
    VPC's subnets and the floating IP part to the tenants' projects and
    the transit VPC without listing them (a VPC or project attribute, or

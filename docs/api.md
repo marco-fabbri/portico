@@ -120,5 +120,5 @@ neither is refused, and verification cannot be turned off any more.
 | `GET /api/v1/settings/branding/logo` | The logo as an image | 200; 404 |
 | `GET /api/v1/settings/branding/icon` | The uploaded tab icon (PNG) | 200; 404 |
 
-`lab/tenants/api.sh METHOD PATH [JSON]` calls this API on the lab VM with
+The lab's API helper calls this API on the lab VM with
 the credentials in a curl config file.

@@ -14,7 +14,7 @@ import (
 // This file is the bootstrap side of the client (design §4.5): the
 // service account, its API key and its membership in the Project Manager
 // policy, measured in write-up 07 and scripted in
-// lab/auth/create-service-account.sh.
+// the lab's create-service-account script.
 
 // User is a Prism Central user (local, SAML or service account).
 type User struct {

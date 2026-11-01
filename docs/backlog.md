@@ -151,7 +151,7 @@ drawn from this file.
   and its restore on a new image, would let a new image take over an
   appliance's state; the master key must still not leave the appliance
   in clear (`deploy/install.sh`).
-- `lab/appliance/deploy.sh` reports "appliance ready" on `healthz` 200,
+- The lab's appliance deploy script reports "appliance ready" on `healthz` 200,
   which is the Go binary only: wait for Keycloak too (the setup status
   card) before saying so.
 - `provision.sh` stages `keycloak.env` and `lab-ca.key` in `/tmp` on the
@@ -161,7 +161,7 @@ drawn from this file.
   duplicated in three files; fixed `/tmp/inv_code` and `/tmp/post_code`
   names; `create-service-account.sh` create path is only exercised by the
   rotation and `authorization-policy-create.json` is never produced.
-- `lab/tenants/acceptance.sh --delete` checks that the `_internal`
+- The lab's tenant acceptance script (`--delete`) checks that the `_internal`
   project is unchanged by diffing two snapshots it then discards: one
   run on 2026-10-18 failed that line with no way to see the field; print
   the diff on failure.

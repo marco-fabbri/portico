@@ -22,14 +22,14 @@ reverse proxy: Host-based routing (Prism Central host, Keycloak host),
 session check first (no Portico session, no proxying), then the deny list
 of design §4.3, then forwarding with TLS SNI to Prism Central, WebSocket
 upgrade pass-through and no buffering for long-lived connections. The
-nginx configuration of the lab (`lab/vm/nginx.conf`) is the reference
+nginx configuration of the lab VM is the reference
 behaviour the Go proxy must match, not a component of the product.
 
 ## Consequences
 
 - Adding a service (NAI, NKP) is a Go module with its own policy, not an
   nginx block.
-- `lab/auth/probe-local-login.sh` is the acceptance test: every line 403.
+- The lab's local-login probe is the acceptance test: every line 403.
 - Less battle-testing than nginx; acceptable at MSP scale. WebSocket
   behaviour through the Go proxy was measured in Milestone 1: the VM
   console (noVNC over `/vnc/.../proxy`) works through `httputil.ReverseProxy`

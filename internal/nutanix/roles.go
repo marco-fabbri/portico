@@ -12,7 +12,7 @@ import (
 
 // This file is the role side of the client: the custom roles the site
 // setup makes (tenant networking design 4.3 and 4.5), as
-// lab/auth/networking-role.sh does them on pc.7.6.
+// the lab's networking-role script does them on pc.7.6.
 
 // RoleDetail is a role with its operations, by extId.
 type RoleDetail struct {

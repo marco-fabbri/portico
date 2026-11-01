@@ -246,7 +246,7 @@ Nutanix accepts with `nutanix/4u`, mitigated by never publishing 8443.
    `/PrismGateway/services/rest/v1/`, `/vnc/`, plus `/`, `/auth_code`,
    `/favicon.ico`, `/redirect` (Prism Central's own Sign Out, write-up 12);
    configurable). Portico's cookies are stripped before
-   forwarding. `lab/auth/probe-local-login.sh` is the acceptance test
+   forwarding. The lab's local-login probe is the acceptance test
    (write-up 09).
 4. Request is proxied on 9440, with the public host name, to the Prism
    Central of the session's site (Milestone 4): the site must be among

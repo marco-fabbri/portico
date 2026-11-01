@@ -134,7 +134,7 @@ builds in the site, in the system project:
 | session | `portico-<site>-peering` | the two references, the local interface address, `shouldAdvertiseAllExternallyRoutablePrefixes: true` |
 
 The card waits for the gateway `UP` before the session, as
-`lab/network/bgp-gateway.sh` does. Names and the system project make
+the lab's BGP gateway script does. Names and the system project make
 the objects recognisable; read-back prefers the object by name in the
 system project, never a tenant's (the 0.2.2 ownership rule). The edge
 VM has no project of its own in the VM API: Portico keeps its extId,
@@ -212,7 +212,7 @@ SSH host key; about 1 GiB. Attached to the release with its checksum.
 
 Portico imports it into the site's image service on the first switch-on
 in edge mode, by URL from the release (`POST /api/vmm/v4.0/content/images`
-with a URL source, as `lab/appliance/deploy.sh` has Prism Central do for
+with a URL source, as the lab's appliance deploy has Prism Central do for
 the appliance), named `portico-edge-<version>`; a site whose Prism
 Central cannot reach GitHub gets the image uploaded by the MSP under
 that name, which Portico then finds (my call: the URL import first, the

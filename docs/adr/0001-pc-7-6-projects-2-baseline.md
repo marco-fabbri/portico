@@ -33,6 +33,6 @@ SAML IdP with `redirectURL`, service accounts and keys) and `iam/v4.0`
 - The brownfield feature (step 2) must handle `_internal` and migrated
   projects, and never touch `_internal`.
 - Beta API versions (`v4.4.b1`, `v4.1.b3`) can change with a Prism Central
-  release; the lab scripts (`lab/inventory.sh`, `lab/projects/*.sh`) are the
+  release; the lab's inventory and project scripts are the
   re-measurement procedure.
 - Quotas are not in these APIs (Policy Engine / Self-Service); step 2.
