@@ -487,3 +487,20 @@ func TestDeleteEdgeEndsWithTheSessionState(t *testing.T) {
 		t.Fatalf("peering = %+v", out)
 	}
 }
+
+// An unmanaged subnet with the same VLAN ID but on another virtual switch
+// is another L2 network (spec section 3): not adopted.
+func TestBuildCreatesTheVLANSubnetWhenTheVirtualSwitchDiffers(t *testing.T) {
+	f := newFakePC()
+	m := f.subnets[mgmtSubnet]
+	m.VirtualSwitchExtID = "vs-2"
+	f.subnets[mgmtSubnet] = m
+	s, _ := newService(t, f)
+	p, err := s.Build(context.Background(), testSite(), routerPeering(), nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if p.VLANSubnetExtID == mgmtSubnet || f.index("CreateVLANSubnet portico-s1-vlan") < 0 {
+		t.Fatalf("peering = %+v\n  %s", p, strings.Join(f.calls, "\n  "))
+	}
+}

@@ -238,7 +238,10 @@ func (r *run) vlanSubnet() error {
 		return err
 	}
 	for _, sub := range subs {
-		if sub.Type == "VLAN" && sub.ExtID != r.ext.ExtID && sub.VLANID == r.ext.VLANID && sub.ClusterExtID == cluster && !sub.External && !sub.Prefix.IsValid() {
+		// The same VLAN ID on another virtual switch is another L2
+		// network (spec section 3).
+		sameSwitch := r.ext.VirtualSwitchExtID == "" || sub.VirtualSwitchExtID == r.ext.VirtualSwitchExtID
+		if sub.Type == "VLAN" && sub.ExtID != r.ext.ExtID && sub.VLANID == r.ext.VLANID && sameSwitch && sub.ClusterExtID == cluster && !sub.External && !sub.Prefix.IsValid() {
 			r.p.VLANSubnetExtID = sub.ExtID
 			r.store()
 			return nil
