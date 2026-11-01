@@ -219,8 +219,13 @@ func peeringChecks(ctx context.Context, r Reader, p settings.SitePeering, prefix
 		add("routing", OK, "Routed by your router with a static route to the transit VPC (not checked)")
 		return out
 	}
+	building := p.State == settings.PeeringBuilding
 	if p.LocalGatewayExtID == "" {
-		add("bgp gateway", Todo, "Save the Routing section: Portico builds the BGP gateway, the peer and the session")
+		if building {
+			add("bgp gateway", Todo, "The BGP gateway is being built")
+		} else {
+			add("bgp gateway", Todo, "Save the Routing section: Portico builds the BGP gateway, the peer and the session")
+		}
 		return out
 	}
 	switch g, err := r.GetGateway(ctx, p.LocalGatewayExtID); {
@@ -229,12 +234,14 @@ func peeringChecks(ctx context.Context, r Reader, p settings.SitePeering, prefix
 	case err != nil:
 		add("bgp gateway", Failed, "Cannot read the BGP gateway: "+err.Error())
 	case g.State != "UP":
-		add("bgp gateway", Failed, fmt.Sprintf("The BGP gateway is %s (%s); Repair recreates it", stateOrUnknown(g.State), g.Message))
+		add("bgp gateway", Failed, fmt.Sprintf("The BGP gateway is %s (%s); Repair waits for it to come up; delete it in Prism Central for Repair to build it again", stateOrUnknown(g.State), g.Message))
 	default:
 		add("bgp gateway", OK, fmt.Sprintf("BGP gateway %s AS %d UP, version %s", g.Address, g.ASN, g.Version))
 	}
 	sessionUp := false
-	if p.SessionExtID == "" {
+	if p.SessionExtID == "" && building {
+		add("bgp session", Todo, "The BGP session is being built")
+	} else if p.SessionExtID == "" {
 		add("bgp session", Failed, "The BGP session is not built; Repair creates it")
 	} else {
 		switch sess, err := r.GetBGPSession(ctx, p.SessionExtID); {
@@ -247,7 +254,7 @@ func peeringChecks(ctx context.Context, r Reader, p settings.SitePeering, prefix
 			if kind == settings.PeerRouter {
 				msg += "; configure the session on your router: " + strings.Join(RouterLines(p), "; ")
 			} else {
-				msg += "; the edge router is being replaced, or Repair replaces it"
+				msg += "; the edge router may still be booting: Replace the edge router if it stays down"
 			}
 			add("bgp session", Failed, msg)
 		default:
@@ -276,16 +283,18 @@ func peeringChecks(ctx context.Context, r Reader, p settings.SitePeering, prefix
 		}
 	}
 	if kind == settings.PeerEdge {
-		if p.EdgeVMExtID == "" {
+		if p.EdgeVMExtID == "" && building {
+			add("edge router", Todo, "The edge router is being built")
+		} else if p.EdgeVMExtID == "" {
 			add("edge router", Failed, "No edge router built; Repair builds it")
 		} else {
 			switch vm, err := r.GetVM(ctx, p.EdgeVMExtID); {
 			case nutanix.IsNotFound(err):
-				add("edge router", Failed, "The edge router is gone; Repair replaces it")
+				add("edge router", Failed, "The edge router is gone; Repair builds it again")
 			case err != nil:
 				add("edge router", Failed, "Cannot read the edge router: "+err.Error())
 			case !vm.PowerOn:
-				add("edge router", Failed, "The edge router is off; Repair replaces it")
+				add("edge router", Failed, "The edge router is off; Repair turns it on")
 			default:
 				add("edge router", OK, "Edge router "+p.EdgeAddr.String()+" on")
 			}

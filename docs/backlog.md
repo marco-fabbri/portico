@@ -456,9 +456,6 @@ the code when taken, and the structural items.
 - A netready check on the external subnet's gateway: the edge's address
   in edge mode, the VLAN router in router mode (Delete the edge router
   puts it back now; nothing shows it in between).
-- The card's wording promises more than Repair does ("Repair recreates
-  it" for a gateway that is DOWN, "Repair replaces it" for an edge that
-  is off); rows read "not built" during a build.
 - `Edge.Build` returns no extId when the power-on fails after the
   create: TearDown leaves the VM, Replace adopts it by name.
 - TearDown reads the external subnet after deleting everything: read
@@ -470,8 +467,6 @@ the code when taken, and the structural items.
   `DeleteImage` is unused, images pile up release after release.
 - The task poll's transient limit is 40 s against 504 waves of two to
   four minutes; the peering waits take five minutes of them.
-- The address fields strip only `/0`; an address typed as `x/24` is
-  refused with "not an IPv4 address".
 - The edge image imported by URL is not checked against the release's
   `.sha256`; adoption by name trusts any image with that name.
 - The `edge` job of the image workflow has never run in CI; run it by

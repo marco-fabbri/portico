@@ -129,7 +129,15 @@ func peeringFromForm(r *http.Request, cur settings.SitePeering) (settings.SitePe
 		if v == "" {
 			return netip.Addr{}, nil
 		}
-		a, err := netip.ParseAddr(strings.TrimSuffix(v, "/"+strconv.Itoa(0)))
+		// "10.0.210.196/24" is accepted as the address: the fields hold
+		// addresses, the mask is the gateway address's.
+		a, err := netip.ParseAddr(v)
+		if strings.Contains(v, "/") {
+			var pfx netip.Prefix
+			if pfx, err = netip.ParsePrefix(v); err == nil {
+				a = pfx.Addr()
+			}
+		}
 		if err != nil || !a.Is4() {
 			return netip.Addr{}, fmt.Errorf("%q is not an IPv4 address", v)
 		}
