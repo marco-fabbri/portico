@@ -339,7 +339,9 @@ func (h *Handler) routingAction(w http.ResponseWriter, r *http.Request) {
 		d.Notice, d.Refused = notice, refused
 		h.writeNetworking(w, r, status, d)
 	}
-	if p.State == settings.PeeringBuilding && action != "route-added" {
+	// Every action, the route tick too: the operation stores its own copy
+	// of the peering as it goes and would write the tick over.
+	if p.State == settings.PeeringBuilding {
 		card(http.StatusConflict, "", "An operation on the peering is running: wait for it")
 		return
 	}

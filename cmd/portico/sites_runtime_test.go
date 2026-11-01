@@ -412,3 +412,27 @@ func TestStartupMarksAnInterruptedPeeringFailed(t *testing.T) {
 		t.Fatalf("stored site-a peering = %+v", s.Network.Peering)
 	}
 }
+
+// The monitor stores only what it read (state, message, time) and only
+// over the objects it read: an operation that finished meanwhile (new
+// extIds, the route tick, a teardown) is not reverted.
+func TestPeeringStateMergeKeepsTheStoredObjects(t *testing.T) {
+	read := settings.SitePeering{Kind: settings.PeerRouter, LocalGatewayExtID: "gw-1", SessionExtID: "s-1", State: settings.PeeringUp}
+	out := read
+	out.State, out.Error = settings.PeeringDown, "The BGP session is DOWN"
+	stored := read
+	stored.RouteAdded, stored.RemoteGatewayExtID = true, "rgw-2"
+	got, ok := mergePeeringState(stored, read, out)
+	if !ok || got.State != settings.PeeringDown || got.Error != out.Error || !got.RouteAdded || got.RemoteGatewayExtID != "rgw-2" {
+		t.Fatalf("merged = %+v ok=%v", got, ok)
+	}
+	torn := settings.SitePeering{Kind: settings.PeerRouter}
+	if _, ok := mergePeeringState(torn, read, out); ok {
+		t.Fatal("a peering torn down meanwhile was written over")
+	}
+	building := stored
+	building.State = settings.PeeringBuilding
+	if _, ok := mergePeeringState(building, read, out); ok {
+		t.Fatal("a build in progress was written over")
+	}
+}

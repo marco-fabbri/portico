@@ -383,3 +383,19 @@ func TestRoutingSaveMoveThatFailsKeepsTheKind(t *testing.T) {
 		t.Fatalf("delete-edge ran on the live peer: %d calls=%v", rec.Code, fp.calls)
 	}
 }
+
+// The route tick waits for the operation in progress: the service stores
+// its own copy of the peering as it goes and would write the tick over.
+func TestRoutingRouteAddedWaitsForTheOperation(t *testing.T) {
+	e, svc, _ := withRouting(t, &netReader{gateway: netip.MustParseAddr("10.0.210.1")})
+	p := edgePeering()
+	p.State = settings.PeeringBuilding
+	storePeering(t, e, settings.SiteNetwork{TransitVPCExtID: "vpc-transit", IntegratedConfirmed: true, DNS: []string{"1.1.1.1"}, Peering: p})
+	rec := e.hx("POST", "/setup/sites/site-a/routing/route-added", e.form())
+	if !strings.Contains(rec.Body.String(), "An operation on the peering is running") {
+		t.Fatalf("route-added while building: %d\n%s", rec.Code, rec.Body.String())
+	}
+	if n := storedNetwork(t, svc); n.Peering.RouteAdded {
+		t.Fatalf("stored = %+v", n.Peering)
+	}
+}

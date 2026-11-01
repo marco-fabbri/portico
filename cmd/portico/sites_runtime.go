@@ -395,12 +395,27 @@ func (r *siteRuntime) peeringRefresh(siteID string, pc *nutanix.Client) sites.Pr
 		r.deps.log.Info("site peering", "site", siteID, "state", out.State, "message", out.Error)
 		return r.deps.settings.Patch(ctx, func(d *settings.Settings) {
 			for i := range d.Sites {
-				if d.Sites[i].ID == siteID && d.Sites[i].Network.Peering.State != settings.PeeringBuilding {
-					d.Sites[i].Network.Peering = out
+				if d.Sites[i].ID == siteID {
+					if merged, ok := mergePeeringState(d.Sites[i].Network.Peering, p, out); ok {
+						d.Sites[i].Network.Peering = merged
+					}
 				}
 			}
 		})
 	}
+}
+
+// mergePeeringState puts the state the monitor read (out, read for the
+// peering read) onto the peering as stored now: only the state, the
+// message and the time change, and only when the stored peering still
+// holds the objects that were read and no operation runs on it. An
+// operation that finished meanwhile keeps its result.
+func mergePeeringState(stored, read, out settings.SitePeering) (settings.SitePeering, bool) {
+	if stored.State == settings.PeeringBuilding || stored.LocalGatewayExtID != read.LocalGatewayExtID || stored.SessionExtID != read.SessionExtID {
+		return stored, false
+	}
+	stored.State, stored.Error, stored.StateAt = out.State, out.Error, out.StateAt
+	return stored, true
 }
 
 // recoverInterruptedPeerings marks failed every peering stored as
