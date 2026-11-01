@@ -215,4 +215,43 @@
   <label class="inline"><input type="checkbox" name="enabled"{{if .S.Network.Enabled}} checked{{end}}> New connections get a ready network</label>
   <div class="actions"><button type="submit" class="primary">Save</button></div>
 </form>
+{{template "site_routing" $}}
 </div>{{end}}{{end}}
+
+{{define "site_routing"}}{{with .Data.Routing}}
+<h3>Routing</h3>
+<p class="muted">The routed prefix reaches this site's network by eBGP: Portico builds a BGP gateway on the external subnet's VLAN that advertises it, and a peer. Your router is the requirement; the edge router Portico builds is the way out when the router cannot peer: your core then keeps one static route to it.</p>
+{{if .Building}}<div class="banner notice" hx-get="/setup/sites/{{.SiteID}}/networking" hx-trigger="every 5s" hx-headers='{"X-Portico-Poll": "1"}' hx-disinherit="hx-headers" hx-target="#site-networking" hx-swap="outerHTML">Working on the peering… this card refreshes on its own.</div>{{end}}
+{{if eq .P.State "failed"}}<div class="banner error">The peering failed: {{.P.Error}}. Fix the cause and press Repair.</div>{{end}}
+{{if .Lines}}<div class="banner notice"><strong>{{.LinesTitle}}</strong><pre>{{range .Lines}}{{.}}
+{{end}}</pre></div>{{end}}
+<form hx-post="/setup/sites/{{.SiteID}}/routing" hx-target="#site-networking" hx-swap="outerHTML">
+  <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+  <fieldset>
+    <legend>Peer</legend>
+    <label class="inline"><input type="radio" name="peer" value="static"{{if eq .Kind "static"}} checked{{end}}> A static route on your router to the transit VPC's address (sites built before 0.3.0; nothing checked)</label>
+    <label class="inline"><input type="radio" name="peer" value="router"{{if eq .Kind "router"}} checked{{end}}> Your router peers by eBGP with the BGP gateway (the requirement)</label>
+    <label class="inline"><input type="radio" name="peer" value="edge"{{if eq .Kind "edge"}} checked{{end}}> An edge router built by Portico peers; your core keeps one static route to it</label>
+  </fieldset>
+  <div class="grid">
+    <label>BGP gateway address (on the external subnet's VLAN, outside its pool) <input type="text" name="gateway_addr" value="{{if .P.GatewayAddr.IsValid}}{{.P.GatewayAddr.Addr}}{{end}}" placeholder="10.0.0.195"></label>
+    <label>VLAN router (the gateway's default gateway) <input type="text" name="gateway_gw" value="{{.DefaultGW}}" placeholder="the external subnet's gateway"></label>
+    <label>BGP gateway ASN <input type="text" name="gateway_asn" value="{{.P.GatewayASN}}"></label>
+    <label>Your router's address <input type="text" name="router_addr" value="{{if .P.RouterAddr.IsValid}}{{.P.RouterAddr}}{{end}}"></label>
+    <label>Your router's ASN <input type="text" name="router_asn" value="{{if .P.RouterASN}}{{.P.RouterASN}}{{end}}"></label>
+    <label>Edge router address (free, on the same VLAN) <input type="text" name="edge_addr" value="{{if .P.EdgeAddr.IsValid}}{{.P.EdgeAddr}}{{end}}"></label>
+    <label>Edge router ASN <input type="text" name="edge_asn" value="{{.P.EdgeASN}}"></label>
+  </div>
+  <div class="actions"><button type="submit" class="primary">Save</button>
+  {{if .CanRoute}}<button type="submit" hx-post="/setup/sites/{{.SiteID}}/routing/route-added">The static route is on my core</button>{{end}}
+  {{if .CanRepair}}<button type="submit" hx-post="/setup/sites/{{.SiteID}}/routing/repair">Repair the peering</button>{{end}}
+  {{if .CanMoveRouter}}<button type="submit" hx-post="/setup/sites/{{.SiteID}}/routing/move-router">Move to your router</button>{{end}}
+  {{if .CanMoveEdge}}<button type="submit" hx-post="/setup/sites/{{.SiteID}}/routing/move-edge">Move to the edge router</button>{{end}}
+  {{if .CanBackToEdge}}<button type="submit" hx-post="/setup/sites/{{.SiteID}}/routing/back-to-edge">Back to the edge router</button>{{end}}
+  </div>
+</form>
+{{if or .CanReplace .CanDelete}}<div class="actions">
+  {{if .CanReplace}}<form method="post" action="/setup/sites/{{.SiteID}}/routing/replace-edge" class="inline"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><button type="submit" class="danger">Replace the edge router</button></form>{{end}}
+  {{if .CanDelete}}<form method="post" action="/setup/sites/{{.SiteID}}/routing/delete-edge" class="inline"><input type="hidden" name="_csrf" value="{{$.CSRF}}"><button type="submit" class="danger">Delete the edge router</button></form>{{end}}
+</div>{{end}}
+{{end}}{{end}}

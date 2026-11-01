@@ -107,6 +107,7 @@ type confirmData struct {
 	Action, Button string
 	Danger         bool
 	From, Back     string
+	Confirmed      bool // the form carries confirmed=on: the action's POST asked for this page first
 }
 
 func (h *Handler) confirm(w http.ResponseWriter, r *http.Request, d confirmData) {

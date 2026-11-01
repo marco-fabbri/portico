@@ -11,6 +11,7 @@
     <form method="post" action="{{.Action}}" class="inline">
       <input type="hidden" name="_csrf" value="{{$.CSRF}}">
       {{if .From}}<input type="hidden" name="from" value="{{.From}}">{{end}}
+      {{if .Confirmed}}<input type="hidden" name="confirmed" value="on">{{end}}
       <button type="submit" class="{{if .Danger}}danger{{else}}primary{{end}}">{{.Button}}</button>
     </form>
     {{end}}

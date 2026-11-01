@@ -207,6 +207,11 @@ type Service struct {
 	running map[string]bool
 	wg      sync.WaitGroup
 	hooks   []func(tenantID string)
+
+	// OnLastNetworkGone runs after a disconnect removed the last ready
+	// network on a site (prefix routing design 4.6: the site's peering
+	// lives while the switch is on or any tenant holds a ready network).
+	OnLastNetworkGone func(ctx context.Context, siteID string)
 }
 
 // NewService returns a service over the store, the sites (in the order

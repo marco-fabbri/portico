@@ -14,6 +14,7 @@ import (
 
 	"github.com/marco-fabbri/portico/internal/netready"
 	"github.com/marco-fabbri/portico/internal/nutanix"
+	"github.com/marco-fabbri/portico/internal/peering"
 	"github.com/marco-fabbri/portico/internal/proxy"
 	"github.com/marco-fabbri/portico/internal/settings"
 	"github.com/marco-fabbri/portico/internal/tenant"
@@ -25,6 +26,11 @@ type NetReader func(s settings.Site, log *slog.Logger) (netready.Reader, error)
 
 // siteNetReader is NetReader against the site itself.
 func siteNetReader(s settings.Site, log *slog.Logger) (netready.Reader, error) {
+	return siteClient(s, log)
+}
+
+// siteClient opens the site's Prism Central with its service account key.
+func siteClient(s settings.Site, log *slog.Logger) (*nutanix.Client, error) {
 	u, err := url.Parse(s.URL)
 	if err != nil {
 		return nil, err
@@ -51,11 +57,14 @@ type networkingData struct {
 	Used    int    // connections to the site holding a /28
 	Notice  string // a save's outcome
 	Refused string // why the switch stays off
+	Routing routingView
 }
 
 func (h *Handler) networkingRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /setup/sites/{id}/networking", h.siteNetworking)
 	mux.HandleFunc("POST /setup/sites/{id}/networking", h.siteNetworkingSave)
+	mux.HandleFunc("POST /setup/sites/{id}/routing", h.routingSave)
+	mux.HandleFunc("POST /setup/sites/{id}/routing/{action}", h.routingAction)
 	mux.HandleFunc("POST /tenants/{id}/sites/{site}/network", h.running(h.networkAction("create")))
 	mux.HandleFunc("POST /tenants/{id}/sites/{site}/network/retry", h.running(h.networkAction("retry")))
 	mux.HandleFunc("POST /tenants/{id}/floating-ips", h.running(h.tenantAllowance))
@@ -98,6 +107,7 @@ func (h *Handler) networking(ctx context.Context, s settings.Site, n settings.Si
 	}
 	d.Checks = netready.Evaluate(ctx, r, n, s.ServiceAccountExtID, d.Used, h.tenantRole(ctx))
 	d.Ready = netready.Ready(d.Checks)
+	d.Routing = h.routingView(s, n, d.Choices, d.Checks)
 	return d
 }
 
@@ -194,6 +204,15 @@ func (h *Handler) siteNetworkingSave(w http.ResponseWriter, r *http.Request) {
 		d.Notice = "Saved."
 		if n.Enabled {
 			d.Notice = "Saved: new connections to this site get a ready network."
+		}
+	}
+	if s.Network.Enabled && !n.Enabled && n.Peering.LocalGatewayExtID != "" && !h.peeringNeeded(r.Context(), s.ID, false) {
+		if err := h.runPeering(&out, "tear-down", func(ctx context.Context, pr Peerer, _ peering.EdgeBuilder, p settings.SitePeering) (settings.SitePeering, error) {
+			return pr.TearDown(ctx, out, p)
+		}); err == nil {
+			d.Notice += " No connection holds a ready network: the BGP peering is being removed."
+			d.S = out
+			d.Routing = h.routingView(out, out.Network, d.Choices, d.Checks)
 		}
 	}
 	h.log.Info("site networking saved", "via", "ui", "site", s.ID, "enabled", n.Enabled, "transit", n.TransitVPCExtID)
