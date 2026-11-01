@@ -11,9 +11,25 @@ import (
 // network uses (write-up 34: v4.0 to v4.4 answer on pc.7.6, v4.5 is 404).
 const PathNetworking = "/api/networking/v4.4/config"
 
+// SystemProject is Prism Central's `_internal` project. pc.7.6 reports it
+// as the projectExtId of a subnet, VPC or floating IP created without a
+// project (write-up 39); to Portico that is no project, and the decoders
+// below read it as "".
+const SystemProject = "00000000-0000-0000-0000-000000000000"
+
+// tenantProject is the project a tenant's object belongs to: none when
+// Prism Central reports the system project.
+func tenantProject(id string) string {
+	if id == SystemProject {
+		return ""
+	}
+	return id
+}
+
 // Subnet is a subnet as Prism Central stores it. A subnet shared into a
 // project carries its owner's projectExtId (an overlay external subnet in
-// the transit VPC carries none).
+// the transit VPC carries none: Prism Central reports the system project,
+// read as none).
 type Subnet struct {
 	ExtID, Name, Type, ProjectExtID, VPCExtID string
 	ClusterExtID                              string // a VLAN subnet's cluster
@@ -108,7 +124,7 @@ type rawSubnet struct {
 }
 
 func (r rawSubnet) subnet() Subnet {
-	s := Subnet{ExtID: r.ExtID, Name: r.Name, Type: r.SubnetType, ProjectExtID: r.ProjectExtID, VPCExtID: r.VPCReference, ClusterExtID: r.ClusterRef,
+	s := Subnet{ExtID: r.ExtID, Name: r.Name, Type: r.SubnetType, ProjectExtID: tenantProject(r.ProjectExtID), VPCExtID: r.VPCReference, ClusterExtID: r.ClusterRef,
 		External: r.IsExternal, NAT: r.IsNAT, VLANID: r.NetworkID, VirtualSwitchExtID: r.VSwitch, SharedWith: r.SharedWithProjects}
 	if len(r.IPConfig) > 0 {
 		v4 := r.IPConfig[0].IPv4
@@ -139,7 +155,7 @@ type rawVPC struct {
 }
 
 func (r rawVPC) vpc() VPC {
-	v := VPC{ExtID: r.ExtID, Name: r.Name, Type: r.VPCType, ProjectExtID: r.ProjectExtID}
+	v := VPC{ExtID: r.ExtID, Name: r.Name, Type: r.VPCType, ProjectExtID: tenantProject(r.ProjectExtID)}
 	for _, e := range r.ExternalSubnets {
 		ve := VPCExternal{SubnetExtID: e.SubnetReference}
 		for _, ip := range e.ExternalIPs {
@@ -175,7 +191,7 @@ type rawFloatingIP struct {
 // association present counts, since Prism Central deletes an associated
 // floating IP without refusing.
 func (r rawFloatingIP) floatingIP() FloatingIP {
-	f := FloatingIP{ExtID: r.ExtID, Name: r.Name, ProjectExtID: r.ProjectExtID, ExternalSubnetExtID: r.ExternalSubnetReference,
+	f := FloatingIP{ExtID: r.ExtID, Name: r.Name, ProjectExtID: tenantProject(r.ProjectExtID), ExternalSubnetExtID: r.ExternalSubnetReference,
 		IP: parseAddr(r.FloatingIP.IPv4.Value)}
 	if r.Association != nil {
 		f.AssociatedVMNIC = r.Association.VMNICReference
