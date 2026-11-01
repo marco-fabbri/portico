@@ -319,7 +319,7 @@ docs/
 
 - [Install guide](docs/install.md) and the
   [release notes](docs/releases/), 0.3.0's with the known limits of
-  0.2.x that still apply.
+  0.2.x that still apply; [how a release is made](docs/releases/README.md).
 - [Design document](docs/superpowers/specs/2026-10-17-portico-design.md):
   intent, goals and anti-goals, architecture, security model, milestones.
 - [Decisions](docs/adr/): ten, from the pc.7.6 baseline to the peering
