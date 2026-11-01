@@ -5,7 +5,7 @@
 [![Prism Central pc.7.6](https://img.shields.io/badge/Prism%20Central-pc.7.6%2B-024DA1.svg)](#requirements)
 [![Keycloak 26](https://img.shields.io/badge/Keycloak-26-4D4D4D.svg?logo=keycloak&logoColor=white)](#what-it-does)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8.svg?logo=go&logoColor=white)](go.mod)
-[![Release v0.2.1](https://img.shields.io/badge/release-v0.2.1-green.svg)](https://github.com/marco-fabbri/portico/releases/tag/v0.2.1)
+[![Release v0.3.0](https://img.shields.io/badge/release-v0.3.0-green.svg)](https://github.com/marco-fabbri/portico/releases/tag/v0.3.0)
 
 A virtual appliance that runs inside a Nutanix cluster and acts as the
 **single, authenticated entry point** through which a managed service
@@ -26,11 +26,11 @@ and the same tenant model.
 > its public v4 APIs; the Nutanix guides it was built against stay on the
 > Nutanix portal.
 >
-> **Current release, 0.2.1.** It is for trying Portico with real tenants
+> **Current release, 0.3.0.** It is for trying Portico with real tenants
 > on your own Prism Central. Everything below was measured on two test
 > clusters (see [Status and validation](#status-and-validation)), with
 > no production load. Read the
-> [known limits](docs/releases/v0.2.0.md#known-limits) before you put it
+> [known limits](docs/releases/v0.3.0.md#known-limits) before you put it
 > in front of customers. It is provided "as is", without warranty (see
 > [License](#license)).
 
@@ -51,6 +51,7 @@ recognises. Portico is the path towards it, not a detour.
 | **Identity** | Keycloak (OIDC for Portico, SAML for Prism Central): one login for the tenant user, MFA and brokering to the customer's directory available. Prism Central local accounts, `admin` included, can never log in from outside: every local-login path and every `Authorization` header is refused |
 | **Sites** | Several Prism Centrals behind one Portico, shown to tenants as sites such as `AZ-IT-MI1` and `AZ-US-NYC1` on the one public name: the tenant signs in once and chooses a site; no Prism Central address is ever shown. The MSP puts a site in maintenance, sees who is still connected and disconnects them |
 | **Tenant arrival** | One action places a tenant on the sites where it gets resources: on each, a Projects 2.0 project with its resource group, the SAML group and a project-scoped role membership; one group in Keycloak; then a visibility check per site. Sites can be added and removed later; tenants can be disabled, enabled and deleted; users get a one-time temporary password |
+| **Site networking** | On each site a tenant gets a ready network: a VPC with its `/24`, outbound access and floating IPs on a `/28` of the site's transit VPC. The transit VPC's routed prefix reaches the MSP's network by eBGP: Portico builds the BGP gateway and the session with the MSP's router, or with an edge router it builds itself when the router cannot peer |
 | **Branding** | The Keycloak login page, Portico's landing page and its error pages carry the MSP's name, claim, colour, logo and tab icon |
 | **Admin path** | A web UI and a JSON API on an internal listener only, with a break-glass account; a raw pass-through to Prism Central for administrators |
 | **Settings** | Stored in Portico's own database, secrets sealed with a master key the appliance creates at first start. A fresh appliance configures itself from the setup page: Portico creates its service account in Prism Central, the Keycloak realm and clients and the SAML trust from one-time credentials it never stores |
@@ -121,6 +122,59 @@ created, notices when a tenant deletes or moves it in Prism Central, and
 removes it at Disconnect; the tenant's role in its project cannot create
 floating IPs, so the MSP sets how many it has.
 
+## How a site's prefix is routed
+
+Since 0.3.0 the routed prefix of a site (the block the tenants' floating
+IPs and outbound addresses come from) reaches the MSP's network by eBGP,
+and the Networking card's **Routing** section asks for the peer. Portico
+builds a BGP gateway on the external subnet's VLAN, a remote gateway
+standing for the peer and the session between them; the session
+advertises the routed prefix with the transit VPC's address as next hop.
+The peer is one of two:
+
+- **Your router**, with its address on the VLAN and its ASN: the card
+  shows the three lines the router needs and the session's state as
+  Prism Central reports it.
+- **An edge router built by Portico**, for a router that cannot peer:
+  one free address on the VLAN, and Portico creates a small VM from the
+  release's edge image (Rocky Linux 9, FRR, nftables, no login), peers
+  it with the gateway and shows the one static route the core needs
+  towards it.
+
+```mermaid
+flowchart LR
+    subgraph Site ["Site: Prism Central, Flow Virtual Networking"]
+        TV["Tenant VPCs<br/>/24 each, floating IPs<br/>on the routed prefix"]
+        TR["Transit VPC<br/>external subnet on the VLAN"]
+        GW["BGP gateway<br/>portico-&lt;site&gt;-bgp<br/>built by Portico"]
+        TV --- TR
+        TR --- GW
+    end
+    subgraph MSP ["MSP network"]
+        R["Your router<br/>eBGP peer"]
+        E["Edge router<br/>built by Portico<br/>eBGP peer"]
+        C["Core<br/>static route to the edge"]
+    end
+    GW -. "eBGP session<br/>advertises the routed prefix" .- R
+    GW -. "eBGP session" .- E
+    E --- C
+    R --- C
+```
+
+The two peers are also a path. An MSP whose router cannot peer yet
+starts with the edge router and one static route on the core; when the
+network team has configured eBGP on the router, **Move to your router**
+moves the session to it in one recorded operation (the edge stays off as
+a fallback, **Back to the edge router** returns to it), the static route
+on the core goes, and **Delete the edge router** removes the VM. The
+reverse path exists too, and **Replace** rebuilds the edge from a new
+release's image or at a new address, in a window the MSP picks: the
+prefix is unreachable for under two minutes (write-up 39). A site set up
+before 0.3.0 keeps its static route until the MSP picks a peer. The
+[install guide](docs/install.md#tenant-networks) has the prerequisites
+and the router's side; [ADR 0010](docs/adr/0010-peering-state-follows-prism-central.md)
+says why the stored peer follows Prism Central.
+
 ## Why "Portico"
 
 A portico stands in front of private buildings and makes them reachable
@@ -152,7 +206,10 @@ word with no vendor name in it, and `portico serve` reads well.
   address and the MSP management network: Portico checks what it can from
   its own address, the network enforces it.
 - For tenant networks, Flow Virtual Networking (Integrated mode) and one
-  transit VPC per site with a routed prefix (install guide).
+  transit VPC per site with a routed prefix; for the prefix to be routed
+  by eBGP, a router of yours that peers on the external subnet's VLAN,
+  or one free address on that VLAN for the edge router and one static
+  route on your core (install guide).
 - An account that can create users and edit authorization policies, used
   once by the setup page to create Portico's own service account; an
   administrator's credentials once more for the SAML trust, which the
@@ -168,7 +225,7 @@ check its checksum, import it into Prism Central and boot it; the
 console on tty1 sets the network and the setup page on port 8443 does
 the rest, the certificate included. The
 [install guide](docs/install.md) has every step, the certificates and
-the upgrade; the [release notes](docs/releases/v0.2.1.md) say what
+the upgrade; the [release notes](docs/releases/v0.3.0.md) say what
 the current release does not do yet.
 
 ## Status and validation
@@ -261,11 +318,12 @@ docs/
 ## Documentation
 
 - [Install guide](docs/install.md) and the
-  [release notes](docs/releases/), 0.2.1's with 0.2.0's known limits.
+  [release notes](docs/releases/), 0.3.0's with the known limits of
+  0.2.x that still apply.
 - [Design document](docs/superpowers/specs/2026-10-17-portico-design.md):
   intent, goals and anti-goals, architecture, security model, milestones.
-- [Decisions](docs/adr/): nine, from the pc.7.6 baseline to the tenant
-  address pool.
+- [Decisions](docs/adr/): ten, from the pc.7.6 baseline to the peering
+  state that follows Prism Central.
 - [Admin JSON API](docs/api.md) and [operating the binary](docs/operating.md):
   commands, files, setup mode, logs, backup.
 - [Lab write-ups](docs/lab/): one per question, with the version and how
@@ -280,10 +338,13 @@ docs/
 
 Step 1 ended with 0.1.0: the appliance image (Rocky Linux 9, CIS
 Level 1, console wizard, `cloudflared` option), sites and an install
-guide. 0.2.0 added the tenant ready network, 0.2.1 its default pool.
-Next, from the known limits: the container images inside the
-qcow2, so a first boot needs no Internet, and a backup of Keycloak's
-database with the store.
+guide. 0.2.0 added the tenant ready network, 0.2.1 its default pool,
+0.3.0 the routing of the site's prefix by eBGP with the edge router as
+the way out. Next, from the known limits: the service account's rights
+on the edge narrowed to the `portico:edge` category, the edge image
+removed when no site uses it and Replace offered at a new release, the
+container images inside the qcow2 so a first boot needs no Internet,
+and a backup of Keycloak's database with the store.
 
 Step 2, in no fixed order: a setup page that lists connected services
 (several Prism Central, later NKP and Nutanix Enterprise AI), tenant API
