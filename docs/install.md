@@ -159,21 +159,30 @@ missing:
      shows the three lines the router needs (`router bgp <your ASN>`,
      `neighbor <gateway address> remote-as 65010`, and the neighbour
      activated). Any router that speaks eBGP does; an MSP that runs
-     its own router VM can use VyOS or FRR.
+     its own router VM can use VyOS or FRR. A static route to the
+     transit VPC the router had before wins over the route it learns
+     whatever its metric (on FRR a configured route has the lower
+     distance): remove it once the session is up.
    - **An edge router built by Portico**, when your router cannot peer:
      one free address on the VLAN, and Portico creates a small VM from
      the release's edge image that peers with the gateway; your core
      keeps one static route, `<routed prefix> via <edge address>`,
      which the card shows. The edge is one VM: while it is replaced
-     (a new release, a repair) the prefix is unreachable for about
-     three minutes, in a window you pick.
+     (a new release, a repair) the prefix is unreachable for under two
+     minutes, in a window you pick. When the site moves to your router
+     later, remove that static route as soon as your router peers: the
+     edge is off, and the static route would keep the learnt one out.
    - **A static route** on your router to the transit VPC's fixed
      address, the manual way of 0.2.x, still works for a site that has
      no peer yet.
 
    Set aside on the VLAN, outside the external subnet's pool: one
    address for the BGP gateway, and either your router's address on
-   that VLAN or one address for the edge router.
+   that VLAN or one address for the edge router. The card also asks
+   for the VLAN router: the router that forwards the routed prefix
+   (your peer, as a rule), which becomes the default route of the
+   gateway and of the edge router and the external subnet's gateway
+   when your router peers.
 
 The routed prefix is not a VLAN: it exists only in the overlay, behind
 the transit VPC, so no switch or hypervisor carries it. Pick a block your
