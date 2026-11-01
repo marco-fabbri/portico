@@ -34,6 +34,6 @@ if [ -z "$old_node" ]; then ok "every action runs on Node 24, pinned with its ex
 # The lab's identifiers: its address plan, its cluster and host names, the
 # directories that hold its scripts and write-ups. Tests use 10.0.x.x,
 # documentation the RFC 5737 ranges.
-if hits=$(git grep -n -I -E '10\.23\.[0-9]+\.[0-9]+|NTNX-0[0-9]|proxmox0[0-9]|portico-acceptance|\blab/[a-z]|docs/lab/|superpowers/plans/' -- . ':!scripts/check-repo.sh') && [ -n "$hits" ]; then ko "lab identifiers in tracked files:"; printf '%s\n' "$hits" | head -20; else ok "no lab identifier in tracked files"; fi
+if hits=$(git grep -n -I -E '10\.23\.[0-9]+\.[0-9]+|NTNX-0[0-9]|proxmox0[0-9]|portico-acceptance|(^|[^a-zA-Z0-9_-])lab/[a-z]|docs/lab/|superpowers/plans/' -- . ':!scripts/check-repo.sh') && [ -n "$hits" ]; then ko "lab identifiers in tracked files:"; printf '%s\n' "$hits" | head -20; else ok "no lab identifier in tracked files"; fi
 
 if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi

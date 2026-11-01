@@ -186,9 +186,9 @@ format is versioned and migrated at start. Open sessions end. A
 peering operation running at the restart (a build, a move, a replace of
 the edge router) is marked failed at the next start, with its objects
 in Prism Central as they were: press Repair on the site's Networking
-card ([ADR 0010](adr/0010-peering-state-follows-prism-central.md)). The
-development equivalent is `lab/portico/upgrade-appliance.sh`, which runs
-the installer with the binary of a checkout.
+card ([ADR 0010](adr/0010-peering-state-follows-prism-central.md)). A
+development build upgrades the same way, with `--binary` and the binary
+of a checkout.
 
 ## The console wizard
 
