@@ -280,3 +280,24 @@ func TestTrustCheckKeyRefusalIsNotImmediate(t *testing.T) {
 		t.Fatalf("one refused key from a trust check: %s", m.Status("a"))
 	}
 }
+
+// The peering's state (prefix-routing design 4.6) is refreshed at the
+// monitor's pace, at once and then with every probe, and a refresh that
+// fails leaves the others alone.
+func TestMonitorRunsPeeringRefreshAtItsPace(t *testing.T) {
+	var a, b atomic.Int32
+	m := NewMonitor(openStore(t), map[string]Prober{"a": scripted()}, nil)
+	m.SetPeeringRefresh(map[string]Prober{
+		"a": func(context.Context) error { a.Add(1); return nil },
+		"b": func(context.Context) error { b.Add(1); return errors.New("the BGP gateway: 504") },
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { m.Run(ctx, 20*time.Millisecond, time.Second); close(done) }()
+	time.Sleep(70 * time.Millisecond)
+	cancel()
+	<-done
+	if a.Load() < 2 || b.Load() < 2 {
+		t.Fatalf("refreshes = %d, %d", a.Load(), b.Load())
+	}
+}

@@ -83,6 +83,7 @@ type Monitor struct {
 	mu          sync.RWMutex
 	probes      map[string]Prober
 	trust       map[string]Prober
+	peering     map[string]Prober
 	failures    map[string]int    // failed probes in a row; absent before the first probe
 	refusals    map[string]int    // refused keys in a row
 	lastReason  map[string]string // the last refusal's reason
@@ -186,6 +187,38 @@ func (m *Monitor) SetTrustChecks(checks map[string]Prober) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.trust = checks
+}
+
+// SetPeeringRefresh replaces the refreshes of the sites' BGP peering
+// state (prefix-routing design 4.6), run at the monitor's pace by Run:
+// each reads the gateway and the session from Prism Central and stores
+// what it found.
+func (m *Monitor) SetPeeringRefresh(refresh map[string]Prober) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.peering = refresh
+}
+
+// RefreshPeering runs every peering refresh once, each bounded by
+// timeout; a failure (a slow answer) is logged and changes nothing.
+func (m *Monitor) RefreshPeering(ctx context.Context, timeout time.Duration) {
+	m.mu.RLock()
+	refresh := m.peering
+	m.mu.RUnlock()
+	var wg sync.WaitGroup
+	for id, f := range refresh {
+		wg.Add(1)
+		go func(id string, f Prober) {
+			defer wg.Done()
+			rctx, cancel := context.WithTimeout(ctx, timeout)
+			err := f(rctx)
+			cancel()
+			if err != nil {
+				m.log.Warn("site peering not refreshed", "site", id, "err", err.Error())
+			}
+		}(id, f)
+	}
+	wg.Wait()
 }
 
 // CheckTrust runs every trust check once, each bounded by timeout. Only
@@ -360,11 +393,13 @@ func (m *Monitor) record(id string, err error) {
 	}
 }
 
-// Run probes and checks the trust at once, then probes every interval and
-// checks the trust every TrustInterval, until ctx is done.
+// Run probes, checks the trust and refreshes the peerings at once, then
+// probes and refreshes every interval and checks the trust every
+// TrustInterval, until ctx is done.
 func (m *Monitor) Run(ctx context.Context, interval, timeout time.Duration) {
 	m.ProbeOnce(ctx, timeout)
 	m.CheckTrust(ctx, timeout)
+	m.RefreshPeering(ctx, timeout)
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	tt := time.NewTicker(TrustInterval)
@@ -375,6 +410,7 @@ func (m *Monitor) Run(ctx context.Context, interval, timeout time.Duration) {
 			return
 		case <-t.C:
 			m.ProbeOnce(ctx, timeout)
+			m.RefreshPeering(ctx, timeout)
 		case <-tt.C:
 			m.CheckTrust(ctx, timeout)
 		}
