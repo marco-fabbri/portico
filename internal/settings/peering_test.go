@@ -24,10 +24,10 @@ func TestPeeringKindDefaultsToStatic(t *testing.T) {
 }
 
 func TestPeeringValidateRefusesPoolAndEqualASN(t *testing.T) {
-	external := netip.MustParsePrefix("10.23.210.0/24")
-	pool := [2]netip.Addr{netip.MustParseAddr("10.23.210.200"), netip.MustParseAddr("10.23.210.220")}
-	good := SitePeering{Kind: PeerRouter, GatewayAddr: netip.MustParsePrefix("10.23.210.195/24"), GatewayGW: netip.MustParseAddr("10.23.210.254"), GatewayASN: 65010,
-		RouterAddr: netip.MustParseAddr("10.23.210.254"), RouterASN: 65000}
+	external := netip.MustParsePrefix("10.0.210.0/24")
+	pool := [2]netip.Addr{netip.MustParseAddr("10.0.210.200"), netip.MustParseAddr("10.0.210.220")}
+	good := SitePeering{Kind: PeerRouter, GatewayAddr: netip.MustParsePrefix("10.0.210.195/24"), GatewayGW: netip.MustParseAddr("10.0.210.254"), GatewayASN: 65010,
+		RouterAddr: netip.MustParseAddr("10.0.210.254"), RouterASN: 65000}
 	if err := good.Validate(external, pool); err != nil {
 		t.Fatalf("a good router peering refused: %v", err)
 	}
@@ -36,11 +36,11 @@ func TestPeeringValidateRefusesPoolAndEqualASN(t *testing.T) {
 		mut  func(p *SitePeering)
 		want string
 	}{
-		{"gateway in the pool", func(p *SitePeering) { p.GatewayAddr = netip.MustParsePrefix("10.23.210.201/24") }, "pool"},
-		{"gateway off the VLAN", func(p *SitePeering) { p.GatewayAddr = netip.MustParsePrefix("10.23.211.5/24") }, "10.23.210.0/24"},
-		{"gateway prefix length", func(p *SitePeering) { p.GatewayAddr = netip.MustParsePrefix("10.23.210.195/25") }, "prefix length"},
-		{"router off the VLAN", func(p *SitePeering) { p.RouterAddr = netip.MustParseAddr("10.23.211.1") }, "10.23.210.0/24"},
-		{"same address", func(p *SitePeering) { p.RouterAddr = netip.MustParseAddr("10.23.210.195") }, "distinct"},
+		{"gateway in the pool", func(p *SitePeering) { p.GatewayAddr = netip.MustParsePrefix("10.0.210.201/24") }, "pool"},
+		{"gateway off the VLAN", func(p *SitePeering) { p.GatewayAddr = netip.MustParsePrefix("10.0.211.5/24") }, "10.0.210.0/24"},
+		{"gateway prefix length", func(p *SitePeering) { p.GatewayAddr = netip.MustParsePrefix("10.0.210.195/25") }, "prefix length"},
+		{"router off the VLAN", func(p *SitePeering) { p.RouterAddr = netip.MustParseAddr("10.0.211.1") }, "10.0.210.0/24"},
+		{"same address", func(p *SitePeering) { p.RouterAddr = netip.MustParseAddr("10.0.210.195") }, "distinct"},
 		{"equal ASN", func(p *SitePeering) { p.RouterASN = 65010 }, "distinct"},
 		{"gateway ASN public", func(p *SitePeering) { p.GatewayASN = 64000 }, "private"},
 		{"gateway ASN missing", func(p *SitePeering) { p.GatewayASN = 0 }, "ASN"},
@@ -58,7 +58,7 @@ func TestPeeringValidateRefusesPoolAndEqualASN(t *testing.T) {
 	}
 	// The edge needs its own address and ASN, also private and distinct.
 	edge := SitePeering{Kind: PeerEdge, GatewayAddr: good.GatewayAddr, GatewayGW: good.GatewayGW, GatewayASN: 65010,
-		EdgeAddr: netip.MustParseAddr("10.23.210.194"), EdgeASN: 65020}
+		EdgeAddr: netip.MustParseAddr("10.0.210.194"), EdgeASN: 65020}
 	if err := edge.Validate(external, pool); err != nil {
 		t.Fatalf("a good edge peering refused: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestPeeringValidateRefusesPoolAndEqualASN(t *testing.T) {
 		t.Fatalf("edge ASN 4294967295: %v", err)
 	}
 	edge.EdgeASN = 4200000000
-	edge.EdgeAddr = netip.MustParseAddr("10.23.210.210")
+	edge.EdgeAddr = netip.MustParseAddr("10.0.210.210")
 	if err := edge.Validate(external, pool); err == nil || !strings.Contains(err.Error(), "pool") {
 		t.Fatalf("edge in the pool: %v", err)
 	}
@@ -101,8 +101,8 @@ func TestSettingsRoundTripKeepsPeering(t *testing.T) {
 	in := sample()
 	at := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 	in.Sites[0].Network = SiteNetwork{TransitVPCExtID: "vpc-1", Enabled: true, Peering: SitePeering{
-		Kind: PeerEdge, GatewayAddr: netip.MustParsePrefix("10.23.210.195/24"), GatewayGW: netip.MustParseAddr("10.23.210.254"), GatewayASN: 65010,
-		EdgeAddr: netip.MustParseAddr("10.23.210.194"), EdgeASN: 65020, EdgeKept: true, RouteAdded: true,
+		Kind: PeerEdge, GatewayAddr: netip.MustParsePrefix("10.0.210.195/24"), GatewayGW: netip.MustParseAddr("10.0.210.254"), GatewayASN: 65010,
+		EdgeAddr: netip.MustParseAddr("10.0.210.194"), EdgeASN: 65020, EdgeKept: true, RouteAdded: true,
 		LocalGatewayExtID: "gw-1", RemoteGatewayExtID: "gw-r", SessionExtID: "s-1", EdgeVMExtID: "vm-1", EdgeImageExtID: "img-1", VLANSubnetExtID: "sub-1",
 		State: PeeringUp, Error: "", StateAt: at}}
 	if err := svc.Set(ctx, in); err != nil {

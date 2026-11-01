@@ -430,11 +430,11 @@ func TestEvaluateEdgeRouterOffOrGone(t *testing.T) {
 // (the transit check did not answer, write-up 39): the line names the
 // prefix instead of printing an invalid one.
 func TestCoreRouteWithoutThePrefix(t *testing.T) {
-	p := settings.SitePeering{EdgeAddr: netip.MustParseAddr("10.23.210.196")}
-	if got := CoreRoute(netip.Prefix{}, p); got != "<routed prefix> via 10.23.210.196" {
+	p := settings.SitePeering{EdgeAddr: netip.MustParseAddr("10.0.210.196")}
+	if got := CoreRoute(netip.Prefix{}, p); got != "<routed prefix> via 10.0.210.196" {
 		t.Fatalf("CoreRoute = %q", got)
 	}
-	if got := CoreRoute(netip.MustParsePrefix("100.96.0.0/24"), p); got != "100.96.0.0/24 via 10.23.210.196" {
+	if got := CoreRoute(netip.MustParsePrefix("100.96.0.0/24"), p); got != "100.96.0.0/24 via 10.0.210.196" {
 		t.Fatalf("CoreRoute = %q", got)
 	}
 }

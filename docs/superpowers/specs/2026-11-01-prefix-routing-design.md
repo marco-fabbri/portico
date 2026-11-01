@@ -341,4 +341,4 @@ remain for the plan.
 - The state machine of replace and Repair, reusing the ready network's
   step list and `createWithTask`.
 - Tests: a fake Prism Central for gateways and sessions, the replace
-  sequence, the card's checks; a lab run on NTNX-01 scripted but manual.
+  sequence, the card's checks; a lab run on the lab cluster scripted but manual.

@@ -10,7 +10,7 @@ import (
 )
 
 // fakePC is an httptest Prism Central answering the v4 shapes measured in
-// docs/lab write-ups 05 and 07. It records every request for assertions.
+// lab write-ups 05 and 07. It records every request for assertions.
 type fakePC struct {
 	t        *testing.T
 	srv      *httptest.Server

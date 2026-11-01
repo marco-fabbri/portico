@@ -18,7 +18,7 @@ import (
 // host (design §4.3 step 5, §4.10): Portico answers the provider page and
 // starts the SAML login itself, replaying the console's own
 // provider-selection PUT with the browser's login-request cookie
-// (docs/lab write-ups 12 and 13). Prism Central keeps deciding who logs
+// (lab write-ups 12 and 13). Prism Central keeps deciding who logs
 // in; Portico only saves the click.
 type LandingOptions struct {
 	Pages *branding.Pages

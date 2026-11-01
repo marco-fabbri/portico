@@ -11,7 +11,7 @@ Configuration") lists the subnets its microservices infrastructure uses
 inside Prism Central by default: `192.168.5.0/24`, `10.100.0.0/16` and
 `10.200.32.0/24`. It warns that they must not overlap an active subnet:
 Prism Central does not route traffic from hosts in those ranges. The
-Security Guide 7.6 lists the same ranges. On NTNX-01 the Prism Central
+Security Guide 7.6 lists the same ranges. On the lab cluster the Prism Central
 VM has its pod network on `10.100.0.0/24` (`cni0`, `10.100.0.1`), the
 `/24` the first tenant of write-up 35 was given.
 

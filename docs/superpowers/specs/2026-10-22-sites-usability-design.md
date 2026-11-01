@@ -430,8 +430,8 @@ to go live at the end of 4.1, site changes take effect at once:
 
 ## 6. To measure before the code is final
 
-On the lab (NTNX-01 and the NYC1 Prism Central), a write-up in
-`docs/lab/`:
+On the lab (the two lab Prism Centrals), a write-up in
+a lab write-up:
 
 1. What a Projects 2.0 project can hold on pc.7.6 (VMs, images, volume
    groups, subnets, categories, recovery points, …), how to list each by
@@ -440,7 +440,7 @@ On the lab (NTNX-01 and the NYC1 Prism Central), a write-up in
 2. Whether an administrator's account can read its own rights through
    the API, for the pre-check of 4.1 step 1.
 3. How the v4 clusters API tells a Nutanix Objects storage container
-   apart (a flag, a name pattern), on the NTNX-01 container that became
+   apart (a flag, a name pattern), on the the lab cluster container that became
    the default.
 4. Keycloak's SAML logout towards Prism Central: what it calls, why it
    fails in the container, and whether Prism Central's own Sign Out has

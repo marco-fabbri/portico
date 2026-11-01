@@ -116,8 +116,8 @@ drawn from this file.
 
 ## Deployment and lab scripts
 
-- The lab's Internet link (about 470 KB/s) cannot feed a netinstall on the
-  build host (`lab/build-host`): anaconda timed out on `install.img` after
+- The lab's Internet link cannot feed a netinstall on the build host:
+  anaconda timed out on `install.img` after
   an hour. A local mirror of the BaseOS/AppStream packages the kickstart
   needs (reposync on the build host, `inst.repo` pointing at it) makes the
   build local; until then the image is built by the CI and the build host
@@ -191,10 +191,9 @@ surface or the admin authentication path, so they wait for a decision.
 - `nutanix.getRaw` repeats `call` for one request; `listAll` decodes
   each page twice (`internal/nutanix`).
 - The retired VM of Milestones 0 to 2 still has its scripts and their
-  checks: `lab/vm/` except `lab/vm/lib.sh`, which the network scripts
-  use (`edge-router.sh`), `lab/portico/deploy.sh`, `undeploy.sh`, the
-  lab `portico.yaml` files, and their lines in `lab/test_scripts.sh` and
-  `lab/README.md`.
+  checks: the lab's VM scripts except their shared library, the lab's
+  deploy and undeploy scripts and `portico.yaml` files, and their lines
+  in the lab's offline checks and README (all outside the repository).
 
 ## Sites (Milestone 4)
 

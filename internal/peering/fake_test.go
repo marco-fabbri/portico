@@ -45,13 +45,13 @@ const (
 func newFakePC() *fakePC {
 	f := &fakePC{gateways: map[string]nutanix.Gateway{}, sessions: map[string]nutanix.BGPSession{}, vms: map[string]nutanix.VM{}, subnets: map[string]nutanix.Subnet{},
 		gatewayStates: []string{"UP"}, sessionStates: []string{"UP"}}
-	f.vpc = nutanix.VPC{ExtID: "vpc-1", Name: "portico-transit", External: []nutanix.VPCExternal{{SubnetExtID: extSubnet, IPs: []netip.Addr{netip.MustParseAddr("10.23.210.200")}}},
+	f.vpc = nutanix.VPC{ExtID: "vpc-1", Name: "portico-transit", External: []nutanix.VPCExternal{{SubnetExtID: extSubnet, IPs: []netip.Addr{netip.MustParseAddr("10.0.210.200")}}},
 		RoutablePrefixes: []netip.Prefix{netip.MustParsePrefix("100.96.0.0/24")}}
 	f.subnets[extSubnet] = nutanix.Subnet{ExtID: extSubnet, Name: "external-routed", Type: "VLAN", ClusterExtID: "cl-1", External: true, NAT: false,
-		Prefix: netip.MustParsePrefix("10.23.210.0/24"), Gateway: netip.MustParseAddr("10.23.210.254"),
-		Pool: [2]netip.Addr{netip.MustParseAddr("10.23.210.200"), netip.MustParseAddr("10.23.210.220")}, VLANID: 210, VirtualSwitchExtID: "vs-1"}
+		Prefix: netip.MustParsePrefix("10.0.210.0/24"), Gateway: netip.MustParseAddr("10.0.210.254"),
+		Pool: [2]netip.Addr{netip.MustParseAddr("10.0.210.200"), netip.MustParseAddr("10.0.210.220")}, VLANID: 210, VirtualSwitchExtID: "vs-1"}
 	f.subnets[mgmtSubnet] = nutanix.Subnet{ExtID: mgmtSubnet, Name: "MGMT", Type: "VLAN", ClusterExtID: "cl-1", VLANID: 210, VirtualSwitchExtID: "vs-1"}
-	f.routes = []nutanix.BGPRoute{{Prefix: netip.MustParsePrefix("100.96.0.0/24"), NextHop: netip.MustParseAddr("10.23.210.200")}}
+	f.routes = []nutanix.BGPRoute{{Prefix: netip.MustParsePrefix("100.96.0.0/24"), NextHop: netip.MustParseAddr("10.0.210.200")}}
 	return f
 }
 
@@ -342,13 +342,13 @@ func testSite() settings.Site {
 }
 
 func routerPeering() settings.SitePeering {
-	return settings.SitePeering{Kind: settings.PeerRouter, GatewayAddr: netip.MustParsePrefix("10.23.210.195/24"), GatewayGW: netip.MustParseAddr("10.23.210.254"), GatewayASN: 65010,
-		RouterAddr: netip.MustParseAddr("10.23.210.254"), RouterASN: 65000}
+	return settings.SitePeering{Kind: settings.PeerRouter, GatewayAddr: netip.MustParsePrefix("10.0.210.195/24"), GatewayGW: netip.MustParseAddr("10.0.210.254"), GatewayASN: 65010,
+		RouterAddr: netip.MustParseAddr("10.0.210.254"), RouterASN: 65000}
 }
 
 func edgePeering() settings.SitePeering {
-	return settings.SitePeering{Kind: settings.PeerEdge, GatewayAddr: netip.MustParsePrefix("10.23.210.195/24"), GatewayGW: netip.MustParseAddr("10.23.210.254"), GatewayASN: 65010,
-		EdgeAddr: netip.MustParseAddr("10.23.210.194"), EdgeASN: 65020}
+	return settings.SitePeering{Kind: settings.PeerEdge, GatewayAddr: netip.MustParsePrefix("10.0.210.195/24"), GatewayGW: netip.MustParseAddr("10.0.210.254"), GatewayASN: 65010,
+		EdgeAddr: netip.MustParseAddr("10.0.210.194"), EdgeASN: 65020}
 }
 
 // built is an edge peering as Build leaves it, with its objects in the fake.

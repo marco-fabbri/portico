@@ -45,8 +45,8 @@ func TestBuildRouterCreatesThreeObjectsAndWaitsForUp(t *testing.T) {
 	if p.State != settings.PeeringUp || p.Error != "" || p.LocalGatewayExtID == "" || p.RemoteGatewayExtID == "" || p.SessionExtID == "" || p.VLANSubnetExtID != mgmtSubnet {
 		t.Fatalf("peering = %+v", p)
 	}
-	f.before(t, "CreateLocalBGPGateway portico-s1-bgp project="+systemProject+" cluster=cl-1 subnet="+mgmtSubnet+" addr=10.23.210.195/24 gw=10.23.210.254 asn=65010 vpc=vpc-1", "CreateRemoteBGPGateway portico-s1-peer project="+systemProject+" addr=10.23.210.254 asn=65000")
-	f.before(t, "CreateRemoteBGPGateway", "CreateBGPSession portico-s1-peering project="+systemProject+" local="+p.LocalGatewayExtID+" remote="+p.RemoteGatewayExtID+" addr=10.23.210.195")
+	f.before(t, "CreateLocalBGPGateway portico-s1-bgp project="+systemProject+" cluster=cl-1 subnet="+mgmtSubnet+" addr=10.0.210.195/24 gw=10.0.210.254 asn=65010 vpc=vpc-1", "CreateRemoteBGPGateway portico-s1-peer project="+systemProject+" addr=10.0.210.254 asn=65000")
+	f.before(t, "CreateRemoteBGPGateway", "CreateBGPSession portico-s1-peering project="+systemProject+" local="+p.LocalGatewayExtID+" remote="+p.RemoteGatewayExtID+" addr=10.0.210.195")
 	if n := f.count("GetGateway " + p.LocalGatewayExtID); n < 3 {
 		t.Fatalf("the gateway was read %d times before the session", n)
 	}
@@ -101,7 +101,7 @@ func TestBuildStopsAtGatewayNotUpWithinBound(t *testing.T) {
 
 func TestBuildAdoptsExistingByNameInSystemProject(t *testing.T) {
 	f := newFakePC()
-	f.gateways["gw-old"] = nutanix.Gateway{ExtID: "gw-old", Name: "portico-s1-bgp", ProjectExtID: systemProject, Local: true, Address: netip.MustParseAddr("10.23.210.195"), ASN: 65010}
+	f.gateways["gw-old"] = nutanix.Gateway{ExtID: "gw-old", Name: "portico-s1-bgp", ProjectExtID: systemProject, Local: true, Address: netip.MustParseAddr("10.0.210.195"), ASN: 65010}
 	s, _ := newService(t, f)
 	p, err := s.Build(context.Background(), testSite(), routerPeering(), nil)
 	if err != nil {
@@ -132,8 +132,8 @@ func TestBuildEdgeBuildsTheEdgeAndMovesTheSubnetGateway(t *testing.T) {
 	if p.State != settings.PeeringUp || p.EdgeVMExtID == "" || p.EdgeKept {
 		t.Fatalf("peering = %+v", p)
 	}
-	f.before(t, "EdgeBuild S1 addr=10.23.210.194", "CreateRemoteBGPGateway portico-s1-peer project="+systemProject+" addr=10.23.210.194 asn=65020")
-	f.before(t, "CreateBGPSession", "UpdateSubnetGateway ext-1 gw=10.23.210.194")
+	f.before(t, "EdgeBuild S1 addr=10.0.210.194", "CreateRemoteBGPGateway portico-s1-peer project="+systemProject+" addr=10.0.210.194 asn=65020")
+	f.before(t, "CreateBGPSession", "UpdateSubnetGateway ext-1 gw=10.0.210.194")
 	f.before(t, "GetBGPSession", "UpdateSubnetGateway")
 }
 
@@ -170,7 +170,7 @@ func TestBuildReusesTheEdgeVMItKnows(t *testing.T) {
 func TestMoveToRouterUpdatesRemoteWhenAccepted(t *testing.T) {
 	f := newFakePC()
 	p := built(f)
-	p.RouterAddr, p.RouterASN = netip.MustParseAddr("10.23.210.254"), 65000
+	p.RouterAddr, p.RouterASN = netip.MustParseAddr("10.0.210.254"), 65000
 	s, _ := newService(t, f)
 	out, err := s.MoveToRouter(context.Background(), testSite(), p)
 	if err != nil {
@@ -179,19 +179,19 @@ func TestMoveToRouterUpdatesRemoteWhenAccepted(t *testing.T) {
 	if out.Kind != settings.PeerRouter || out.State != settings.PeeringUp || out.RouteAdded || out.RemoteGatewayExtID != "rgw-R" || out.SessionExtID != "s-S" {
 		t.Fatalf("peering = %+v", out)
 	}
-	if f.index("UpdateRemoteGateway rgw-R addr=10.23.210.254 asn=65000") < 0 {
+	if f.index("UpdateRemoteGateway rgw-R addr=10.0.210.254 asn=65000") < 0 {
 		t.Fatalf("no update of the remote gateway:\n  %s", strings.Join(f.calls, "\n  "))
 	}
 	f.never(t, "CreateRemoteBGPGateway")
 	f.never(t, "DeleteBGPSession")
-	f.before(t, "GetBGPSession", "UpdateSubnetGateway ext-1 gw=10.23.210.254")
+	f.before(t, "GetBGPSession", "UpdateSubnetGateway ext-1 gw=10.0.210.254")
 }
 
 func TestMoveToRouterRecreatesSessionOnlyAfterNewRemoteExists(t *testing.T) {
 	f := newFakePC()
 	f.refusePut = true
 	p := built(f)
-	p.RouterAddr, p.RouterASN = netip.MustParseAddr("10.23.210.254"), 65000
+	p.RouterAddr, p.RouterASN = netip.MustParseAddr("10.0.210.254"), 65000
 	s, _ := newService(t, f)
 	out, err := s.MoveToRouter(context.Background(), testSite(), p)
 	if err != nil {
@@ -211,7 +211,7 @@ func TestMoveToRouterRecreatesSessionOnlyAfterNewRemoteExists(t *testing.T) {
 func TestMoveToRouterKeepsEdgeOff(t *testing.T) {
 	f := newFakePC()
 	p := built(f)
-	p.RouterAddr, p.RouterASN = netip.MustParseAddr("10.23.210.254"), 65000
+	p.RouterAddr, p.RouterASN = netip.MustParseAddr("10.0.210.254"), 65000
 	s, _ := newService(t, f)
 	out, err := s.MoveToRouter(context.Background(), testSite(), p)
 	if err != nil {
@@ -228,7 +228,7 @@ func TestMoveToRouterWithTheSessionDownKeepsTheEdgeRunning(t *testing.T) {
 	f := newFakePC()
 	f.sessionStates, f.sessionMsg = []string{"DOWN"}, "BGP not configured on Peer"
 	p := built(f)
-	p.RouterAddr, p.RouterASN = netip.MustParseAddr("10.23.210.254"), 65000
+	p.RouterAddr, p.RouterASN = netip.MustParseAddr("10.0.210.254"), 65000
 	s, _ := newService(t, f)
 	out, err := s.MoveToRouter(context.Background(), testSite(), p)
 	if err != nil {
@@ -262,7 +262,7 @@ func TestReplaceEdgeWithANewAddressMovesTheRemoteAndTheSubnet(t *testing.T) {
 	f := newFakePC()
 	p := built(f)
 	p.RouteAdded = true
-	p.EdgeAddr = netip.MustParseAddr("10.23.210.193")
+	p.EdgeAddr = netip.MustParseAddr("10.0.210.193")
 	s, _ := newService(t, f)
 	out, err := s.ReplaceEdge(context.Background(), testSite(), p, &fakeEdge{f: f})
 	if err != nil {
@@ -271,15 +271,15 @@ func TestReplaceEdgeWithANewAddressMovesTheRemoteAndTheSubnet(t *testing.T) {
 	if out.RouteAdded {
 		t.Fatal("the route tick survived an address change")
 	}
-	f.before(t, "EdgeBuild S1 addr=10.23.210.193", "UpdateRemoteGateway rgw-R addr=10.23.210.193 asn=65020")
-	f.before(t, "GetBGPSession", "UpdateSubnetGateway ext-1 gw=10.23.210.193")
+	f.before(t, "EdgeBuild S1 addr=10.0.210.193", "UpdateRemoteGateway rgw-R addr=10.0.210.193 asn=65020")
+	f.before(t, "GetBGPSession", "UpdateSubnetGateway ext-1 gw=10.0.210.193")
 }
 
 func TestMoveToEdgeBuildsThenSwitches(t *testing.T) {
 	f := newFakePC()
 	p := built(f)
 	// A router site: the remote is the router, no edge.
-	p.Kind, p.RouterAddr, p.RouterASN, p.EdgeVMExtID = settings.PeerRouter, netip.MustParseAddr("10.23.210.254"), 65000, ""
+	p.Kind, p.RouterAddr, p.RouterASN, p.EdgeVMExtID = settings.PeerRouter, netip.MustParseAddr("10.0.210.254"), 65000, ""
 	delete(f.vms, "edge-E")
 	routerSubnet(f)
 	s, _ := newService(t, f)
@@ -290,14 +290,14 @@ func TestMoveToEdgeBuildsThenSwitches(t *testing.T) {
 	if out.Kind != settings.PeerEdge || out.EdgeVMExtID == "" || out.State != settings.PeeringUp || out.EdgeKept || out.RouteAdded {
 		t.Fatalf("peering = %+v", out)
 	}
-	f.before(t, "EdgeBuild", "UpdateRemoteGateway rgw-R addr=10.23.210.194 asn=65020")
-	f.before(t, "GetBGPSession", "UpdateSubnetGateway ext-1 gw=10.23.210.194")
+	f.before(t, "EdgeBuild", "UpdateRemoteGateway rgw-R addr=10.0.210.194 asn=65020")
+	f.before(t, "GetBGPSession", "UpdateSubnetGateway ext-1 gw=10.0.210.194")
 }
 
 func TestBackToEdgePowersOnAndMovesBack(t *testing.T) {
 	f := newFakePC()
 	p := built(f)
-	p.Kind, p.RouterAddr, p.RouterASN, p.EdgeKept = settings.PeerRouter, netip.MustParseAddr("10.23.210.254"), 65000, true
+	p.Kind, p.RouterAddr, p.RouterASN, p.EdgeKept = settings.PeerRouter, netip.MustParseAddr("10.0.210.254"), 65000, true
 	f.vms["edge-E"] = nutanix.VM{ExtID: "edge-E", Name: "portico-s1-edge", PowerOn: false}
 	routerSubnet(f)
 	s, _ := newService(t, f)
@@ -308,8 +308,8 @@ func TestBackToEdgePowersOnAndMovesBack(t *testing.T) {
 	if out.Kind != settings.PeerEdge || out.EdgeKept || out.State != settings.PeeringUp {
 		t.Fatalf("peering = %+v", out)
 	}
-	f.before(t, "PowerVM edge-E on=true", "UpdateRemoteGateway rgw-R addr=10.23.210.194 asn=65020")
-	f.before(t, "GetBGPSession", "UpdateSubnetGateway ext-1 gw=10.23.210.194")
+	f.before(t, "PowerVM edge-E on=true", "UpdateRemoteGateway rgw-R addr=10.0.210.194 asn=65020")
+	f.before(t, "GetBGPSession", "UpdateSubnetGateway ext-1 gw=10.0.210.194")
 }
 
 func TestDeleteEdgePowersOffFirst(t *testing.T) {
@@ -345,8 +345,8 @@ func TestTearDownOrder(t *testing.T) {
 	// The external subnet is read before anything is deleted and its
 	// gateway moved back before the edge, its current gateway, goes.
 	f.before(t, "GetVPC", "DeleteBGPSession s-S")
-	f.before(t, "DeleteGateway rgw-R", "UpdateSubnetGateway ext-1 gw=10.23.210.254")
-	f.before(t, "UpdateSubnetGateway ext-1 gw=10.23.210.254", "PowerVM edge-E on=false")
+	f.before(t, "DeleteGateway rgw-R", "UpdateSubnetGateway ext-1 gw=10.0.210.254")
+	f.before(t, "UpdateSubnetGateway ext-1 gw=10.0.210.254", "PowerVM edge-E on=false")
 	f.before(t, "PowerVM edge-E on=false", "DeleteVM edge-E")
 	f.before(t, "DeleteVM edge-E", "DeleteSubnet vl-9")
 }
@@ -417,7 +417,7 @@ func TestRefreshReadsDownMessage(t *testing.T) {
 // as a router site has it.
 func routerSubnet(f *fakePC) {
 	s := f.subnets[extSubnet]
-	s.Gateway = netip.MustParseAddr("10.23.210.254")
+	s.Gateway = netip.MustParseAddr("10.0.210.254")
 	f.subnets[extSubnet] = s
 }
 
@@ -425,7 +425,7 @@ func TestBuildRouterPutsTheSubnetGatewayOnTheVLANRouter(t *testing.T) {
 	f := newFakePC()
 	// The external subnet still points at a previous edge router.
 	ext := f.subnets[extSubnet]
-	ext.Gateway = netip.MustParseAddr("10.23.210.194")
+	ext.Gateway = netip.MustParseAddr("10.0.210.194")
 	f.subnets[extSubnet] = ext
 	s, _ := newService(t, f)
 	p, err := s.Build(context.Background(), testSite(), routerPeering(), nil)
@@ -435,8 +435,8 @@ func TestBuildRouterPutsTheSubnetGatewayOnTheVLANRouter(t *testing.T) {
 	if p.State != settings.PeeringUp {
 		t.Fatalf("peering = %+v", p)
 	}
-	f.before(t, "GetBGPSession", "UpdateSubnetGateway ext-1 gw=10.23.210.254")
-	if f.subnets[extSubnet].Gateway != netip.MustParseAddr("10.23.210.254") {
+	f.before(t, "GetBGPSession", "UpdateSubnetGateway ext-1 gw=10.0.210.254")
+	if f.subnets[extSubnet].Gateway != netip.MustParseAddr("10.0.210.254") {
 		t.Fatalf("the external subnet's gateway is %s", f.subnets[extSubnet].Gateway)
 	}
 }
@@ -444,7 +444,7 @@ func TestBuildRouterPutsTheSubnetGatewayOnTheVLANRouter(t *testing.T) {
 func TestBuildRouterLeavesTheSubnetGatewayWhenTheSessionStaysDown(t *testing.T) {
 	f := newFakePC()
 	ext := f.subnets[extSubnet]
-	ext.Gateway = netip.MustParseAddr("10.23.210.194")
+	ext.Gateway = netip.MustParseAddr("10.0.210.194")
 	f.subnets[extSubnet] = ext
 	f.sessionStates, f.sessionMsg = []string{"DOWN"}, "Current BGP state: Active"
 	s, _ := newService(t, f)
@@ -461,7 +461,7 @@ func TestBuildRouterLeavesTheSubnetGatewayWhenTheSessionStaysDown(t *testing.T) 
 func TestMoveToRouterThatFailsBeforeTheRemoteMovesKeepsTheEdgeAsPeer(t *testing.T) {
 	f := newFakePC()
 	p := built(f)
-	p.RouterAddr, p.RouterASN = netip.MustParseAddr("10.23.210.254"), 65000
+	p.RouterAddr, p.RouterASN = netip.MustParseAddr("10.0.210.254"), 65000
 	delete(f.subnets, extSubnet) // the external subnet cannot be read: the move fails at its first step
 	s, _ := newService(t, f)
 	out, err := s.MoveToRouter(context.Background(), testSite(), p)
@@ -484,7 +484,7 @@ func TestMoveToEdgeThatFailsToBuildTheEdgeKeepsTheRouterAsPeer(t *testing.T) {
 	if err != nil || p.State != settings.PeeringUp {
 		t.Fatalf("Build: %v %+v", err, p)
 	}
-	p.EdgeAddr, p.EdgeASN = netip.MustParseAddr("10.23.210.194"), 65020
+	p.EdgeAddr, p.EdgeASN = netip.MustParseAddr("10.0.210.194"), 65020
 	out, err := s.MoveToEdge(context.Background(), testSite(), p, &fakeEdge{f: f, fail: errors.New("no host has enough resources")})
 	if err == nil {
 		t.Fatalf("MoveToEdge did not fail")
@@ -553,7 +553,7 @@ func TestBuildWaitsThroughATransientAnswer(t *testing.T) {
 func TestMoveToRouterDoesNotRecreateOnATransientUpdateError(t *testing.T) {
 	f := newFakePC()
 	p := built(f)
-	p.RouterAddr, p.RouterASN = netip.MustParseAddr("10.23.210.254"), 65000
+	p.RouterAddr, p.RouterASN = netip.MustParseAddr("10.0.210.254"), 65000
 	f.updateRemoteErr = &nutanix.APIError{Status: 504, Message: "upstream request timeout"}
 	s, _ := newService(t, f)
 	out, err := s.MoveToRouter(context.Background(), testSite(), p)
@@ -582,5 +582,5 @@ func TestDeleteEdgePutsTheSubnetGatewayBackFirst(t *testing.T) {
 	if out.EdgeVMExtID != "" || f.subnets[extSubnet].Gateway != p.GatewayGW {
 		t.Fatalf("peering = %+v, subnet gateway %s", out, f.subnets[extSubnet].Gateway)
 	}
-	f.before(t, "UpdateSubnetGateway ext-1 gw=10.23.210.254", "DeleteVM edge-E")
+	f.before(t, "UpdateSubnetGateway ext-1 gw=10.0.210.254", "DeleteVM edge-E")
 }

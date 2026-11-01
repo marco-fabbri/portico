@@ -1,3 +1,0 @@
-# Podman quadlet network shared by keycloak and postgres. Lab only.
-[Network]
-NetworkName=portico-lab

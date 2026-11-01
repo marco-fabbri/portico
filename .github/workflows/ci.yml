@@ -30,15 +30,15 @@ jobs:
       - name: go test
         run: go test ./...
 
-  scripts:
-    name: Lab scripts (shellcheck, offline checks)
+  repo:
+    name: Repository checks (shellcheck, release docs, no lab identifiers)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Tool versions
-        run: bash --version | head -1; shellcheck --version | head -2; jq --version
-      - name: lab/test_scripts.sh
-        run: lab/test_scripts.sh
+        run: bash --version | head -1; shellcheck --version | head -2
+      - name: scripts/check-repo.sh
+        run: scripts/check-repo.sh
 
   image:
     name: Image definition (packer validate, kickstart, tailoring)

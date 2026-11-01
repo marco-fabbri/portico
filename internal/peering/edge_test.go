@@ -16,8 +16,8 @@ import (
 )
 
 func TestEdgeUserDataHasNoUserNoKeyNoNAT(t *testing.T) {
-	ud, err := EdgeUserData("portico-s1-edge", netip.MustParsePrefix("10.23.210.194/24"), netip.MustParseAddr("10.23.210.254"),
-		[]netip.Addr{netip.MustParseAddr("10.23.210.10"), netip.MustParseAddr("1.1.1.1")}, 65020, netip.MustParseAddr("10.23.210.195"), 65010)
+	ud, err := EdgeUserData("portico-s1-edge", netip.MustParsePrefix("10.0.210.194/24"), netip.MustParseAddr("10.0.210.254"),
+		[]netip.Addr{netip.MustParseAddr("10.0.210.10"), netip.MustParseAddr("1.1.1.1")}, 65020, netip.MustParseAddr("10.0.210.195"), 65010)
 	if err != nil {
 		t.Fatalf("EdgeUserData: %v", err)
 	}
@@ -31,11 +31,11 @@ func TestEdgeUserDataHasNoUserNoKeyNoNAT(t *testing.T) {
 	}
 	for _, want := range []string{
 		"hostname: portico-s1-edge", "ssh_pwauth: false",
-		"address1=10.23.210.194/24,10.23.210.254", "dns=10.23.210.10;1.1.1.1;",
-		"router bgp 65020", "bgp router-id 10.23.210.194", "no bgp ebgp-requires-policy",
-		"neighbor 10.23.210.195 remote-as 65010", "neighbor 10.23.210.195 soft-reconfiguration inbound",
+		"address1=10.0.210.194/24,10.0.210.254", "dns=10.0.210.10;1.1.1.1;",
+		"router bgp 65020", "bgp router-id 10.0.210.194", "no bgp ebgp-requires-policy",
+		"neighbor 10.0.210.195 remote-as 65010", "neighbor 10.0.210.195 soft-reconfiguration inbound",
 		"net.ipv4.ip_forward = 1", "send_redirects = 0",
-		"policy drop", `ip saddr 10.23.210.195 tcp dport 179 accept`,
+		"policy drop", `ip saddr 10.0.210.195 tcp dport 179 accept`,
 		"systemctl restart frr", "systemctl restart nftables", "bgpd=yes",
 		"portico-edge ready",
 	} {
@@ -48,7 +48,7 @@ func TestEdgeUserDataHasNoUserNoKeyNoNAT(t *testing.T) {
 		t.Errorf("tcp 179 accepted %d times", n)
 	}
 	// The static route and DNS are optional.
-	ud2, err := EdgeUserData("portico-s1-edge", netip.MustParsePrefix("10.23.210.194/24"), netip.MustParseAddr("10.23.210.254"), nil, 65020, netip.MustParseAddr("10.23.210.195"), 65010)
+	ud2, err := EdgeUserData("portico-s1-edge", netip.MustParsePrefix("10.0.210.194/24"), netip.MustParseAddr("10.0.210.254"), nil, 65020, netip.MustParseAddr("10.0.210.195"), 65010)
 	if err != nil || strings.Contains(ud2, "dns=") {
 		t.Fatalf("without DNS: %v\n%s", err, ud2)
 	}
@@ -125,7 +125,7 @@ func (f *fakeEdgePC) has(prefix string) bool {
 
 func edgeSite() settings.Site {
 	s := testSite()
-	s.Network.DNS = []string{"10.23.210.10"}
+	s.Network.DNS = []string{"10.0.210.10"}
 	return s
 }
 

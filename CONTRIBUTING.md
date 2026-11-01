@@ -23,18 +23,21 @@ welcome; this page says how the project works so a contribution fits.
 ## How changes are made
 
 1. **Plan before code.** A milestone starts from the design document
-   (`docs/superpowers/specs/`) and a written plan (`docs/superpowers/plans/`)
-   with tasks small enough to carry their own test.
+   (`docs/superpowers/specs/`) and a written plan with tasks small enough
+   to carry their own test.
 2. **Test first.** Every behaviour change starts with a test watched failing,
    then the smallest code that makes it pass; `go test ./...` stays green.
 3. **Measure, then decide.** Anything that depends on how Prism Central or
-   Keycloak behaves is measured on a lab and written up in `docs/lab/`
-   (`TEMPLATE.md`), with the version it was measured on and how to measure
-   again after an upgrade. Decisions that change the design go to
-   `docs/adr/`.
+   Keycloak behaves is measured on a lab and written up, with the version
+   it was measured on and how to measure again after an upgrade. The
+   write-ups describe a borrowed lab and stay outside the repository;
+   the release notes and the design documents carry the numbers.
+   Decisions that change the design go to `docs/adr/`.
 4. **Small PRs**, one concern each, with the test plan in the description.
    The CI runs `gofmt`, `go vet`, `go build`, `go test ./...` and the
-   offline checks on the lab scripts (`lab/test_scripts.sh`, shellcheck).
+   repository checks (`scripts/check-repo.sh`: shellcheck on the
+   installer, the README against the newest release notes, no lab
+   identifiers in tracked files).
 
 ## Releases
 
@@ -51,19 +54,17 @@ publishes it.
 gofmt -l cmd internal
 go vet ./...
 go test ./...
-lab/test_scripts.sh
+scripts/check-repo.sh
 ```
 
-Go 1.27 or later; the lab script checks need bash 5.2, jq and shellcheck.
+Go 1.27 or later; the repository checks need bash and shellcheck.
 
 ## The lab
 
-`lab/` holds the scripts that drive a real Prism Central and a lab VM
-(Keycloak, PostgreSQL, the Portico binary). They read their environment
-from `lab/env.sh` and their credentials from a directory outside the
-repository. `docs/lab/lab-inventory.md` lists what the lab creates and how
-to remove it. You do not need a lab to contribute to the Go code: the
-tests run against fakes of Prism Central and Keycloak.
+The scripts that drive a real Prism Central and the write-ups of what
+they measured are kept outside the repository, with the credentials.
+You do not need a lab to contribute to the Go code: the tests run
+against fakes of Prism Central and Keycloak.
 
 Hardware, lab access and field experience help as much as code: see
 [Supporting the project](README.md#supporting-the-project) in the README.

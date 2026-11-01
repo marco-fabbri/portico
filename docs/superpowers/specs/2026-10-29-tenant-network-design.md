@@ -131,7 +131,7 @@ kept as the manual way. The
 NAT happens in each tenant's subnet of the transit VPC, so the transit
 VPC itself needs no NAT external subnet, and a tenant's floating IP is
 an address of the routed prefix, reachable as it is (measured on
-NTNX-01 with a static route, write-up 34).
+the lab cluster with a static route, write-up 34).
 
 Only this model is offered (Marco, 2026-10-29, after measuring). The
 first approval accepted a NAT VLAN external subnet attached directly as

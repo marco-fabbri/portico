@@ -132,11 +132,9 @@ model. Small MSPs have no turnkey answer.
   set to the public name (write-up 04).
 - Appliance footprint target: 2 vCPU, 6 GiB RAM, 40 GiB disk (Portico +
   Keycloak + PostgreSQL + cloudflared on one VM).
-- Lab: a single-node cluster, Prism Central `https://10.23.210.175:9440`,
-  VLAN 210 `10.23.210.0/24`, gateway `.254`, free IPs from `.190` (arping is
-  not possible from the Mac, which reaches the VLAN through a VPN: verify
-  with ping plus the Prism Central VM NIC list, as `lab/vm/create-vm.sh`
-  does). Credentials are held by Marco and never enter the repository.
+- Lab: a borrowed single-node cluster reached through a VPN. Its
+  addresses, names and credentials are held by Marco and never enter the
+  repository, nor do the scripts and write-ups that name them.
 
 ## 4. Architecture
 
@@ -807,7 +805,7 @@ What each kind of state does in the pair:
 
 ## 6. Lab measurements (Milestone 0, 2026-10-17, pc.7.6.0.6)
 
-Each item below was a hypothesis; the write-ups in `docs/lab/` hold the
+Each item below was a hypothesis; the lab write-ups hold the
 evidence and the re-measure procedure.
 
 1. **SAML behind a different host name** — MEASURED: the global
@@ -895,7 +893,7 @@ portico/
 
 | # | milestone | done when |
 |---|---|---|
-| 0 | Lab measurements (section 6) | done 2026-10-17: write-ups in `docs/lab/`, design updated |
+| 0 | Lab measurements (section 6) | done 2026-10-17: lab write-ups, design updated |
 | 1 | Core binary: proxy + OIDC session + policy + internal listener | done 2026-10-17 (write-up 09): a browser through Portico reaches Prism Central only after Keycloak login; `curl -u admin:…` through the public path gets 403 from Portico |
 | 2a | Tenant arrival, API | done 2026-10-18 (write-up 11): `POST /api/v1/tenants` creates project + resource group + SAML group + IdP sharing + role membership + Keycloak group, records every step, visibility check passes on the cluster; first user, disable/enable, clean deletion |
 | 2b | Tenant arrival, admin UI | done 2026-10-18 (write-up 12): admin UI over the API with the break-glass login (tenant list, create, detail with steps and visibility, users, disable/enable, delete), the 2a review minors absorbed, every `Authorization` scheme refused on the public name after measuring the console, Prism Central's Sign Out path allowed |

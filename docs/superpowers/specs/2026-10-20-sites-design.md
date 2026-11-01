@@ -97,11 +97,11 @@ concept, held by Portico, not by Prism Central's console.
   (design 4.5).
 - The pair topology (design 4.11) must stay possible: the mechanism that
   remembers a tenant's site must not need state that only one node holds.
-- The lab has one Prism Central today (NTNX-01). Marco is deploying a
+- The lab has one Prism Central today (the lab cluster). Marco is deploying a
   second Nutanix cluster with its own Prism Central for the live test;
   until then the two-site behaviour is tested against two fake Prism
   Centrals in the Go tests, and everything measurable on one Prism
-  Central is measured on NTNX-01.
+  Central is measured on the lab cluster.
 
 ## 4. How it works (decided)
 
@@ -368,7 +368,7 @@ Builder's call, to confirm by measurement (section 6, item 3):
 A store with today's single `prism_central` block becomes one site at
 start: code `SITE-1`, name taken from the Prism Central host, every tenant
 gets a placement on it with the cluster and container in its row. The
-MSP renames the code afterwards. The appliance on NTNX-01 (tenant `acme`)
+MSP renames the code afterwards. The appliance on the lab cluster (tenant `acme`)
 is the test of this path.
 
 ## 5. What changes in the main design
@@ -388,7 +388,7 @@ is the test of this path.
 
 ## 6. To measure before the code is final
 
-On NTNX-01 now (one Prism Central), each a short write-up in `docs/lab/`:
+On the lab cluster now (one Prism Central), each a short lab write-up:
 
 1. Prism Central's cookies on the public host after a tenant login: names,
    `Path`, `HttpOnly`, lifetimes, and which ones the console's JavaScript
@@ -410,7 +410,7 @@ defined then):
    crafted cookie or crafted request.
 6. The tab left on the previous site: what the user sees, and that a
    reload recovers.
-7. On NTNX-01 now: the console's background polling interval with a tab open and the user
+7. On the lab cluster now: the console's background polling interval with a tab open and the user
    idle, which sets the "active" window of section 4.1.
 
 ## 7. Left to the builder

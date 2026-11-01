@@ -190,12 +190,12 @@ address plan never uses for a real network, now or later; the router is
 the only place that knows it.
 
 Example: `external-routed` on VLAN 210 with the pool
-`10.23.210.200`-`.219`, the transit VPC `portico-transit` at
-`10.23.210.200` with the routed prefix `198.51.100.0/24` (a
-documentation block: use your own), the BGP gateway at `10.23.210.195`
-and the router at `10.23.210.254` with ASN 65000, which then learns
-`198.51.100.0/24 via 10.23.210.200` from the session; or the edge router
-at `10.23.210.194` and on the core `198.51.100.0/24 via 10.23.210.194`.
+`10.0.210.200`-`.219`, the transit VPC `portico-transit` at
+`10.0.210.200` with the routed prefix `198.51.100.0/24` (a
+documentation block: use your own), the BGP gateway at `10.0.210.195`
+and the router at `10.0.210.254` with ASN 65000, which then learns
+`198.51.100.0/24 via 10.0.210.200` from the session; or the edge router
+at `10.0.210.194` and on the core `198.51.100.0/24 via 10.0.210.194`.
 
 ### Switching it on
 

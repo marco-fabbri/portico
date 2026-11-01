@@ -140,7 +140,7 @@ its next start).
   about a minute and a half, the site is unreachable: its tile is greyed
   out and a tenant whose only site it is gets the "site unreachable"
   page; sessions already on it keep being proxied. The first answer
-  makes it available again. One slow answer does not count: on NTNX-01
+  makes it available again. One slow answer does not count: on the lab cluster
   the call took up to 30 s for a few minutes after a restart, then
   0.6 s again.
 - **Remove**: a site no tenant is connected to is removed from its page.
