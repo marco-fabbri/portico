@@ -108,9 +108,10 @@ or the other.
   Prism Central accepts a VM there with a static address outside the
   pool (section 6 item 9); otherwise Portico creates an unmanaged VLAN
   subnet `portico-<site>-vlan` on the same VLAN ID and virtual switch
-  for them (my call: the lab's `MGMT` is such a subnet, a dedicated
-  no-NAT VLAN has none). Prism Central must reach the gateway's address
-  to read its state: a prerequisite the install guide states. Private ASNs: Portico proposes 65010 for the gateway
+  for them (write-up 38: a VM NIC on the external subnet is refused,
+  `VMM-30102`; the lab's `MGMT` is such a subnet, a dedicated no-NAT VLAN
+  has none). Prism Central must reach the gateway's address to read its
+  state: a prerequisite the install guide states. Private ASNs: Portico proposes 65010 for the gateway
   and 65020 for the edge; the MSP's router's ASN is the MSP's.
 - The service account's networking rights (design of 2026-10-29, 4.5)
   must cover gateways, BGP sessions, images and VMs in the system
@@ -196,10 +197,10 @@ one from the current image with the same cloud-init, and waits for the
 session to report `UP` again; about three minutes without the prefix, in
 a window the MSP picks (the card says so before it starts), and the
 static route on the core never changes. A change of address is the same
-sequence with the remote gateway updated to the new address (or
-recreated and the session updated, or the session recreated when the
-update is refused, section 6), the external subnet's gateway updated,
-and the "route added" tick reset: the MSP moves its static route.
+sequence with the remote gateway updated to the new address (a PUT,
+accepted; the session follows, write-up 38), the external subnet's
+gateway updated (a PUT, accepted, write-up 38), and the "route added"
+tick reset: the MSP moves its static route.
 
 ### 4.4 The edge image
 
@@ -228,7 +229,9 @@ move from one to the other at any time.
 
 **Edge to router**: the MSP gives the router's address and ASN and
 configures the neighbour; Portico updates the remote gateway to the
-router (or recreates it and updates the session), waits for the session
+router's address and ASN (a session's gateway references are immutable,
+write-up 38, so the one remote gateway is updated, never replaced),
+waits for the session
 `UP` through the router, puts the external subnet's gateway back to the
 VLAN's router, and **powers the edge off but keeps it** for a rollback
 (Marco, 2026-11-01): the card offers "Back to the edge router" (power
@@ -289,6 +292,13 @@ offering them to a site set up before.
   (already listed) is done here.
 
 ## 6. To measure before the code is final
+
+Items 1 to 5, 6 and 9 were measured on 2026-11-01 (write-up 38): the
+session's references are immutable, the remote gateway's address and
+the external subnet's gateway are not, the image import by URL takes
+about three minutes, a VM NIC on the external subnet is refused, the
+session reports the peer's state within a minute. Items 7, 8 and 10
+remain for the plan.
 
 1. `PUT /bgp-sessions/{extId}` with a different `localGatewayReference`
    or `remoteGatewayReference`: accepted, or refused (then delete and
