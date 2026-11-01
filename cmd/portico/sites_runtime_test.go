@@ -296,3 +296,18 @@ func TestRuntimeBackfillRetriedAtReload(t *testing.T) {
 	}
 	t.Fatal("a reload did not try the lookup again")
 }
+
+func TestSiteNetworkWaitsForThePeering(t *testing.T) {
+	base := settings.SiteNetwork{TransitVPCExtID: "vpc-1", Enabled: true}
+	if got := siteNetwork(base); !got.Enabled || got.PeeringKind != settings.PeerStatic {
+		t.Fatalf("static = %+v", got)
+	}
+	base.Peering = settings.SitePeering{Kind: settings.PeerRouter, State: settings.PeeringBuilding}
+	if got := siteNetwork(base); got.Enabled || got.PeeringKind != settings.PeerRouter || got.PeeringState != settings.PeeringBuilding {
+		t.Fatalf("router building = %+v", got)
+	}
+	base.Peering.State = settings.PeeringUp
+	if got := siteNetwork(base); !got.Enabled {
+		t.Fatalf("router up = %+v", got)
+	}
+}

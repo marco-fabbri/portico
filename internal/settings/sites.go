@@ -57,6 +57,9 @@ type SiteNetwork struct {
 	DNS                 []string `json:"dns,omitempty"`
 	IntegratedConfirmed bool     `json:"integrated_confirmed,omitempty"`
 	Enabled             bool     `json:"enabled,omitempty"`
+	// Peering is the Routing section: how the routed prefix reaches the
+	// site's network (prefix routing design 4.6).
+	Peering SitePeering `json:"peering,omitempty"`
 }
 
 // Trust is how Portico trusts the site's Prism Central.
