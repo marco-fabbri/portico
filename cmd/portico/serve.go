@@ -116,6 +116,11 @@ func runServe(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			return err
 		}
 		if !setupMode {
+			// An operation on a peering the previous process never
+			// finished is failed now, before the card can wait on it.
+			if doc, err = recoverInterruptedPeerings(ctx, settingsSvc, log); err != nil {
+				return err
+			}
 			runDoc = doc
 			rt, err := doc.Overlay(cfg)
 			if err != nil {
