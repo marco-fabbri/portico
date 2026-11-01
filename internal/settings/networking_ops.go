@@ -7,10 +7,19 @@ package settings
 // floating IPs and the VPC's default route; the BGP gateways and session,
 // their routes; the edge router's image, VM and category; the external
 // subnet's gateway; the cluster the edge is placed on.
-var NetworkingOperations = []string{
+var NetworkingOperations = append(append([]string{}, TenantNetworkingOperations...), PeeringOperations...)
+
+// TenantNetworkingOperations are the ones a tenant's ready network needs:
+// a site that keeps its static route (0.2.x) needs only these.
+var TenantNetworkingOperations = []string{
 	"View_Subnet", "Create_Subnet", "Delete_Subnet", "Update_Subnet", "Share_Subnet", "Unshare_Subnet", "View_VPC",
 	"View_Floating_Ip", "Create_Floating_Ip", "Update_Floating_Ip", "Delete_Floating_Ip",
 	"View_VPC_Route_Table", "View_Route_Table_Route", "Create_Route_Table_Route", "Delete_Route_Table_Route",
+}
+
+// PeeringOperations are the ones the site's BGP peering and the edge
+// router need; a static site lacking them gets a warning, not a red card.
+var PeeringOperations = []string{
 	"View_Network_Gateway", "Create_Network_Gateway", "Update_Network_Gateway", "Delete_Network_Gateway",
 	"View_Bgp_Session", "Create_Bgp_Session", "Update_Bgp_Session", "Delete_Bgp_Session", "View_Bgp_Route",
 	"View_Image", "Create_Image", "Delete_Image",
