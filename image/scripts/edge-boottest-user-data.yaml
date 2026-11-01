@@ -1,0 +1,76 @@
+#cloud-config
+hostname: portico-s1-edge
+ssh_pwauth: false
+disable_root: true
+bootcmd:
+  - |
+    cat > /etc/NetworkManager/system-connections/eth0.nmconnection <<'NM'
+    [connection]
+    id=eth0
+    type=ethernet
+    interface-name=eth0
+    [ipv4]
+    method=manual
+    address1=10.0.2.15/24,10.0.2.2
+    dns=10.0.2.3;
+    [ipv6]
+    method=disabled
+    NM
+  - chmod 600 /etc/NetworkManager/system-connections/eth0.nmconnection
+  - nmcli connection reload
+  - nmcli connection up eth0 || true
+write_files:
+  - path: /etc/sysctl.d/90-edge.conf
+    content: |
+      net.ipv4.ip_forward = 1
+      net.ipv4.conf.all.send_redirects = 0
+      net.ipv4.conf.default.send_redirects = 0
+      net.ipv4.conf.eth0.send_redirects = 0
+  - path: /etc/nftables/edge.nft
+    content: |
+      table inet edge {
+        chain input {
+          type filter hook input priority filter; policy drop;
+          iif "lo" accept
+          ct state established,related accept
+          ct state invalid drop
+          icmp type { echo-request, echo-reply, destination-unreachable, time-exceeded } accept
+          ip saddr 10.0.2.2 tcp dport 179 accept
+        }
+        chain forward {
+          type filter hook forward priority filter; policy accept;
+        }
+      }
+  - path: /etc/frr/frr.conf
+    owner: frr:frr
+    permissions: "0640"
+    content: |
+      frr defaults traditional
+      hostname portico-s1-edge
+      log syslog informational
+      !
+      router bgp 65020
+       bgp router-id 10.0.2.15
+       no bgp ebgp-requires-policy
+       neighbor 10.0.2.2 remote-as 65010
+       neighbor 10.0.2.2 description portico-bgp-gateway
+       !
+       address-family ipv4 unicast
+        neighbor 10.0.2.2 soft-reconfiguration inbound
+       exit-address-family
+      !
+runcmd:
+  - sysctl --system
+  - sed -i 's/^bgpd=no/bgpd=yes/' /etc/frr/daemons
+  - grep -q edge.nft /etc/sysconfig/nftables.conf || echo 'include "/etc/nftables/edge.nft"' >> /etc/sysconfig/nftables.conf
+  - systemctl enable nftables frr
+  - systemctl restart nftables
+  - systemctl restart frr
+  # The state on the VM's console (the AHV console and the serial one):
+  # what FRR runs, forwarding, the firewall, that nothing listens for a
+  # login. The last line is what the image's boot test waits for.
+  - |
+    for _ in 1 2 3 4 5 6; do vtysh -c 'show running-config' 2>/dev/null | grep -q '^router bgp' && break; sleep 2; done
+    status="portico-edge $(hostname): $(vtysh -c 'show running-config' 2>/dev/null | grep -E '^router bgp|^ neighbor .* remote-as' | sed 's/^ *//' | paste -sd ';' -); forward=$(sysctl -n net.ipv4.ip_forward); nftables=$(systemctl is-active nftables); frr=$(systemctl is-active frr); sshd=$(systemctl is-active sshd 2>/dev/null || true)"
+    detail=""; systemctl is-active -q frr || detail=$(journalctl -u frr --no-pager -n 5 -o cat 2>/dev/null)
+    for c in /dev/tty1 /dev/ttyS0; do { echo; echo "$status"; [ -z "$detail" ] || echo "$detail"; echo "portico-edge ready"; } > "$c" 2>/dev/null || true; done
