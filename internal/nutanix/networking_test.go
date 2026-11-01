@@ -241,3 +241,44 @@ func TestCreateReadBackPrefersTheProjectsObject(t *testing.T) {
 		t.Fatalf("err = %v, want not found", err)
 	}
 }
+
+func TestSubnetParsesGatewayPoolAndVLAN(t *testing.T) {
+	f := newFakePC(t)
+	s := netSubnet("ext-1", "external-routed", "")
+	s["subnetType"], s["isExternal"], s["clusterReference"], s["networkId"], s["virtualSwitchReference"] = "VLAN", true, "cl-1", 210, "vs-1"
+	v4 := s["ipConfig"].([]any)[0].(map[string]any)["ipv4"].(map[string]any)
+	v4["defaultGatewayIp"] = map[string]any{"value": "10.100.1.254"}
+	v4["poolList"] = []any{map[string]any{"startIp": map[string]any{"value": "10.100.1.200"}, "endIp": map[string]any{"value": "10.100.1.220"}}}
+	f.objs[PathNetworking+"/subnets/ext-1"] = s
+	c := newClient(t, f, nil)
+	got, err := c.GetSubnet(context.Background(), "ext-1")
+	if err != nil {
+		t.Fatalf("GetSubnet: %v", err)
+	}
+	if got.Gateway.String() != "10.100.1.254" || got.Pool[0].String() != "10.100.1.200" || got.Pool[1].String() != "10.100.1.220" ||
+		got.VLANID != 210 || got.VirtualSwitchExtID != "vs-1" || got.ClusterExtID != "cl-1" {
+		t.Fatalf("subnet = %+v", got)
+	}
+}
+
+func TestCreateVLANSubnetIsUnmanaged(t *testing.T) {
+	f := newFakePC(t)
+	f.lists[PathNetworking+"/subnets"] = []any{map[string]any{"extId": "vl-1", "name": "portico-s1-vlan", "subnetType": "VLAN", "clusterReference": "cl-1", "networkId": 210}}
+	c := newClient(t, f, nil)
+	got, err := c.CreateVLANSubnet(context.Background(), "portico-s1-vlan", "cl-1", 210, "vs-1")
+	if err != nil {
+		t.Fatalf("CreateVLANSubnet: %v", err)
+	}
+	if got.ExtID != "vl-1" || got.VLANID != 210 {
+		t.Fatalf("read back = %+v", got)
+	}
+	b := find(f.requests(), "POST", PathNetworking+"/subnets").Body
+	if b["name"] != "portico-s1-vlan" || b["subnetType"] != "VLAN" || b["clusterReference"] != "cl-1" || b["networkId"] != float64(210) || b["virtualSwitchReference"] != "vs-1" || b["isExternal"] != false {
+		t.Fatalf("POST body = %v", b)
+	}
+	for _, k := range []string{"ipConfig", "projectExtId", "vpcReference"} {
+		if _, ok := b[k]; ok {
+			t.Fatalf("an unmanaged VLAN subnet carries no %s: %v", k, b)
+		}
+	}
+}

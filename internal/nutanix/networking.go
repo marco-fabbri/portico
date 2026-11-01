@@ -19,6 +19,10 @@ type Subnet struct {
 	ClusterExtID                              string // a VLAN subnet's cluster
 	External, NAT                             bool
 	Prefix                                    netip.Prefix
+	Gateway                                   netip.Addr    // defaultGatewayIp; zero on an unmanaged subnet
+	Pool                                      [2]netip.Addr // the first pool's start and end; zero without one
+	VLANID                                    int           // a VLAN subnet's networkId
+	VirtualSwitchExtID                        string        // a VLAN subnet's virtual switch
 	SharedWith                                []string
 }
 
@@ -85,12 +89,19 @@ type rawSubnet struct {
 	ClusterRef   string `json:"clusterReference"`
 	IsExternal   bool   `json:"isExternal"`
 	IsNAT        bool   `json:"isNatEnabled"`
+	NetworkID    int    `json:"networkId"`
+	VSwitch      string `json:"virtualSwitchReference"`
 	IPConfig     []struct {
 		IPv4 struct {
 			IPSubnet struct {
 				IP           ipValue `json:"ip"`
 				PrefixLength int     `json:"prefixLength"`
 			} `json:"ipSubnet"`
+			DefaultGatewayIP ipValue `json:"defaultGatewayIp"`
+			PoolList         []struct {
+				StartIP ipValue `json:"startIp"`
+				EndIP   ipValue `json:"endIp"`
+			} `json:"poolList"`
 		} `json:"ipv4"`
 	} `json:"ipConfig"`
 	SharedWithProjects []string `json:"sharedWithProjects"`
@@ -98,10 +109,16 @@ type rawSubnet struct {
 
 func (r rawSubnet) subnet() Subnet {
 	s := Subnet{ExtID: r.ExtID, Name: r.Name, Type: r.SubnetType, ProjectExtID: r.ProjectExtID, VPCExtID: r.VPCReference, ClusterExtID: r.ClusterRef,
-		External: r.IsExternal, NAT: r.IsNAT, SharedWith: r.SharedWithProjects}
+		External: r.IsExternal, NAT: r.IsNAT, VLANID: r.NetworkID, VirtualSwitchExtID: r.VSwitch, SharedWith: r.SharedWithProjects}
 	if len(r.IPConfig) > 0 {
-		if a, err := netip.ParseAddr(r.IPConfig[0].IPv4.IPSubnet.IP.Value); err == nil {
-			s.Prefix = netip.PrefixFrom(a, r.IPConfig[0].IPv4.IPSubnet.PrefixLength)
+		v4 := r.IPConfig[0].IPv4
+		if a, err := netip.ParseAddr(v4.IPSubnet.IP.Value); err == nil {
+			s.Prefix = netip.PrefixFrom(a, v4.IPSubnet.PrefixLength)
+		}
+		s.Gateway, _ = netip.ParseAddr(v4.DefaultGatewayIP.Value)
+		if len(v4.PoolList) > 0 {
+			s.Pool[0], _ = netip.ParseAddr(v4.PoolList[0].StartIP.Value)
+			s.Pool[1], _ = netip.ParseAddr(v4.PoolList[0].EndIP.Value)
 		}
 	}
 	return s
@@ -538,5 +555,22 @@ func (c *Client) UpdateSubnetGateway(ctx context.Context, extID string, gw netip
 			cfg["ipv4"] = v4
 		}
 		v4["defaultGatewayIp"] = map[string]any{"value": gw.String()}
+	})
+}
+
+// CreateVLANSubnet creates an unmanaged VLAN subnet (no IP management)
+// on a cluster, on the VLAN id and virtual switch of the external
+// subnet: where the BGP gateway's and the edge router's NICs go, since
+// a VM NIC on the external subnet itself is refused (write-up 38, 7).
+func (c *Client) CreateVLANSubnet(ctx context.Context, name, clusterExtID string, vlanID int, virtualSwitchExtID string) (*Subnet, error) {
+	body := map[string]any{"name": name, "description": "Managed by Portico: the VLAN of this site's BGP gateway and edge router", "subnetType": "VLAN",
+		"clusterReference": clusterExtID, "networkId": vlanID, "virtualSwitchReference": virtualSwitchExtID, "isExternal": false}
+	return createWithTask(ctx, c, PathNetworking+"/subnets", name, body, c.ListSubnets, func(all []Subnet) *Subnet {
+		for i := range all {
+			if all[i].Name == name && all[i].Type == "VLAN" && all[i].ClusterExtID == clusterExtID {
+				return &all[i]
+			}
+		}
+		return nil
 	})
 }
