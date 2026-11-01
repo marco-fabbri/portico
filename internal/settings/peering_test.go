@@ -126,3 +126,33 @@ func TestSettingsRoundTripKeepsPeering(t *testing.T) {
 		t.Fatalf("static peering after round trip = %+v", p)
 	}
 }
+
+// Every peer field that is filled in is checked, whatever the kind: the
+// edge address saved beside a router peer is what a later move builds.
+func TestPeeringValidateChecksTheOtherPeerToo(t *testing.T) {
+	ext, pool := netip.MustParsePrefix("10.0.210.0/24"), [2]netip.Addr{netip.MustParseAddr("10.0.210.30"), netip.MustParseAddr("10.0.210.40")}
+	p := SitePeering{Kind: PeerRouter, GatewayAddr: netip.MustParsePrefix("10.0.210.195/24"), GatewayGW: netip.MustParseAddr("10.0.210.1"), GatewayASN: 65010,
+		RouterAddr: netip.MustParseAddr("10.0.210.1"), RouterASN: 65000, EdgeAddr: netip.MustParseAddr("10.0.210.35"), EdgeASN: 65020}
+	if err := p.Validate(ext, pool); err == nil || !strings.Contains(err.Error(), "edge router 10.0.210.35 is in the external subnet's pool") {
+		t.Fatalf("err = %v", err)
+	}
+	p.EdgeAddr, p.EdgeASN = netip.MustParseAddr("10.0.210.196"), 0
+	if err := p.Validate(ext, pool); err == nil || !strings.Contains(err.Error(), "the edge router needs an ASN") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// Neither the gateway nor the edge may take the VLAN router's address:
+// that is the MSP's own router on the VLAN.
+func TestPeeringValidateRefusesTheVLANRoutersAddress(t *testing.T) {
+	ext, pool := netip.MustParsePrefix("10.0.210.0/24"), [2]netip.Addr{netip.MustParseAddr("10.0.210.30"), netip.MustParseAddr("10.0.210.40")}
+	p := SitePeering{Kind: PeerEdge, GatewayAddr: netip.MustParsePrefix("10.0.210.195/24"), GatewayGW: netip.MustParseAddr("10.0.210.1"), GatewayASN: 65010,
+		EdgeAddr: netip.MustParseAddr("10.0.210.1"), EdgeASN: 65020}
+	if err := p.Validate(ext, pool); err == nil || !strings.Contains(err.Error(), "the edge router 10.0.210.1 is the VLAN router's address") {
+		t.Fatalf("err = %v", err)
+	}
+	p.EdgeAddr, p.GatewayAddr = netip.MustParseAddr("10.0.210.196"), netip.MustParsePrefix("10.0.210.1/24")
+	if err := p.Validate(ext, pool); err == nil || !strings.Contains(err.Error(), "the BGP gateway 10.0.210.1 is the VLAN router's address") {
+		t.Fatalf("err = %v", err)
+	}
+}

@@ -141,7 +141,7 @@ func peeringFromForm(r *http.Request, cur settings.SitePeering) (settings.SitePe
 			return def, nil
 		}
 		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 {
+		if err != nil || n < 0 || n > 4294967295 {
 			return 0, fmt.Errorf("%q is not an ASN", v)
 		}
 		return n, nil
@@ -177,6 +177,14 @@ func peeringFromForm(r *http.Request, cur settings.SitePeering) (settings.SitePe
 	}
 	if p.EdgeASN, err = asn("edge_asn", cur.EdgeASN); err != nil {
 		return cur, err
+	}
+	// A peer's address and ASN go together: a form without the address
+	// clears the pair (every filled-in peer is validated).
+	if !p.RouterAddr.IsValid() {
+		p.RouterASN = 0
+	}
+	if !p.EdgeAddr.IsValid() {
+		p.EdgeASN = 0
 	}
 	return p, nil
 }
