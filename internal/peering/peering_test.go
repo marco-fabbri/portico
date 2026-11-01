@@ -504,3 +504,41 @@ func TestBuildCreatesTheVLANSubnetWhenTheVirtualSwitchDiffers(t *testing.T) {
 		t.Fatalf("peering = %+v\n  %s", p, strings.Join(f.calls, "\n  "))
 	}
 }
+
+// One transient answer while the gateway or the session is waited for
+// is not the outcome (Review Focus 2; write-up 39: 504 waves): the wait
+// goes on and the build ends up.
+func TestBuildWaitsThroughATransientAnswer(t *testing.T) {
+	f := newFakePC()
+	f.gatewayErrs = []error{&nutanix.APIError{Status: 504, Message: "upstream request timeout"}, &nutanix.APIError{Status: 500, Message: "Failed to store new cookie in IDF"}}
+	f.gatewayStates = []string{"DOWN", "UP"}
+	f.sessionErrs = []error{&nutanix.APIError{Status: 504, Message: "upstream request timeout"}}
+	s, _ := newService(t, f)
+	p, err := s.Build(context.Background(), testSite(), edgePeering(), &fakeEdge{f: f})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if p.State != settings.PeeringUp {
+		t.Fatalf("peering = %+v", p)
+	}
+}
+
+// A remote gateway update that fails with a transient answer is not a
+// refusal: nothing is recreated and no session is deleted (Review Focus
+// 3); the step fails and Repair runs it again.
+func TestMoveToRouterDoesNotRecreateOnATransientUpdateError(t *testing.T) {
+	f := newFakePC()
+	p := built(f)
+	p.RouterAddr, p.RouterASN = netip.MustParseAddr("10.23.210.254"), 65000
+	f.updateRemoteErr = &nutanix.APIError{Status: 504, Message: "upstream request timeout"}
+	s, _ := newService(t, f)
+	out, err := s.MoveToRouter(context.Background(), testSite(), p)
+	if err == nil || !strings.Contains(err.Error(), "504") {
+		t.Fatalf("MoveToRouter: %v", err)
+	}
+	if out.Kind != settings.PeerEdge || out.SessionExtID != "s-S" || out.RemoteGatewayExtID != "rgw-R" {
+		t.Fatalf("peering = %+v", out)
+	}
+	f.never(t, "CreateRemoteBGPGateway")
+	f.never(t, "DeleteBGPSession")
+}
