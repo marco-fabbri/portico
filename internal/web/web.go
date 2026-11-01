@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/marco-fabbri/portico/internal/api"
@@ -46,6 +47,9 @@ type Options struct {
 	// NetReader reads a site's Prism Central for the Networking card; nil
 	// opens the site with its service account key.
 	NetReader NetReader
+	// Peering opens a site's peering service for the Routing section; nil
+	// opens the site with its service account key.
+	Peering PeeringOpener
 }
 
 // Handler serves the UI. It implements api.SessionChecker so the same
@@ -66,6 +70,12 @@ type Handler struct {
 	icons    branding.Icons // the admin UI's tab icons, drawn once
 	// netReader reads a site for the Networking card (siteNetReader when nil).
 	netReader NetReader
+	// peering opens a site's peering service (the site itself when nil);
+	// peeringRuns are the sites with an operation in the background.
+	peering     PeeringOpener
+	peeringMu   sync.Mutex
+	peeringRuns map[string]bool
+	peeringWG   sync.WaitGroup
 }
 
 // New builds the handler and parses the templates once.
@@ -82,7 +92,11 @@ func New(o Options) *Handler {
 	if o.Branding == nil {
 		o.Branding = branding.NewService(o.Store, o.Log)
 	}
-	h := &Handler{st: o.Store, svc: o.Service, brand: o.Branding, sessions: o.Sessions, limiter: o.Limiter, setup: o.Setup, exposure: o.Exposure, secure: o.Secure, version: o.Version, log: o.Log, netReader: o.NetReader}
+	h := &Handler{st: o.Store, svc: o.Service, brand: o.Branding, sessions: o.Sessions, limiter: o.Limiter, setup: o.Setup, exposure: o.Exposure, secure: o.Secure, version: o.Version, log: o.Log, netReader: o.NetReader,
+		peering: o.Peering, peeringRuns: map[string]bool{}}
+	if h.svc != nil {
+		h.svc.OnLastNetworkGone = h.lastNetworkGone
+	}
 	h.pages = parsePages()
 	h.icons = branding.AdminIcons()
 	mux := http.NewServeMux()

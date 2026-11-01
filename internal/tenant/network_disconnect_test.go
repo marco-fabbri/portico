@@ -176,3 +176,25 @@ func TestDisconnectFindsUnstoredByName(t *testing.T) {
 		t.Fatal("the VPC left behind")
 	}
 }
+
+func TestDisconnectLastNetworkTearsDownPeering(t *testing.T) {
+	e := newNetEnv(t)
+	built(t, e, "acme")
+	built(t, e, "beta")
+	var gone []string
+	e.svc.OnLastNetworkGone = func(_ context.Context, siteID string) { gone = append(gone, siteID) }
+	if err := e.svc.Disconnect(context.Background(), "acme", "site-a"); err != nil {
+		t.Fatalf("Disconnect acme: %v", err)
+	}
+	e.svc.Wait()
+	if len(gone) != 0 {
+		t.Fatalf("the hook ran with beta's network still there: %v", gone)
+	}
+	if err := e.svc.Disconnect(context.Background(), "beta", "site-a"); err != nil {
+		t.Fatalf("Disconnect beta: %v", err)
+	}
+	e.svc.Wait()
+	if len(gone) != 1 || gone[0] != "site-a" {
+		t.Fatalf("hook = %v", gone)
+	}
+}
