@@ -2,6 +2,7 @@ package peering
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/netip"
 	"strings"
@@ -431,4 +432,41 @@ func TestBuildRouterLeavesTheSubnetGatewayWhenTheSessionStaysDown(t *testing.T) 
 		t.Fatalf("peering = %+v", p)
 	}
 	f.never(t, "UpdateSubnetGateway")
+}
+
+func TestMoveToRouterThatFailsBeforeTheRemoteMovesKeepsTheEdgeAsPeer(t *testing.T) {
+	f := newFakePC()
+	p := built(f)
+	p.RouterAddr, p.RouterASN = netip.MustParseAddr("10.0.210.254"), 65000
+	delete(f.subnets, extSubnet) // the external subnet cannot be read: the move fails at its first step
+	s, _ := newService(t, f)
+	out, err := s.MoveToRouter(context.Background(), testSite(), p)
+	if err == nil {
+		t.Fatalf("MoveToRouter did not fail")
+	}
+	if out.Kind != settings.PeerEdge || out.State != settings.PeeringFailed || out.EdgeKept {
+		t.Fatalf("peering = %+v", out)
+	}
+	f.never(t, "UpdateRemoteGateway")
+	if _, err := s.DeleteEdge(context.Background(), out); err == nil {
+		t.Fatalf("DeleteEdge deleted the edge that is still the peer")
+	}
+}
+
+func TestMoveToEdgeThatFailsToBuildTheEdgeKeepsTheRouterAsPeer(t *testing.T) {
+	f := newFakePC()
+	s, _ := newService(t, f)
+	p, err := s.Build(context.Background(), testSite(), routerPeering(), nil)
+	if err != nil || p.State != settings.PeeringUp {
+		t.Fatalf("Build: %v %+v", err, p)
+	}
+	p.EdgeAddr, p.EdgeASN = netip.MustParseAddr("10.0.210.194"), 65020
+	out, err := s.MoveToEdge(context.Background(), testSite(), p, &fakeEdge{f: f, fail: errors.New("no host has enough resources")})
+	if err == nil {
+		t.Fatalf("MoveToEdge did not fail")
+	}
+	if out.Kind != settings.PeerRouter || out.State != settings.PeeringFailed {
+		t.Fatalf("peering = %+v", out)
+	}
+	f.never(t, "UpdateRemoteGateway")
 }
