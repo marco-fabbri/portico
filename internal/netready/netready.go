@@ -151,7 +151,14 @@ func Evaluate(ctx context.Context, r Reader, n settings.SiteNetwork, saExtID str
 	} else if missing, err := r.MissingOperations(ctx, saExtID, settings.NetworkingOperations); err != nil {
 		add("rights", Failed, "Cannot read the service account's rights: "+err.Error())
 	} else if len(missing) > 0 {
-		add("rights", Failed, "The service account lacks "+strings.Join(missing, ", ")+": Repair the site")
+		// A site that keeps its static route needs only the tenant
+		// operations: the peering ones are missing after an upgrade from
+		// 0.2.x until Repair, a warning rather than a red card.
+		status := Failed
+		if n.Peering.KindOrStatic() == settings.PeerStatic && !anyOf(missing, settings.TenantNetworkingOperations) {
+			status = Warning
+		}
+		add("rights", status, "The service account lacks "+strings.Join(missing, ", ")+": Repair the site")
 	} else {
 		add("rights", OK, "The service account has the networking operations")
 	}
@@ -373,4 +380,16 @@ func transitCheck(ctx context.Context, r Reader, extID string) (string, netip.Pr
 		}
 	}
 	return v.Name + " has no default route to its external subnet", netip.Prefix{}, netip.Addr{}
+}
+
+// anyOf reports whether any of names is among set.
+func anyOf(names, set []string) bool {
+	for _, n := range names {
+		for _, m := range set {
+			if n == m {
+				return true
+			}
+		}
+	}
+	return false
 }

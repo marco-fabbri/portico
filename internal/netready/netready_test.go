@@ -438,3 +438,21 @@ func TestCoreRouteWithoutThePrefix(t *testing.T) {
 		t.Fatalf("CoreRoute = %q", got)
 	}
 }
+
+// A site that keeps its static route (0.2.x, no peer) needs only the
+// tenant networking operations: the peering ones are a warning until a
+// peer is chosen, never a red card after the upgrade (Review Focus 1).
+func TestRightsOfAStaticSiteWarnOnThePeeringOperations(t *testing.T) {
+	r := good()
+	r.missing = []string{"View_Network_Gateway", "Create_Bgp_Session"}
+	cs := Evaluate(context.Background(), r, picked(), "sa-1", 0, "")
+	if c := check(t, cs, "rights"); c.Status != Warning || !strings.Contains(c.Message, "Repair") || !strings.Contains(c.Message, "View_Network_Gateway") || !Ready(cs) {
+		t.Fatalf("rights = %+v", c)
+	}
+	n := picked()
+	n.Peering = settings.SitePeering{Kind: settings.PeerRouter}
+	cs = Evaluate(context.Background(), r, n, "sa-1", 0, "")
+	if c := check(t, cs, "rights"); c.Status != Failed {
+		t.Fatalf("rights with a peer = %+v", c)
+	}
+}
