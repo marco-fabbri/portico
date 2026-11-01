@@ -113,7 +113,9 @@ func probeError(err error) error {
 // a DNS entry that is not an address is left out (the Networking card
 // refuses one).
 func siteNetwork(n settings.SiteNetwork) tenant.SiteNetwork {
-	out := tenant.SiteNetwork{Enabled: n.Enabled && n.TransitVPCExtID != "", TransitVPCExtID: n.TransitVPCExtID}
+	allowed, _ := n.SwitchAllowed()
+	out := tenant.SiteNetwork{Enabled: n.Enabled && n.TransitVPCExtID != "" && allowed, TransitVPCExtID: n.TransitVPCExtID,
+		PeeringKind: n.Peering.KindOrStatic(), PeeringState: n.Peering.State}
 	for _, d := range n.DNS {
 		if a, err := netip.ParseAddr(d); err == nil {
 			out.DNS = append(out.DNS, a)
