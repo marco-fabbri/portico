@@ -141,7 +141,7 @@ func (c *Client) GetVM(ctx context.Context, extID string) (*VM, error) {
 
 // CreateVM creates the VM of s, powered off: legacy BIOS boot, one SCSI
 // disk cloned from the image, one virtio NIC, cloud-init on a config
-// drive (CONFIG_DRIVE_V2) as lab/network/edge-router.sh measured.
+// drive (CONFIG_DRIVE_V2) as the lab measured (write-up 37).
 func (c *Client) CreateVM(ctx context.Context, s VMSpec) (*VM, error) {
 	body := map[string]any{
 		"name": s.Name, "description": "Managed by Portico", "numSockets": 1, "numCoresPerSocket": s.VCPUs, "memorySizeBytes": s.MemoryBytes,
