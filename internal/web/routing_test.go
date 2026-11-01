@@ -82,7 +82,7 @@ func (f *fakePeerer) BackToEdge(_ context.Context, _ settings.Site, p settings.S
 	p.Kind, p.EdgeKept = settings.PeerEdge, false
 	return up(p), nil
 }
-func (f *fakePeerer) DeleteEdge(_ context.Context, p settings.SitePeering) (settings.SitePeering, error) {
+func (f *fakePeerer) DeleteEdge(_ context.Context, _ settings.Site, p settings.SitePeering) (settings.SitePeering, error) {
 	f.rec("DeleteEdge")
 	p.EdgeVMExtID, p.EdgeKept = "", false
 	return p, nil
@@ -340,7 +340,7 @@ func TestRoutingLinesForRouterWithAKeptEdge(t *testing.T) {
 	p.EdgeAddr, p.EdgeASN, p.EdgeVMExtID, p.EdgeKept, p.State = netip.MustParseAddr("10.0.210.196"), 65020, "edge-1", true, settings.PeeringUp
 	storePeering(t, e, settings.SiteNetwork{TransitVPCExtID: "vpc-transit", IntegratedConfirmed: true, DNS: []string{"1.1.1.1"}, Peering: p})
 	body := e.hx("GET", "/setup/sites/site-a/networking", nil).Body.String()
-	for _, want := range []string{"On your core", "Remove the static route", "via 10.0.210.196", "the edge router is off", "delete-edge"} {
+	for _, want := range []string{"On your core", "Remove the static route", "via 10.0.210.196", "your router is the peer", "delete-edge"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("card lacks %q:\n%s", want, body)
 		}
@@ -397,5 +397,32 @@ func TestRoutingRouteAddedWaitsForTheOperation(t *testing.T) {
 	}
 	if n := storedNetwork(t, svc); n.Peering.RouteAdded {
 		t.Fatalf("stored = %+v", n.Peering)
+	}
+}
+
+// A new edge address saved in edge mode is a Replace with that address
+// (release notes: a change of address is a replace); with a kept edge in
+// router mode the card says to delete it first, not a dead end.
+func TestRoutingSaveNewEdgeAddressReplaces(t *testing.T) {
+	e, svc, fp := withRouting(t, &netReader{gateway: netip.MustParseAddr("10.0.210.1")})
+	storePeering(t, e, settings.SiteNetwork{TransitVPCExtID: "vpc-transit", IntegratedConfirmed: true, DNS: []string{"1.1.1.1"}, Peering: edgePeering()})
+	rec := e.hx("POST", "/setup/sites/site-a/routing", e.form("peer", "edge", "gateway_addr", "10.0.210.195", "gateway_gw", "10.0.210.1", "gateway_asn", "65010", "edge_addr", "10.0.210.196", "edge_asn", "65020"))
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "replaced") {
+		t.Fatalf("save: %d\n%s", rec.Code, rec.Body.String())
+	}
+	e.web.WaitPeering()
+	if !fp.has("ReplaceEdge 10.0.210.196") {
+		t.Fatalf("calls = %v", fp.calls)
+	}
+	if n := storedNetwork(t, svc); n.Peering.EdgeAddr.String() != "10.0.210.196" {
+		t.Fatalf("stored = %+v", n.Peering)
+	}
+	// Router mode with a kept edge: a new edge address needs the kept one deleted first.
+	p := routerPeering()
+	p.EdgeAddr, p.EdgeASN, p.EdgeVMExtID, p.EdgeKept = netip.MustParseAddr("10.0.210.194"), 65020, "vm-e", true
+	storePeering(t, e, settings.SiteNetwork{TransitVPCExtID: "vpc-transit", IntegratedConfirmed: true, DNS: []string{"1.1.1.1"}, Peering: p})
+	rec = e.hx("POST", "/setup/sites/site-a/routing", e.form("peer", "edge", "gateway_addr", "10.0.210.195", "gateway_gw", "10.0.210.1", "gateway_asn", "65010", "router_addr", "10.0.210.1", "router_asn", "65000", "edge_addr", "10.0.210.197", "edge_asn", "65020"))
+	if !strings.Contains(rec.Body.String(), "Delete the edge router first") || fp.has("MoveToEdge") {
+		t.Fatalf("move with a new address: %d calls=%v\n%s", rec.Code, fp.calls, rec.Body.String())
 	}
 }
