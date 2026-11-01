@@ -19,6 +19,7 @@ import (
 // test changes it.
 type netReader struct {
 	gateway netip.Addr
+	session string // the BGP session's state, UP when unset
 }
 
 func (f *netReader) Controllers(context.Context) ([]nutanix.Controller, error) {
@@ -46,6 +47,22 @@ func (f *netReader) MissingOperations(context.Context, string, []string) ([]stri
 }
 func (f *netReader) FindRole(_ context.Context, name string) (*nutanix.Role, error) {
 	return &nutanix.Role{ExtID: "role-pt", DisplayName: name}, nil
+}
+func (f *netReader) GetGateway(_ context.Context, id string) (*nutanix.Gateway, error) {
+	return &nutanix.Gateway{ExtID: id, Local: true, Address: netip.MustParseAddr("10.0.210.195"), ASN: 65010, State: "UP"}, nil
+}
+func (f *netReader) GetBGPSession(_ context.Context, id string) (*nutanix.BGPSession, error) {
+	st := f.session
+	if st == "" {
+		st = "UP"
+	}
+	return &nutanix.BGPSession{ExtID: id, State: st}, nil
+}
+func (f *netReader) BGPRoutes(context.Context, string) ([]nutanix.BGPRoute, error) {
+	return []nutanix.BGPRoute{{Prefix: netip.MustParsePrefix("198.51.100.0/24"), NextHop: netip.MustParseAddr("10.0.210.30")}}, nil
+}
+func (f *netReader) GetVM(_ context.Context, id string) (*nutanix.VM, error) {
+	return &nutanix.VM{ExtID: id, PowerOn: true, Categories: []string{"portico:edge"}}, nil
 }
 
 // withNetworking is withSetup with the site's service account stored and
@@ -244,5 +261,24 @@ func TestTenantNewException(t *testing.T) {
 	e.svc.Wait()
 	if g, _ := e.st.GetTenant(context.Background(), "gamma"); g.Subnet != "192.168.5.0/24" || g.FIPAllowance != 2 {
 		t.Fatalf("gamma = %+v", g)
+	}
+}
+
+func TestSwitchRefusedWhilePeeringBuilds(t *testing.T) {
+	e := newEnv(t, true)
+	svc := withNetworking(t, e, &netReader{gateway: netip.MustParseAddr("10.0.210.1")})
+	if _, err := e.web.setup.UpdateSite(context.Background(), "site-a", func(s *settings.Site) {
+		s.Network.Peering = settings.SitePeering{Kind: settings.PeerRouter, GatewayAddr: netip.MustParsePrefix("10.0.210.195/24"), GatewayGW: netip.MustParseAddr("10.0.210.1"), GatewayASN: 65010,
+			RouterAddr: netip.MustParseAddr("10.0.210.1"), RouterASN: 65000, LocalGatewayExtID: "gw-1", RemoteGatewayExtID: "gw-r", SessionExtID: "s-1", State: settings.PeeringBuilding}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e.login(t)
+	rec := e.do("POST", "/setup/sites/site-a/networking", e.form("transit_vpc_ext_id", "vpc-transit", "dns", "1.1.1.1", "integrated", "on", "enabled", "on"), true)
+	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "the BGP session is not UP yet") {
+		t.Fatalf("switch: %d\n%s", rec.Code, rec.Body.String())
+	}
+	if n := storedNetwork(t, svc); n.Enabled || n.Peering.Kind != settings.PeerRouter || n.Peering.SessionExtID != "s-1" {
+		t.Fatalf("stored = %+v", n)
 	}
 }
