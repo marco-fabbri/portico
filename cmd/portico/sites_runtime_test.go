@@ -362,3 +362,23 @@ func TestRuntimePeeringRefreshLeavesABuildAlone(t *testing.T) {
 		t.Fatalf("site-a peering = %+v", sa.Network.Peering)
 	}
 }
+
+// A peering whose last operation failed keeps its failure until Repair:
+// the refresh reads a session that is still UP (the old peer's) and must
+// not store `up` over `failed` (write-up 39, the move to the edge).
+func TestRuntimePeeringRefreshLeavesAFailureAlone(t *testing.T) {
+	e := newRuntimeEnv(t)
+	a := e.site("site-a", "SITE-A", e.pcA)
+	a.Network = settings.SiteNetwork{Peering: settings.SitePeering{Kind: settings.PeerEdge, LocalGatewayExtID: "gw-gone", State: settings.PeeringFailed, Error: "edge: powering the edge router on: 504"}}
+	doc := settings.Settings{Sites: []settings.Site{a}}
+	if err := e.svc.Set(context.Background(), doc); err != nil {
+		t.Fatal(err)
+	}
+	e.rt.Apply(context.Background(), doc)
+	e.monitor.RefreshPeering(context.Background(), time.Second)
+	cur, _ := e.svc.Get(context.Background())
+	sa, _ := cur.Site("site-a")
+	if sa.Network.Peering.State != settings.PeeringFailed || sa.Network.Peering.Error != "edge: powering the edge router on: 504" {
+		t.Fatalf("site-a peering = %+v", sa.Network.Peering)
+	}
+}
