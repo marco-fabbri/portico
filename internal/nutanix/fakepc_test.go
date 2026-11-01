@@ -12,20 +12,21 @@ import (
 // fakePC is an httptest Prism Central answering the v4 shapes measured in
 // docs/lab write-ups 05 and 07. It records every request for assertions.
 type fakePC struct {
-	t      *testing.T
-	srv    *httptest.Server
-	mu     sync.Mutex
-	reqs   []recorded
-	polls  int
-	key    string
-	etag   string
-	fail   map[string]int   // "METHOD path" → status to answer with an error body
-	failN  map[string]int   // "METHOD path" → status to answer with for that many calls, then normally
-	status string           // task status after polls
-	totals map[string]int   // list path → metadata.totalAvailableResults
-	lists  map[string][]any // list path → items, answered as one page
-	objs   map[string]any   // GET path → one object as data
-	iamSt  *iamState        // service account, key and policy (bootstrap_test.go)
+	t        *testing.T
+	srv      *httptest.Server
+	mu       sync.Mutex
+	reqs     []recorded
+	polls    int
+	key      string
+	etag     string
+	fail     map[string]int   // "METHOD path" → status to answer with an error body
+	failN    map[string]int   // "METHOD path" → how many calls answer with an error (failWith's status, else 500), then normally
+	failWith map[string]int   // "METHOD path" → the status failN answers with
+	status   string           // task status after polls
+	totals   map[string]int   // list path → metadata.totalAvailableResults
+	lists    map[string][]any // list path → items, answered as one page
+	objs     map[string]any   // GET path → one object as data
+	iamSt    *iamState        // service account, key and policy (bootstrap_test.go)
 }
 
 type recorded struct {
@@ -35,7 +36,7 @@ type recorded struct {
 }
 
 func newFakePC(t *testing.T) *fakePC {
-	f := &fakePC{t: t, key: "k-secret-123", etag: `"etag-abc"`, fail: map[string]int{}, failN: map[string]int{}, status: "SUCCEEDED", totals: map[string]int{}, lists: map[string][]any{}, objs: map[string]any{}}
+	f := &fakePC{t: t, key: "k-secret-123", etag: `"etag-abc"`, fail: map[string]int{}, failN: map[string]int{}, failWith: map[string]int{}, status: "SUCCEEDED", totals: map[string]int{}, lists: map[string][]any{}, objs: map[string]any{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -57,7 +58,10 @@ func (f *fakePC) handle(w http.ResponseWriter, r *http.Request) {
 	key := r.Method + " " + r.URL.Path
 	status, failing := f.fail[key]
 	if n, ok := f.failN[key]; ok && n > 0 && !failing {
-		status, failing = 500, true
+		status, failing = f.failWith[key], true
+		if status == 0 {
+			status = 500
+		}
 		f.failN[key] = n - 1
 	}
 	f.mu.Unlock()
