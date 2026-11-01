@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/netip"
 	"strings"
@@ -16,8 +17,9 @@ import (
 // fakePeerer records the operations the card asks for and answers with
 // the peering as the real service would leave it.
 type fakePeerer struct {
-	mu    sync.Mutex
-	calls []string
+	mu       sync.Mutex
+	calls    []string
+	failMove error // a move that fails before the remote gateway changes
 }
 
 func (f *fakePeerer) rec(c string) {
@@ -63,6 +65,10 @@ func (f *fakePeerer) ReplaceEdge(_ context.Context, _ settings.Site, p settings.
 }
 func (f *fakePeerer) MoveToRouter(_ context.Context, _ settings.Site, p settings.SitePeering) (settings.SitePeering, error) {
 	f.rec("MoveToRouter " + p.RouterAddr.String())
+	if f.failMove != nil {
+		p.State, p.Error = settings.PeeringFailed, f.failMove.Error()
+		return p, f.failMove
+	}
 	p.Kind, p.EdgeKept = settings.PeerRouter, p.EdgeVMExtID != ""
 	return up(p), nil
 }
@@ -354,5 +360,26 @@ func TestRoutingVLANRouterFieldSaysWhatItIs(t *testing.T) {
 	body := e.hx("GET", "/setup/sites/site-a/networking", nil).Body.String()
 	if !strings.Contains(body, "VLAN router (the router that forwards the routed prefix") {
 		t.Fatalf("the field does not say what the VLAN router is:\n%s", body)
+	}
+}
+
+// A Save that moves the peer and fails before the remote gateway changes
+// must leave the stored kind as it was: the edge is still the peer, and
+// Delete the edge router must refuse (write-up 39: the deleted live peer).
+func TestRoutingSaveMoveThatFailsKeepsTheKind(t *testing.T) {
+	e, svc, fp := withRouting(t, &netReader{gateway: netip.MustParseAddr("10.0.210.1")})
+	storePeering(t, e, settings.SiteNetwork{TransitVPCExtID: "vpc-transit", IntegratedConfirmed: true, DNS: []string{"1.1.1.1"}, Peering: edgePeering()})
+	fp.failMove = errors.New("external: the transit VPC: prism central: 504 upstream request timeout")
+	rec := e.hx("POST", "/setup/sites/site-a/routing", e.form("peer", "router", "gateway_addr", "10.0.210.195", "gateway_gw", "10.0.210.1", "gateway_asn", "65010", "router_addr", "10.0.210.1", "router_asn", "65000", "edge_addr", "10.0.210.194", "edge_asn", "65020"))
+	if rec.Code != 200 {
+		t.Fatalf("save: %d\n%s", rec.Code, rec.Body.String())
+	}
+	e.web.WaitPeering()
+	n := storedNetwork(t, svc)
+	if n.Peering.Kind != settings.PeerEdge || n.Peering.State != settings.PeeringFailed {
+		t.Fatalf("stored = %+v", n.Peering)
+	}
+	if rec := e.do("POST", "/setup/sites/site-a/routing/delete-edge", e.form("confirmed", "on"), true); rec.Code == 303 || fp.has("DeleteEdge") {
+		t.Fatalf("delete-edge ran on the live peer: %d calls=%v", rec.Code, fp.calls)
 	}
 }

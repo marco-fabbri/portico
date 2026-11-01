@@ -206,7 +206,11 @@ func (h *Handler) siteNetworkingSave(w http.ResponseWriter, r *http.Request) {
 			d.Notice = "Saved: new connections to this site get a ready network."
 		}
 	}
-	if s.Network.Enabled && !n.Enabled && n.Peering.LocalGatewayExtID != "" && !h.peeringNeeded(r.Context(), s.ID, false) {
+	// The peering goes only when the MSP unticked the switch: a switch
+	// Portico forced off (a check failing while Prism Central answers
+	// 504, a session that flaps) keeps it.
+	unticked := r.PostFormValue("enabled") != "on"
+	if s.Network.Enabled && unticked && n.Peering.LocalGatewayExtID != "" && !h.peeringNeeded(r.Context(), s.ID, false) {
 		if err := h.runPeering(&out, "tear-down", func(ctx context.Context, pr Peerer, _ peering.EdgeBuilder, p settings.SitePeering) (settings.SitePeering, error) {
 			return pr.TearDown(ctx, out, p)
 		}); err == nil {

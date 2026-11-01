@@ -56,23 +56,31 @@ func IsTaskFailed(err error) bool {
 }
 
 // IsTransient reports whether err is an answer Prism Central's gateway
-// gives intermittently and the next call may not get: a 500, 502, 503 or
-// 504 that is not a task's own failure (write-ups 19 and 25: "Failed to
+// gives intermittently and the next call may not get: a 500, 502 or 503
+// that is not a task's own failure (write-ups 19 and 25: "Failed to
 // store new cookie in IDF", "failed to get client", for minutes after
-// identity changes; write-up 39: 504 "upstream request timeout" on reads
-// while Prism Central is slow, the task itself succeeding). Only task
-// polls repeat on one: a create that got a 504 may have run, and is found
-// by name by the next Repair rather than sent again.
+// identity changes). The gateway's 504 is not one here: the tenant steps
+// run again on a transient answer, and a create that got a 504 may still
+// be running (write-up 39); only the task polls take it, isTransientPoll.
 func IsTransient(err error) bool {
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || apiErr.Task {
 		return false
 	}
 	switch apiErr.Status {
-	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable:
 		return true
 	}
 	return false
+}
+
+// isTransientPoll is IsTransient for a task poll, which also repeats on
+// the gateway's 504 "upstream request timeout" (write-up 39: waves of it
+// while Prism Central is slow). A create that got a 504 is not repeated:
+// its task may still be running, and Repair adopts what it made by name.
+func isTransientPoll(err error) bool {
+	var apiErr *APIError
+	return IsTransient(err) || (errors.As(err, &apiErr) && !apiErr.Task && apiErr.Status == http.StatusGatewayTimeout)
 }
 
 // IsNotFound reports whether err is a 404 from Prism Central or a lookup
@@ -380,7 +388,7 @@ func (c *Client) WaitTask(ctx context.Context, taskExtID string) error {
 	for {
 		var st taskStatus
 		if _, err := c.do(ctx, http.MethodGet, PathTasks+"/"+taskExtID, "", nil, "", &st); err != nil {
-			if !IsTransient(err) {
+			if !isTransientPoll(err) {
 				return err
 			}
 			if transient++; transient >= taskPollTransientLimit {
