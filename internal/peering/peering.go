@@ -7,6 +7,7 @@ package peering
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/netip"
@@ -162,11 +163,21 @@ func describe(what, msg string) string {
 func (s *Service) waitGateway(ctx context.Context, extID string) error {
 	deadline := time.Now().Add(GatewayBound)
 	var last *nutanix.Gateway
+	transient := 0
 	for {
 		g, err := s.pc.GetGateway(ctx, extID)
 		if err != nil {
-			return err
+			// A transient answer is not the gateway's state: the wait
+			// goes on (write-up 39: 504 waves), within the bound.
+			if transient++; !transientRead(err) || transient > transientReadLimit || time.Now().After(deadline) {
+				return err
+			}
+			if err := sleep(ctx, Poll); err != nil {
+				return err
+			}
+			continue
 		}
+		transient = 0
 		if g.State == "UP" {
 			return nil
 		}
@@ -186,11 +197,19 @@ func (s *Service) waitGateway(ctx context.Context, extID string) error {
 func (s *Service) waitSession(ctx context.Context, extID string) (bool, string, error) {
 	deadline := time.Now().Add(SessionBound)
 	var last *nutanix.BGPSession
+	transient := 0
 	for {
 		sess, err := s.pc.GetBGPSession(ctx, extID)
 		if err != nil {
-			return false, "", err
+			if transient++; !transientRead(err) || transient > transientReadLimit || time.Now().After(deadline) {
+				return false, "", err
+			}
+			if err := sleep(ctx, Poll); err != nil {
+				return false, "", err
+			}
+			continue
 		}
+		transient = 0
 		if sess.State == "UP" {
 			return true, "", nil
 		}
@@ -203,6 +222,19 @@ func (s *Service) waitSession(ctx context.Context, extID string) (bool, string, 
 		}
 	}
 	return false, describe("The BGP session is "+orUnknown(last.State)+" after "+SessionBound.String(), last.Message), nil
+}
+
+// transientReadLimit is how many transient answers in a row a wait takes
+// before it gives up; the wait's own bound ends first with the 20 s poll
+// (write-up 39 measured 504 waves of two to four minutes).
+const transientReadLimit = 60
+
+// transientRead reports a read answer the next poll may not get: the
+// gateway's 500/502/503 (nutanix.IsTransient) and its 504 "upstream
+// request timeout". A task's own failure is not one.
+func transientRead(err error) bool {
+	var apiErr *nutanix.APIError
+	return nutanix.IsTransient(err) || (errors.As(err, &apiErr) && !apiErr.Task && apiErr.Status == 504)
 }
 
 func sleep(ctx context.Context, d time.Duration) error {

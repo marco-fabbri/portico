@@ -18,19 +18,22 @@ import (
 // gateway's and the session's states answered in sequence (the last one
 // repeats), and the refusals the measurements found.
 type fakePC struct {
-	mu            sync.Mutex
-	calls         []string
-	gateways      map[string]nutanix.Gateway
-	sessions      map[string]nutanix.BGPSession
-	vms           map[string]nutanix.VM
-	subnets       map[string]nutanix.Subnet
-	vpc           nutanix.VPC
-	gatewayStates []string
-	sessionStates []string
-	sessionMsg    string
-	refusePut     bool
-	routes        []nutanix.BGPRoute
-	next          int
+	gatewayErrs     []error // answers to the next reads of a local gateway, before its states
+	sessionErrs     []error // answers to the next reads of a session, before its states
+	updateRemoteErr error   // what UpdateRemoteGateway answers when set
+	mu              sync.Mutex
+	calls           []string
+	gateways        map[string]nutanix.Gateway
+	sessions        map[string]nutanix.BGPSession
+	vms             map[string]nutanix.VM
+	subnets         map[string]nutanix.Subnet
+	vpc             nutanix.VPC
+	gatewayStates   []string
+	sessionStates   []string
+	sessionMsg      string
+	refusePut       bool
+	routes          []nutanix.BGPRoute
+	next            int
 }
 
 const (
@@ -94,6 +97,12 @@ func (f *fakePC) GetGateway(_ context.Context, extID string) (*nutanix.Gateway, 
 	}
 	if g.Local {
 		f.mu.Lock()
+		if len(f.gatewayErrs) > 0 {
+			err := f.gatewayErrs[0]
+			f.gatewayErrs = f.gatewayErrs[1:]
+			f.mu.Unlock()
+			return nil, err
+		}
 		g.State = pop(&f.gatewayStates)
 		f.mu.Unlock()
 		if g.State == "DOWN" {
@@ -119,8 +128,11 @@ func (f *fakePC) CreateRemoteBGPGateway(_ context.Context, name, projectExtID st
 
 func (f *fakePC) UpdateRemoteGateway(_ context.Context, extID string, addr netip.Addr, asn int) error {
 	f.log("UpdateRemoteGateway %s addr=%s asn=%d", extID, addr, asn)
+	if f.updateRemoteErr != nil {
+		return f.updateRemoteErr
+	}
 	if f.refusePut {
-		return errors.New("prism central: 400 NETWORKING-10056 address is immutable")
+		return &nutanix.APIError{Status: 400, Message: "NETWORKING-10056 address is immutable"}
 	}
 	g, ok := f.gateways[extID]
 	if !ok {
@@ -153,6 +165,12 @@ func (f *fakePC) GetBGPSession(_ context.Context, extID string) (*nutanix.BGPSes
 		return nil, &nutanix.APIError{Status: 404, Message: "session " + extID}
 	}
 	f.mu.Lock()
+	if len(f.sessionErrs) > 0 {
+		err := f.sessionErrs[0]
+		f.sessionErrs = f.sessionErrs[1:]
+		f.mu.Unlock()
+		return nil, err
+	}
 	s.State = pop(&f.sessionStates)
 	f.mu.Unlock()
 	if s.State == "DOWN" {

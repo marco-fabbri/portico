@@ -413,6 +413,14 @@ func (r *run) setRemote(addr netip.Addr, asn int) error {
 	if err == nil {
 		return nil
 	}
+	// Only a refusal (a 4xx, a failed task) means the update cannot be
+	// done and the remote is recreated; a transient answer or a transport
+	// error fails the step, and Repair runs it again (design 4.5: no
+	// session deleted before the new remote is sure).
+	var apiErr *nutanix.APIError
+	if !errors.As(err, &apiErr) || !(apiErr.Task || (apiErr.Status >= 400 && apiErr.Status < 500)) {
+		return err
+	}
 	r.s.log.Warn("peering: remote gateway update refused, recreating", "site", r.site.ID, "err", err)
 	old := r.p.RemoteGatewayExtID
 	name := r.names.remote
