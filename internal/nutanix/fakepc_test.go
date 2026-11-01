@@ -101,6 +101,10 @@ func (f *fakePC) handle(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case strings.HasPrefix(p, PathNetworking+"/") && (r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE") && !strings.Contains(p, "/$actions/"):
 		reply(202, map[string]any{"extId": "task-net"})
+	case strings.HasPrefix(p, "/api/vmm/") && (r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE"):
+		reply(202, map[string]any{"extId": "task-vmm"})
+	case p == PathCategories && r.Method == "POST":
+		reply(201, map[string]any{"extId": "cat-new", "key": rec.Body["key"], "value": rec.Body["value"]})
 	case strings.HasPrefix(p, PathTasks+"/"):
 		f.mu.Lock()
 		f.polls++
