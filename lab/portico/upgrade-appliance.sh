@@ -14,7 +14,10 @@ cd "$(dirname "$0")/../.." || exit 1
 # shellcheck disable=SC2206 # LAB_SSH_OPTS is a list of options
 O=(-o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=ERROR ${LAB_SSH_OPTS:-})
 T="$LAB_SSH_USER@$LAB_VM_IP"
-version="dev-$(git rev-parse --short HEAD)"
+# LAB_VERSION names the build otherwise (e.g. 0.3.0-dev): the edge image
+# Portico looks for follows the version (portico-edge-<version>), so an
+# acceptance that rebuilds the appliance keeps one image in Prism Central.
+version="${LAB_VERSION:-dev-$(git rev-parse --short HEAD)}"
 [ -z "$(git status --porcelain --untracked-files=no)" ] || echo "upgrade-appliance.sh: warning: the checkout has uncommitted changes; $version does not name them" >&2
 
 tmp=$(mktemp -d)
