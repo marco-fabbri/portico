@@ -324,3 +324,22 @@ func TestSwitchOffKeepsPeeringWhileNetworksExist(t *testing.T) {
 		t.Fatalf("stored = %+v", n.Peering)
 	}
 }
+
+// Router mode with the edge kept off: the core's static route to the
+// edge is dead now, the card says to remove it (write-up 39: a static
+// route without a metric beat the BGP route and blackholed the prefix).
+func TestRoutingLinesForRouterWithAKeptEdge(t *testing.T) {
+	e, _, _ := withRouting(t, &netReader{gateway: netip.MustParseAddr("10.0.210.1"), session: "UP"})
+	p := routerPeering()
+	p.EdgeAddr, p.EdgeASN, p.EdgeVMExtID, p.EdgeKept, p.State = netip.MustParseAddr("10.0.210.196"), 65020, "edge-1", true, settings.PeeringUp
+	storePeering(t, e, settings.SiteNetwork{TransitVPCExtID: "vpc-transit", IntegratedConfirmed: true, DNS: []string{"1.1.1.1"}, Peering: p})
+	body := e.hx("GET", "/setup/sites/site-a/networking", nil).Body.String()
+	for _, want := range []string{"On your core", "Remove the static route", "via 10.0.210.196", "the edge router is off", "delete-edge"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("card lacks %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "once the edge router is deleted") {
+		t.Fatalf("the card defers the removal of a dead route:\n%s", body)
+	}
+}
