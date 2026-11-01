@@ -269,7 +269,13 @@ func projectAdmin() []map[string]any {
 var OpCatalog = []string{"Create_User", "Create_User_Key", "Update_Authorization_Policy", "Create_Saml_Identity_Provider", "Create_Role", "Update_Role", "Delete_Role",
 	"Create_Authorization_Policy", "Delete_Authorization_Policy", "Share_Saml_Identity_Provider", "View_Project",
 	"View_Subnet", "Create_Subnet", "Delete_Subnet", "Share_Subnet", "Unshare_Subnet", "View_VPC", "View_Floating_Ip", "Create_Floating_Ip", "Update_Floating_Ip", "Delete_Floating_Ip",
-	"View_VPC_Route_Table", "View_Route_Table_Route", "Create_Route_Table_Route", "Delete_Route_Table_Route"}
+	"View_VPC_Route_Table", "View_Route_Table_Route", "Create_Route_Table_Route", "Delete_Route_Table_Route", "Update_Subnet",
+	"View_Network_Gateway", "Create_Network_Gateway", "Update_Network_Gateway", "Delete_Network_Gateway",
+	"View_Bgp_Session", "Create_Bgp_Session", "Update_Bgp_Session", "Delete_Bgp_Session", "View_Bgp_Route",
+	"View_Image", "Create_Image", "Delete_Image",
+	"View_Virtual_Machine", "Create_Virtual_Machine", "Update_Virtual_Machine", "Delete_Virtual_Machine",
+	"Allow_Virtual_Machine_Power_On", "Allow_Virtual_Machine_Power_Off", "Update_Virtual_Machine_Categories",
+	"View_Category", "Create_Category", "View_Cluster"}
 
 // NewPC starts a Prism Central double over http.
 func NewPC(t *testing.T) *PC {

@@ -135,3 +135,42 @@ func TestSetupStepOrder(t *testing.T) {
 		t.Fatalf("step = %+v", s)
 	}
 }
+
+// A site set up on 0.2.2 holds the ready-network operations only: Repair
+// gives the role the peering's (gateways, BGP sessions, the edge's VM,
+// image and category) and makes the policy again with their entity types.
+func TestNetworkingRightsRepairAddsPeeringOperations(t *testing.T) {
+	old := []any{}
+	for _, n := range []string{"View_Subnet", "Create_Subnet", "Delete_Subnet", "Share_Subnet", "Unshare_Subnet", "View_VPC",
+		"View_Floating_Ip", "Create_Floating_Ip", "Update_Floating_Ip", "Delete_Floating_Ip",
+		"View_VPC_Route_Table", "View_Route_Table_Route", "Create_Route_Table_Route", "Delete_Route_Table_Route"} {
+		old = append(old, "op-"+n)
+	}
+	f := setupEnv(t)
+	f.pc.Roles = append(f.pc.Roles, map[string]any{"extId": "role-022", "displayName": "Portico Networking", "operations": old})
+	f.pc.Policies = append(f.pc.Policies, map[string]any{"extId": "pol-022", "displayName": "Portico Networking_portico", "role": "role-022",
+		"identities": []any{map[string]any{"identityFilter": map[string]any{"user": map[string]any{"uuid": map[string]any{"anyof": []any{"sa-1"}}}}}},
+		"entities":   []any{map[string]any{"entityFilter": map[string]any{"subnet": map[string]any{"*": map[string]any{"eq": "*"}}}}}})
+	res := f.run(t, f.admin(f.pin))
+	s := stepOf(res, "networking-rights")
+	if s.Status != "ok" || !strings.Contains(s.Message, "given") || !strings.Contains(s.Message, "policy") {
+		t.Fatalf("step = %+v", s)
+	}
+	role := f.pc.Role("Portico Networking")
+	if role["extId"] != "role-022" || f.pc.RoleUpdates != 1 || !slices.Equal(opsOf(role), networkingOpIDs()) {
+		t.Fatalf("role = %v, updates %d", role, f.pc.RoleUpdates)
+	}
+	for _, n := range []string{"op-View_Network_Gateway", "op-Create_Bgp_Session", "op-View_Bgp_Route", "op-Create_Image", "op-Create_Virtual_Machine",
+		"op-Allow_Virtual_Machine_Power_Off", "op-Update_Virtual_Machine_Categories", "op-Create_Category", "op-Update_Subnet", "op-View_Cluster"} {
+		if !slices.Contains(opsOf(role), n) {
+			t.Fatalf("role lacks %s: %v", n, opsOf(role))
+		}
+	}
+	pol := f.pc.Policy("Portico Networking_portico")
+	raw, _ := json.Marshal(pol)
+	for _, want := range []string{`"network_gateway"`, `"bgp_session"`, `"vm"`, `"image"`, `"category"`, `"cluster"`, `"subnet"`} {
+		if pol == nil || len(f.pc.Policies) != 1 || !strings.Contains(string(raw), want) {
+			t.Fatalf("policy lacks %s: %s", want, raw)
+		}
+	}
+}
