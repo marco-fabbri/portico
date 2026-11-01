@@ -402,3 +402,39 @@ func (r *siteRuntime) peeringRefresh(siteID string, pc *nutanix.Client) sites.Pr
 		})
 	}
 }
+
+// recoverInterruptedPeerings marks failed every peering stored as
+// building when the process starts: the operation belonged to the
+// previous process (a restart, an upgrade) and nobody will finish it, so
+// the Routing section offers Repair instead of waiting for ever. It
+// returns the document as stored afterwards.
+func recoverInterruptedPeerings(ctx context.Context, svc *settings.Service, log *slog.Logger) (settings.Settings, error) {
+	doc, err := svc.Get(ctx)
+	if err != nil {
+		return doc, err
+	}
+	var ids []string
+	for _, s := range doc.Sites {
+		if s.Network.Peering.State == settings.PeeringBuilding {
+			ids = append(ids, s.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return doc, nil
+	}
+	err = svc.Patch(ctx, func(d *settings.Settings) {
+		for i := range d.Sites {
+			if d.Sites[i].Network.Peering.State == settings.PeeringBuilding {
+				p := &d.Sites[i].Network.Peering
+				p.State, p.Error, p.StateAt = settings.PeeringFailed, "Portico restarted while the operation ran; press Repair", time.Now().UTC()
+			}
+		}
+	})
+	if err != nil {
+		return doc, fmt.Errorf("interrupted peering: %w", err)
+	}
+	for _, id := range ids {
+		log.Warn("site peering interrupted by a restart", "site", id)
+	}
+	return svc.Get(ctx)
+}

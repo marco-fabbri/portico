@@ -382,3 +382,33 @@ func TestRuntimePeeringRefreshLeavesAFailureAlone(t *testing.T) {
 		t.Fatalf("site-a peering = %+v", sa.Network.Peering)
 	}
 }
+
+// A peering stored as building when Portico starts belongs to an
+// operation the previous process never finished (a restart, an upgrade):
+// it is marked failed so the card offers Repair instead of waiting for ever.
+func TestStartupMarksAnInterruptedPeeringFailed(t *testing.T) {
+	e := newRuntimeEnv(t)
+	a := e.site("site-a", "SITE-A", e.pcA)
+	a.Network = settings.SiteNetwork{Peering: settings.SitePeering{Kind: settings.PeerRouter, LocalGatewayExtID: "gw-1", State: settings.PeeringBuilding}}
+	b := e.site("site-b", "SITE-B", e.pcB)
+	b.Network = settings.SiteNetwork{Peering: settings.SitePeering{Kind: settings.PeerRouter, LocalGatewayExtID: "gw-2", State: settings.PeeringUp}}
+	if err := e.svc.Set(context.Background(), settings.Settings{Sites: []settings.Site{a, b}}); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := recoverInterruptedPeerings(context.Background(), e.svc, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa, _ := doc.Site("site-a")
+	if sa.Network.Peering.State != settings.PeeringFailed || !strings.Contains(sa.Network.Peering.Error, "restarted") {
+		t.Fatalf("site-a peering = %+v", sa.Network.Peering)
+	}
+	sb, _ := doc.Site("site-b")
+	if sb.Network.Peering.State != settings.PeeringUp {
+		t.Fatalf("site-b peering = %+v", sb.Network.Peering)
+	}
+	cur, _ := e.svc.Get(context.Background())
+	if s, _ := cur.Site("site-a"); s.Network.Peering.State != settings.PeeringFailed {
+		t.Fatalf("stored site-a peering = %+v", s.Network.Peering)
+	}
+}
