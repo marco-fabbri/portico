@@ -1,5 +1,5 @@
 // Package nutanix is Portico's Prism Central client: the v4 calls measured
-// on pc.7.6.0.6 for tenant provisioning (docs/lab write-ups 04, 05, 07).
+// on pc.7.6.0.6 for tenant provisioning (lab write-ups 04, 05, 07).
 //
 // Authentication is the service-account API key, sent as X-ntnx-api-key
 // (design §4.5); the bootstrap alone uses an administrator's one-time

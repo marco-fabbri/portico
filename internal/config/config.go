@@ -144,7 +144,7 @@ type Config struct {
 }
 
 // DefaultAllowPrefixes are the path families the Prism Central console uses
-// for a tenant user, measured on pc.7.6.0.6 (docs/lab write-ups 06 and 08).
+// for a tenant user, measured on pc.7.6.0.6 (lab write-ups 06 and 08).
 // An entry ending in "/" matches that path and everything below it; any
 // other entry matches exactly.
 var DefaultAllowPrefixes = []string{

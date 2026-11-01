@@ -232,10 +232,10 @@ the current release does not do yet.
 
 Everything was measured on Prism Central pc.7.6.0.6 (AOS 7.6, two
 single-node AHV clusters) and Keycloak 26.3, first on a Rocky Linux 9 VM
-and from Milestone 3 on the appliance, by the scripts in `lab/` and by
-hand in a browser. Each row has a write-up in
-[`docs/lab/`](docs/lab/) saying what was measured, on which version, and
-how to measure again after an upgrade.
+and from Milestone 3 on the appliance, by scripts and by hand in a
+browser. Each row has a write-up saying what was measured, on which
+version, and how to measure again after an upgrade; the write-ups
+describe a borrowed lab and are not published.
 
 | Milestone | Result |
 |---|---|
@@ -304,10 +304,8 @@ internal/
   textedit/           first-match edits of configuration text
 deploy/               systemd units, quadlets, firewalld, the OpenTofu module
 image/                the appliance image build (Packer, kickstart, OpenSCAP)
-lab/                  scripts that drive the lab (Prism Central, VM, Keycloak)
 docs/
   superpowers/specs/  the design documents
-  superpowers/plans/  the plan each milestone was built from
   adr/                decisions
   history/            the original analysis, as provenance
   lab/                measurements, one write-up per question
@@ -326,11 +324,7 @@ docs/
   state that follows Prism Central.
 - [Admin JSON API](docs/api.md) and [operating the binary](docs/operating.md):
   commands, files, setup mode, logs, backup.
-- [Lab write-ups](docs/lab/): one per question, with the version and how
-  to measure again; [`lab-inventory.md`](docs/lab/lab-inventory.md) lists
-  what the lab holds.
-- [Plans](docs/superpowers/plans/) the milestones were built from, and
-  the [backlog](docs/backlog.md) of deferred findings.
+- The [backlog](docs/backlog.md) of deferred findings.
 - [Example configuration](deploy/portico.yaml.example) and the
   [systemd unit](deploy/portico.service).
 
@@ -394,8 +388,7 @@ with any of the following, it turns a design into a measurement:
   customers expect at the public URL.
 
 Hardware is lent or donated, access is temporary and documented, and
-every measurement that comes out of it lands in `docs/lab/` with
-credit. Open an [issue](https://github.com/marco-fabbri/portico/issues)
+every measurement that comes out of it is written up, with credit. Open an [issue](https://github.com/marco-fabbri/portico/issues)
 or reach me on LinkedIn (linked on my GitHub profile).
 
 ## License

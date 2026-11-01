@@ -9,7 +9,7 @@ import (
 )
 
 // WriteTheme writes the Keycloak login theme for b into dir: the file set
-// measured in docs/lab write-up 13 on Keycloak 26.3 (parent keycloak.v2).
+// measured in lab write-up 13 on Keycloak 26.3 (parent keycloak.v2).
 // Files are written atomically (temp file, rename) with mode 0644; a logo
 // of another type left by a previous save is removed. The tab icon goes
 // in as img/favicon.ico, the file keycloak.v2's template links.

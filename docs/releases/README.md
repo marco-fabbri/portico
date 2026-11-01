@@ -25,13 +25,13 @@ Before the tag, on `main`, with no open pull request of the release:
 4. **Install guide** and **operating guide** for whatever the release
    changes in how the appliance is installed, upgraded or run, and
    `docs/api.md` when the JSON API changed.
-5. **Lab**: `docs/lab/README.md` lists the write-ups, `lab-inventory.md`
-   what the lab holds after the acceptance.
+5. **The lab's write-ups and inventory**, outside the repository,
+   updated with the acceptance.
 6. **A manual run of the image workflow** on `main`
    (`gh workflow run image.yml --ref main -f version=<version>-dev`):
    both images build and pass their boot tests. The `release` job runs
    on tags only.
-7. The suite green on `main` (`go test ./...`, `lab/test_scripts.sh`).
+7. The suite green on `main` (`go test ./...`, `scripts/check-repo.sh`).
 
 Then the tag, with Marco's go:
 
@@ -41,5 +41,5 @@ git push origin v<version>
 ```
 
 After the draft is published: the lab appliance upgraded in place to
-the release (`docs/install.md`, Updating) and `lab-inventory.md` says
-which version runs where.
+the release (`docs/install.md`, Updating) and the lab inventory, outside
+the repository, says which version runs where.

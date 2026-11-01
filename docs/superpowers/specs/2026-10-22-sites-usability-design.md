@@ -430,8 +430,8 @@ to go live at the end of 4.1, site changes take effect at once:
 
 ## 6. To measure before the code is final
 
-On the lab (the lab cluster and the NYC1 Prism Central), a write-up in
-`docs/lab/`:
+On the lab (the two lab Prism Centrals), a write-up in
+a lab write-up:
 
 1. What a Projects 2.0 project can hold on pc.7.6 (VMs, images, volume
    groups, subnets, categories, recovery points, …), how to list each by

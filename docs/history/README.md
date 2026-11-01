@@ -22,9 +22,10 @@ Key ideas that carried over into Portico:
   auth, logical rather than physical isolation) and of things to measure in
   the lab.
 
-## 2026-10-15 — Lab note (`2026-10-15-lab-note.it.md`)
+## 2026-10-15 — Lab note
 
-Written from a lab session as input for the design. Main points:
+Written from a lab session as input for the design; the note names the
+lab and is kept outside the repository. Main points:
 
 - Prism Central IAM accepts local accounts, Active Directory, OpenLDAP, SAML
   2.0 and CAC; Keycloak is on Nutanix's tested list. SAML constraints:

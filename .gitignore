@@ -36,4 +36,10 @@ lab.env
 .vscode/
 *.swp
 .superpowers/
-docs/lab/raw/
+
+# The lab (scripts, write-ups, plans, the Italian lab note) lives in
+# ~/portico-secrets/portico-lab/ and is symlinked here for local use.
+/lab
+/docs/lab
+/docs/superpowers/plans
+/docs/history/2026-10-15-lab-note.it.md

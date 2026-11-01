@@ -388,7 +388,7 @@ is the test of this path.
 
 ## 6. To measure before the code is final
 
-On the lab cluster now (one Prism Central), each a short write-up in `docs/lab/`:
+On the lab cluster now (one Prism Central), each a short lab write-up:
 
 1. Prism Central's cookies on the public host after a tenant login: names,
    `Path`, `HttpOnly`, lifetimes, and which ones the console's JavaScript

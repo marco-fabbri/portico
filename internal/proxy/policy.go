@@ -8,8 +8,7 @@ import (
 )
 
 // Deny and allow rules for the public listener, measured on pc.7.6.0.6
-// (docs/lab/2026-10-17-06-local-login-and-fallback.md and
-// docs/lab/2026-10-17-08-tenant-ui-behaviour.md). Paths are matched on
+// (lab write-ups 06 and 08). Paths are matched on
 // NormalizePath so spelling variants cannot slip past a rule.
 
 var (
