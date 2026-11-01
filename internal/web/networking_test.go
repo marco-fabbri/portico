@@ -283,3 +283,22 @@ func TestSwitchRefusedWhilePeeringBuilds(t *testing.T) {
 		t.Fatalf("stored = %+v", n)
 	}
 }
+
+// The switch forced off by Portico (a check that fails while Prism
+// Central answers 504, a session that flaps) is not the MSP unticking it:
+// a Save of the DNS in that state must not tear the peering down.
+func TestNetworkingSaveWithTheSwitchForcedOffKeepsThePeering(t *testing.T) {
+	e, svc, fp := withRouting(t, &netReader{gateway: netip.MustParseAddr("10.0.210.1"), session: "DOWN"})
+	storePeering(t, e, settings.SiteNetwork{TransitVPCExtID: "vpc-transit", IntegratedConfirmed: true, DNS: []string{"1.1.1.1"}, Enabled: true, Peering: routerPeering()})
+	rec := e.hx("POST", "/setup/sites/site-a/networking", e.form("transit_vpc_ext_id", "vpc-transit", "dns", "8.8.8.8", "integrated", "on", "enabled", "on"))
+	if !strings.Contains(rec.Body.String(), "stays off") {
+		t.Fatalf("save: %d\n%s", rec.Code, rec.Body.String())
+	}
+	e.web.WaitPeering()
+	if fp.has("TearDown") {
+		t.Fatalf("the peering was torn down: %v", fp.calls)
+	}
+	if n := storedNetwork(t, svc); n.Peering.LocalGatewayExtID == "" {
+		t.Fatalf("stored = %+v", n.Peering)
+	}
+}
