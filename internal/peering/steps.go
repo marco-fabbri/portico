@@ -129,12 +129,16 @@ func (s *Service) ReplaceEdge(ctx context.Context, site settings.Site, p setting
 	return r.finish()
 }
 
-// DeleteEdge removes the edge router kept after a move to the router.
-func (s *Service) DeleteEdge(ctx context.Context, p settings.SitePeering) (settings.SitePeering, error) {
+// DeleteEdge removes the edge router kept after a move to the router,
+// after the external subnet's gateway is back on the VLAN router: a move
+// that ended with the session down had left it on the edge.
+func (s *Service) DeleteEdge(ctx context.Context, site settings.Site, p settings.SitePeering) (settings.SitePeering, error) {
 	if p.KindOrStatic() == settings.PeerEdge {
 		return p, errors.New("peering: the edge router is the peer; move to your router first")
 	}
-	r := s.start(ctx, settings.Site{}, p, settings.PeeringBuilding)
+	r := s.start(ctx, site, p, settings.PeeringBuilding)
+	r.step("external", r.findExternal)
+	r.step("subnet-gateway", func() error { return r.subnetGateway(r.p.GatewayGW) })
 	r.step("edge-delete", r.edgeDelete)
 	r.p.EdgeKept = false
 	// The state is the session's, read back: the one received is the

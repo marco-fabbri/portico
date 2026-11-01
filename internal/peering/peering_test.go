@@ -317,7 +317,7 @@ func TestDeleteEdgePowersOffFirst(t *testing.T) {
 	p := built(f)
 	p.Kind, p.EdgeKept = settings.PeerRouter, true
 	s, _ := newService(t, f)
-	out, err := s.DeleteEdge(context.Background(), p)
+	out, err := s.DeleteEdge(context.Background(), testSite(), p)
 	if err != nil {
 		t.Fatalf("DeleteEdge: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestMoveToRouterThatFailsBeforeTheRemoteMovesKeepsTheEdgeAsPeer(t *testing.
 		t.Fatalf("peering = %+v", out)
 	}
 	f.never(t, "UpdateRemoteGateway")
-	if _, err := s.DeleteEdge(context.Background(), out); err == nil {
+	if _, err := s.DeleteEdge(context.Background(), testSite(), out); err == nil {
 		t.Fatalf("DeleteEdge deleted the edge that is still the peer")
 	}
 }
@@ -479,7 +479,7 @@ func TestDeleteEdgeEndsWithTheSessionState(t *testing.T) {
 	p := built(f)
 	p.Kind, p.EdgeKept, p.State = settings.PeerRouter, true, settings.PeeringBuilding
 	s, _ := newService(t, f)
-	out, err := s.DeleteEdge(context.Background(), p)
+	out, err := s.DeleteEdge(context.Background(), testSite(), p)
 	if err != nil {
 		t.Fatalf("DeleteEdge: %v", err)
 	}
@@ -541,4 +541,22 @@ func TestMoveToRouterDoesNotRecreateOnATransientUpdateError(t *testing.T) {
 	}
 	f.never(t, "CreateRemoteBGPGateway")
 	f.never(t, "DeleteBGPSession")
+}
+
+// Delete the edge router puts the external subnet's gateway back on the
+// VLAN router before the VM goes: a move to the router that ended with
+// the session down left the gateway on the edge.
+func TestDeleteEdgePutsTheSubnetGatewayBackFirst(t *testing.T) {
+	f := newFakePC()
+	p := built(f) // the subnet's gateway is the edge's address
+	p.Kind, p.EdgeKept = settings.PeerRouter, true
+	s, _ := newService(t, f)
+	out, err := s.DeleteEdge(context.Background(), testSite(), p)
+	if err != nil {
+		t.Fatalf("DeleteEdge: %v", err)
+	}
+	if out.EdgeVMExtID != "" || f.subnets[extSubnet].Gateway != p.GatewayGW {
+		t.Fatalf("peering = %+v, subnet gateway %s", out, f.subnets[extSubnet].Gateway)
+	}
+	f.before(t, "UpdateSubnetGateway ext-1 gw=10.23.210.254", "DeleteVM edge-E")
 }
