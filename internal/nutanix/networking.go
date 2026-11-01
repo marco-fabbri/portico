@@ -518,3 +518,25 @@ func maskBits(mask string, fallback int) int {
 	}
 	return n
 }
+
+var subnetReadOnly = []string{"links", "$reserved", "$objectType", "tenantId", "clusterName", "hypervisorType", "virtualSwitch", "vpc", "ipUsage", "migrationState", "bridgeName", "reservedIpAddresses", "dynamicIpAddresses"}
+
+// UpdateSubnetGateway changes the default gateway of a subnet in place:
+// the subnet as read, without the fields Prism Central sets, PUT back
+// with If-Match (write-up 38, 3). VMs on it learn the new gateway at
+// their next DHCP lease.
+func (c *Client) UpdateSubnetGateway(ctx context.Context, extID string, gw netip.Addr) error {
+	return c.updateWithTask(ctx, PathNetworking+"/subnets/"+extID, subnetReadOnly, func(obj map[string]any) {
+		cfgs, _ := obj["ipConfig"].([]any)
+		if len(cfgs) == 0 {
+			return
+		}
+		cfg, _ := cfgs[0].(map[string]any)
+		v4, _ := cfg["ipv4"].(map[string]any)
+		if v4 == nil {
+			v4 = map[string]any{}
+			cfg["ipv4"] = v4
+		}
+		v4["defaultGatewayIp"] = map[string]any{"value": gw.String()}
+	})
+}
