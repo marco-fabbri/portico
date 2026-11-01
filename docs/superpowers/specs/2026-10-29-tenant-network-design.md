@@ -124,7 +124,10 @@ NVD-2219's shared transit VPC with NAT model (install guide): a no-NAT
 VLAN external subnet, a transit VPC on it with one fixed address, its
 default route, and a **routed prefix** of the MSP's address space as its
 externally routable prefix; the MSP's router sends that prefix to the
-transit VPC's address, by a static route or through a BGP gateway. The
+transit VPC's address, by a static route or through a BGP gateway (a
+Network Gateway VM in the system project with the BGP service for the
+transit VPC, measured in write-up 37: the router's FRR receives the
+routed prefix with the transit VPC's address as next hop). The
 NAT happens in each tenant's subnet of the transit VPC, so the transit
 VPC itself needs no NAT external subnet, and a tenant's floating IP is
 an address of the routed prefix, reachable as it is (measured on

@@ -9,8 +9,11 @@
 # Optional: EDGE_NAME (portico-edge), EDGE_IP (10.23.210.194), EDGE_GW
 # (10.23.210.254), EDGE_DNS (1.1.1.1), ERP (100.96.0.0/24), TRANSIT_IP
 # (10.23.210.200), EDGE_SUBNET (MGMT), IMAGE (rocky-9-genericcloud),
-# SSH_KEY_FILE (~/.ssh/id_rsa.pub; the user is `admin`). The external
-# subnet then gets EXT_GATEWAY=$EDGE_IP (lab/network/external-subnet.sh).
+# SSH_KEY_FILE (~/.ssh/id_rsa.pub; the user is `admin`), BGP_ASN (65020),
+# PEER_IP (10.23.210.195), PEER_ASN (65010): FRR's eBGP peer for the BGP
+# gateway of lab/network/bgp-gateway.sh (write-up 37); the static route of
+# the routed prefix stays as the fallback. The external subnet then gets
+# EXT_GATEWAY=$EDGE_IP (lab/network/external-subnet.sh).
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 : "${PC_URL:?source lab/env.sh first}"
@@ -21,6 +24,7 @@ VMM=/api/vmm/v4.0/ahv/config
 name="${EDGE_NAME:-portico-edge}"; ip="${EDGE_IP:-10.23.210.194}"; gw="${EDGE_GW:-10.23.210.254}"
 dns="${EDGE_DNS:-1.1.1.1}"; erp="${ERP:-100.96.0.0/24}"; transit="${TRANSIT_IP:-10.23.210.200}"
 key_file="${SSH_KEY_FILE:-$HOME/.ssh/id_rsa.pub}"
+bgp_asn="${BGP_ASN:-65020}"; peer_ip="${PEER_IP:-10.23.210.195}"; peer_asn="${PEER_ASN:-65010}"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
 subnet_extid() { lab/pc.sh GET "$NET/subnets?\$limit=100" 2>/dev/null | jq -r --arg n "$1" '.data[]? | select(.name == $n) | .extId' 2>/dev/null; }
@@ -70,11 +74,31 @@ write_files:
           ip saddr $erp ip daddr != $erp oifname "eth0" masquerade
         }
       }
+  - path: /etc/frr/frr.conf.edge
+    content: |
+      frr defaults traditional
+      hostname $name
+      log syslog informational
+      !
+      router bgp $bgp_asn
+       bgp router-id $ip
+       no bgp ebgp-requires-policy
+       neighbor $peer_ip remote-as $peer_asn
+       neighbor $peer_ip description nutanix-bgp-gateway
+       !
+       address-family ipv4 unicast
+        neighbor $peer_ip soft-reconfiguration inbound
+       exit-address-family
+      !
 runcmd:
   - sysctl --system
   - command -v nft || dnf -y install nftables
   - echo 'include "/etc/nftables/edge.nft"' >> /etc/sysconfig/nftables.conf
   - systemctl enable --now nftables
+  - command -v vtysh || dnf -y install frr
+  - sed -i 's/^bgpd=no/bgpd=yes/' /etc/frr/daemons
+  - install -o frr -g frr -m 640 /etc/frr/frr.conf.edge /etc/frr/frr.conf
+  - systemctl enable --now frr
 EOF
 }
 
