@@ -148,8 +148,14 @@ missing:
    its externally routable prefix. Each tenant takes a `/28` of it, so
    a `/24` serves 16 tenants.
 3. **On your router**, a route of the routed prefix to the transit VPC's
-   fixed address (static, or through a BGP gateway), and the outbound
-   NAT of that prefix to the Internet.
+   fixed address, and the outbound NAT of that prefix to the Internet.
+   A static route is the simple way. The way Nutanix documents is a
+   **BGP gateway**: a Network Gateway VM on the VLAN (Prism Central
+   creates it from Network & Security > Connectivity, in the system
+   project, with the BGP service for the transit VPC), a remote gateway
+   standing for your router, and a BGP session between them that
+   advertises the routed prefix with the transit VPC's address as next
+   hop; your router then follows the prefix as it changes.
 
 The routed prefix is not a VLAN: it exists only in the overlay, behind
 the transit VPC, so no switch or hypervisor carries it. Pick a block your

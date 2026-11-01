@@ -350,6 +350,11 @@ the code when taken, and the structural items.
 - `role()` falls back to Project Admin silently when Portico Tenant is
   missing, which makes the floating-IP allowance no limit
   (`internal/tenant/provision.go`).
+- The Networking card could read the transit VPC's BGP session
+  (`GET /api/networking/v4.4/config/bgp-sessions`) and show its state and
+  the advertised routed prefix next to its checks when the MSP's router
+  peers with a BGP gateway (write-up 37); creating the gateway and the
+  session for the MSP is a later step (project: the system project).
 - `foreignGroup` matches the first group of that name; two
   `tenant-<slug>` groups can exist after a trust is recreated
   (`internal/tenant/provision.go`).
