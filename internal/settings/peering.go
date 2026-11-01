@@ -100,13 +100,8 @@ func (p SitePeering) Validate(external netip.Prefix, pool [2]netip.Addr) error {
 	if !p.GatewayGW.IsValid() {
 		errs = append(errs, errors.New("routing: the BGP gateway needs its default gateway"))
 	}
-	peerAddr, peerASN, peerName := p.RouterAddr, p.RouterASN, "the router"
-	if kind == PeerEdge {
-		peerAddr, peerASN, peerName = p.EdgeAddr, p.EdgeASN, "the edge router"
-	}
-	onVLAN(peerName, peerAddr)
-	if peerAddr.IsValid() && peerAddr == p.GatewayAddr.Addr() {
-		errs = append(errs, fmt.Errorf("routing: the BGP gateway and %s need distinct addresses", peerName))
+	if p.GatewayAddr.IsValid() && p.GatewayAddr.Addr() == p.GatewayGW {
+		errs = append(errs, fmt.Errorf("routing: the BGP gateway %s is the VLAN router's address", p.GatewayGW))
 	}
 	switch {
 	case p.GatewayASN == 0:
@@ -114,13 +109,30 @@ func (p SitePeering) Validate(external netip.Prefix, pool [2]netip.Addr) error {
 	case !privateASN(p.GatewayASN):
 		errs = append(errs, fmt.Errorf("routing: the BGP gateway's ASN %d is not private (64512-65534 or 4200000000-4294967294)", p.GatewayASN))
 	}
-	switch {
-	case peerASN == 0:
-		errs = append(errs, fmt.Errorf("routing: %s needs an ASN", peerName))
-	case kind == PeerEdge && !privateASN(peerASN):
-		errs = append(errs, fmt.Errorf("routing: the edge router's ASN %d is not private (64512-65534 or 4200000000-4294967294)", peerASN))
-	case peerASN == p.GatewayASN:
-		errs = append(errs, fmt.Errorf("routing: the BGP gateway and %s need distinct ASNs", peerName))
+	// The chosen peer is checked in full; the other one too when any of
+	// its fields is filled in, since a later move builds from it.
+	peer := func(name string, addr netip.Addr, asn int, edge bool) {
+		onVLAN(name, addr)
+		if addr.IsValid() && addr == p.GatewayAddr.Addr() {
+			errs = append(errs, fmt.Errorf("routing: the BGP gateway and %s need distinct addresses", name))
+		}
+		if edge && addr.IsValid() && addr == p.GatewayGW {
+			errs = append(errs, fmt.Errorf("routing: %s %s is the VLAN router's address", name, addr))
+		}
+		switch {
+		case asn == 0:
+			errs = append(errs, fmt.Errorf("routing: %s needs an ASN", name))
+		case edge && !privateASN(asn):
+			errs = append(errs, fmt.Errorf("routing: the edge router's ASN %d is not private (64512-65534 or 4200000000-4294967294)", asn))
+		case asn == p.GatewayASN:
+			errs = append(errs, fmt.Errorf("routing: the BGP gateway and %s need distinct ASNs", name))
+		}
+	}
+	if kind == PeerRouter || p.RouterAddr.IsValid() || p.RouterASN != 0 {
+		peer("the router", p.RouterAddr, p.RouterASN, false)
+	}
+	if kind == PeerEdge || p.EdgeAddr.IsValid() || p.EdgeASN != 0 {
+		peer("the edge router", p.EdgeAddr, p.EdgeASN, true)
 	}
 	return errors.Join(errs...)
 }
