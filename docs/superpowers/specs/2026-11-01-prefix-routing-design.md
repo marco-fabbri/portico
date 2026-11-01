@@ -161,7 +161,7 @@ To the nine checks of the 2026-10-29 design the card adds:
 | check | read from | when it fails |
 |---|---|---|
 | local gateway | `GET /gateways/{extId}`: `status.state` `UP`, `installedSoftwareVersion` | "The BGP gateway is DOWN (<message>)"; Repair waits for it to come up (a gateway that stays down is deleted in Prism Central, then Repair builds it again); a gateway that is gone is recreated by Repair |
-| session | `GET /bgp-sessions/{extId}`: `status.state` `UP` | "The BGP session is down: <message>"; in router mode "configure the session on your router: …", in edge mode "the edge router is being replaced" |
+| session | `GET /bgp-sessions/{extId}`: `status.state` `UP` | "The BGP session is down: <message>"; in router mode "configure the session on your router: …", in edge mode "the edge router may still be booting: Replace the edge router if it stays down" |
 | advertised | `GET /bgp-sessions/{extId}/bgp-routes` holds the routed prefix with the transit VPC's address as next hop | "The routed prefix is not advertised: <what is>" |
 | edge router (edge mode) | the VM exists and is on; the session UP is the proof it routes | "The edge router is off"; Repair turns it on; an edge router that is gone is built again by Repair; during a build the rows read "being built" |
 | reachability | a warning, not a check: Portico cannot see the MSP's core; the card repeats the static route (edge mode) or the peer (router mode) until the MSP marks it done (my call: a checkbox the MSP ticks, stored on the site) | — |
