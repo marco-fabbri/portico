@@ -343,3 +343,16 @@ func TestRoutingLinesForRouterWithAKeptEdge(t *testing.T) {
 		t.Fatalf("the card defers the removal of a dead route:\n%s", body)
 	}
 }
+
+// The VLAN router field names what the address is used for: the
+// router that forwards the routed prefix (write-up 39: the lab's VLAN
+// gateway was not that router, and the edge sent the prefix's traffic
+// to it).
+func TestRoutingVLANRouterFieldSaysWhatItIs(t *testing.T) {
+	e, _, _ := withRouting(t, &netReader{gateway: netip.MustParseAddr("10.0.210.1")})
+	storePeering(t, e, settings.SiteNetwork{TransitVPCExtID: "vpc-transit", IntegratedConfirmed: true, DNS: []string{"1.1.1.1"}})
+	body := e.hx("GET", "/setup/sites/site-a/networking", nil).Body.String()
+	if !strings.Contains(body, "VLAN router (the router that forwards the routed prefix") {
+		t.Fatalf("the field does not say what the VLAN router is:\n%s", body)
+	}
+}
