@@ -32,6 +32,11 @@ type SiteNetwork struct {
 	Enabled         bool
 	TransitVPCExtID string
 	DNS             []netip.Addr
+	// PeeringKind and PeeringState are the site's peer (static, router,
+	// edge) and the BGP session's state (up, ...): with a router or edge
+	// peer the switch counts only while the session is up (prefix routing
+	// design 4.6).
+	PeeringKind, PeeringState string
 }
 
 // SetAddressPool replaces the pool the tenants' /24s come from; the MSP
