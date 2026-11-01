@@ -172,14 +172,21 @@ at warning level: maintenance on and off, disconnections (with the
 count), a pinned certificate with its fingerprint, a removed site with
 what it deleted and what it left, a forgotten site with what it left
 behind. Each setup step is logged with its status, never with the
-credentials.
+credentials. Each peering operation of a site's Networking card logs
+its steps by name with their outcome (`peering: step done`, `peering:
+step failed`), and the monitor logs `site peering` with the new state
+and message when the BGP session's state changes.
 
 ## Upgrading
 
 In place, with the installer of the new release, after a snapshot
 ([install guide](install.md#updating)): it backs up the store and the
 key, replaces the binary and its files and restarts Portico; the store
-format is versioned and migrated at start. Open sessions end. The
+format is versioned and migrated at start. Open sessions end. A
+peering operation running at the restart (a build, a move, a replace of
+the edge router) is marked failed at the next start, with its objects
+in Prism Central as they were: press Repair on the site's Networking
+card ([ADR 0010](adr/0010-peering-state-follows-prism-central.md)). The
 development equivalent is `lab/portico/upgrade-appliance.sh`, which runs
 the installer with the binary of a checkout.
 

@@ -908,6 +908,7 @@ portico/
 | 5 | Backlog sweep | done 2026-10-25 (write-ups 27 and 28): the findings in `docs/backlog.md` that must not ship in a release closed with a test each |
 | 6 | First release (step 1 complete) | done 2026-10-27 (write-ups 29, 30, 33): README, install guide, release artefacts, known limits documented; tag `v0.1.0` published, its image downloaded by Prism Central from GitHub and its installer run from the public release |
 | 7 | Tenant ready network | done 2026-10-30 (write-ups 34, 35): design `2026-10-29-tenant-network-design.md`, ADRs 0008 and 0009; released as 0.2.0 and 0.2.1 |
+| 8 | Prefix routing | done 2026-11-01 (write-ups 37 to 39): design `2026-11-01-prefix-routing-design.md`, ADR 0010; the routed prefix reaches the MSP's router by eBGP, built by Portico, or an edge router Portico builds from a second release image; released as 0.3.0 |
 
 Step 2 (later): richer UI, MSP features, brownfield inventory with exclusion
 list, further services.
