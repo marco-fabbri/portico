@@ -233,8 +233,12 @@ router (or recreates it and updates the session), waits for the session
 VLAN's router, and **powers the edge off but keeps it** for a rollback
 (Marco, 2026-11-01): the card offers "Back to the edge router" (power
 on, the remote gateway and the subnet's gateway back) and "Delete the
-edge router"; the static route on the core is the MSP's to remove, the
-card reminds it until the edge is deleted.
+edge router"; the static route on the core is the MSP's to remove as
+soon as the router peers (on FRR a static route keeps the BGP route out
+of the kernel whatever its metric, write-up 39), the card reminds it
+until the edge is deleted. The stored kind follows the remote gateway in
+Prism Central and every operation ends with the session's state read
+back (ADR 0010).
 
 **Router to edge**: the MSP gives the edge's address; Portico builds the
 edge, updates the remote gateway to it, waits for the session `UP`,

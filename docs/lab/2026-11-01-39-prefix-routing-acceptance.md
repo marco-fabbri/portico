@@ -170,6 +170,22 @@ certificate>`.
   failed move with the core's static removed, until it was put back),
   2206 s (the deleted peer).
 
+- The final review of the branch (a fresh reviewer, after this
+  acceptance) found the same theme in other places and the fix pass
+  closed them with tests: the Save that moves the peer bypassed the
+  kind rule; a Save of the Networking card tore the peering down when
+  Portico itself had forced the switch off; the gateway's 504 had become
+  transient for the tenant steps too (a create sent again); the waits
+  gave up on one transient answer; a remote gateway update recreated the
+  remote on any error; the monitor wrote a whole peering over an
+  operation that finished meanwhile; peer fields outside the chosen kind
+  were not validated; a new edge address was a dead end (now a Replace);
+  Delete the edge router left the subnet's gateway on the edge; a static
+  site got a red rights row after the upgrade; the VLAN subnet was
+  adopted without its virtual switch; the boot test now proves the edge
+  image has no build user and no password hash (`users=none; hashes=0`
+  on this image). ADR 0010 records the rules.
+
 ## Implications for the design
 
 - The fix of the read-back is in 0.3.0's notes under Fixed; a 0.2.2 site
