@@ -71,6 +71,6 @@ runcmd:
   # login. The last line is what the image's boot test waits for.
   - |
     for _ in 1 2 3 4 5 6; do vtysh -c 'show running-config' 2>/dev/null | grep -q '^router bgp' && break; sleep 2; done
-    status="portico-edge $(hostname): $(vtysh -c 'show running-config' 2>/dev/null | grep -E '^router bgp|^ neighbor .* remote-as' | sed 's/^ *//' | paste -sd ';' -); forward=$(sysctl -n net.ipv4.ip_forward); nftables=$(systemctl is-active nftables); frr=$(systemctl is-active frr); sshd=$(systemctl is-active sshd 2>/dev/null || true)"
+    status="portico-edge $(hostname): $(vtysh -c 'show running-config' 2>/dev/null | grep -E '^router bgp|^ neighbor .* remote-as' | sed 's/^ *//' | paste -sd ';' -); forward=$(sysctl -n net.ipv4.ip_forward); nftables=$(systemctl is-active nftables); frr=$(systemctl is-active frr); sshd=$(systemctl is-active sshd 2>/dev/null || true); users=$(getent passwd build >/dev/null 2>&1 && echo build || echo none); hashes=$(awk -F: '$2 ~ /^\$/ {n++} END {print n+0}' /etc/shadow 2>/dev/null)"
     detail=""; systemctl is-active -q frr || detail=$(journalctl -u frr --no-pager -n 5 -o cat 2>/dev/null)
     for c in /dev/tty1 /dev/ttyS0; do { echo; echo "$status"; [ -z "$detail" ] || echo "$detail"; echo "portico-edge ready"; } > "$c" 2>/dev/null || true; done
