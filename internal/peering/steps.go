@@ -47,12 +47,19 @@ func (s *Service) Build(ctx context.Context, site settings.Site, p settings.Site
 // is powered off but kept. A session that stays down leaves the edge
 // running and the subnet's gateway on it: the card offers the way back.
 func (s *Service) MoveToRouter(ctx context.Context, site settings.Site, p settings.SitePeering) (settings.SitePeering, error) {
-	p.Kind = settings.PeerRouter
 	r := s.start(ctx, site, p, settings.PeeringBuilding)
 	r.step("external", r.findExternal)
-	r.step("gateway-remote", func() error { return r.setRemote(r.p.RouterAddr, r.p.RouterASN) })
-	r.p.RouteAdded = false
-	r.p.EdgeKept = r.p.EdgeVMExtID != ""
+	// The stored kind follows the remote gateway: until Prism Central
+	// peers with the router, the edge is still the peer and a failure
+	// here leaves it so (Delete the edge router would otherwise remove
+	// the live peer).
+	r.step("gateway-remote", func() error {
+		if err := r.setRemote(r.p.RouterAddr, r.p.RouterASN); err != nil {
+			return err
+		}
+		r.p.Kind, r.p.RouteAdded, r.p.EdgeKept = settings.PeerRouter, false, r.p.EdgeVMExtID != ""
+		return nil
+	})
 	if r.settle(true) {
 		r.step("subnet-gateway", func() error { return r.subnetGateway(r.p.GatewayGW) })
 		r.step("edge-off", func() error { return r.edgePower(false) })
@@ -64,12 +71,19 @@ func (s *Service) MoveToRouter(ctx context.Context, site settings.Site, p settin
 // built (or powered on), the remote gateway becomes it, the session is
 // waited for and the external subnet's gateway moves to the edge.
 func (s *Service) MoveToEdge(ctx context.Context, site settings.Site, p settings.SitePeering, edge EdgeBuilder) (settings.SitePeering, error) {
-	p.Kind = settings.PeerEdge
 	r := s.start(ctx, site, p, settings.PeeringBuilding)
 	r.step("external", r.findExternal)
 	r.step("edge", func() error { return r.edgeVM(edge) })
-	r.step("gateway-remote", func() error { return r.setRemote(r.p.EdgeAddr, r.p.EdgeASN) })
-	r.p.RouteAdded, r.p.EdgeKept = false, false
+	// An edge built while the router is still the peer is a kept one
+	// until the remote gateway points at it (see MoveToRouter).
+	r.p.EdgeKept = r.p.EdgeVMExtID != ""
+	r.step("gateway-remote", func() error {
+		if err := r.setRemote(r.p.EdgeAddr, r.p.EdgeASN); err != nil {
+			return err
+		}
+		r.p.Kind, r.p.RouteAdded, r.p.EdgeKept = settings.PeerEdge, false, false
+		return nil
+	})
 	if r.settle(true) {
 		r.step("subnet-gateway", func() error { return r.subnetGateway(r.p.EdgeAddr) })
 	}
