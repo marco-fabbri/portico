@@ -29,7 +29,7 @@ type Peerer interface {
 	MoveToRouter(ctx context.Context, site settings.Site, p settings.SitePeering) (settings.SitePeering, error)
 	MoveToEdge(ctx context.Context, site settings.Site, p settings.SitePeering, edge peering.EdgeBuilder) (settings.SitePeering, error)
 	BackToEdge(ctx context.Context, site settings.Site, p settings.SitePeering) (settings.SitePeering, error)
-	DeleteEdge(ctx context.Context, p settings.SitePeering) (settings.SitePeering, error)
+	DeleteEdge(ctx context.Context, site settings.Site, p settings.SitePeering) (settings.SitePeering, error)
 	TearDown(ctx context.Context, site settings.Site, p settings.SitePeering) (settings.SitePeering, error)
 }
 
@@ -102,7 +102,7 @@ func (h *Handler) routingView(s settings.Site, n settings.SiteNetwork, choices [
 			// The kept edge is off: a static route to it is dead, and on a
 			// router that runs FRR a static route is preferred to the one
 			// learnt by BGP whatever its metric (write-up 39).
-			v.LinesTitle, v.Lines = "On your core", []string{"Remove the static route " + netready.CoreRoute(routed, p) + ": the edge router is off and your router learns the prefix by BGP"}
+			v.LinesTitle, v.Lines = "On your core", []string{"Remove the static route " + netready.CoreRoute(routed, p) + ": your router is the peer and learns the prefix by BGP"}
 		}
 	case settings.PeerEdge:
 		if !p.RouteAdded && built {
@@ -300,13 +300,20 @@ func (h *Handler) routingSave(w http.ResponseWriter, r *http.Request) {
 			return pr.MoveToRouter(ctx, s, p)
 		}
 	case built && curKind == settings.PeerRouter && kind == settings.PeerEdge:
+		if cur.EdgeVMExtID != "" && cur.EdgeAddr.IsValid() && p.EdgeAddr != cur.EdgeAddr {
+			refuse(http.StatusConflict, "The kept edge router was built with "+cur.EdgeAddr.String()+": Delete the edge router first, then move to the edge router with the new address")
+			return
+		}
 		p.Kind = curKind
 		name, op = "move-edge", func(ctx context.Context, pr Peerer, edge peering.EdgeBuilder, p settings.SitePeering) (settings.SitePeering, error) {
 			return pr.MoveToEdge(ctx, s, p, edge)
 		}
 	case built && kind == settings.PeerEdge && cur.EdgeAddr.IsValid() && p.EdgeAddr != cur.EdgeAddr:
-		refuse(http.StatusConflict, "The edge router's address changes with Replace the edge router: it is rebuilt with the new address, about three minutes without the routed prefix")
-		return
+		// A new address is a Replace with it (design 4.3): the edge is
+		// rebuilt, the remote gateway and the subnet's gateway follow.
+		name, op = "replace", func(ctx context.Context, pr Peerer, edge peering.EdgeBuilder, p settings.SitePeering) (settings.SitePeering, error) {
+			return pr.ReplaceEdge(ctx, s, p, edge)
+		}
 	default:
 		op = func(ctx context.Context, pr Peerer, edge peering.EdgeBuilder, p settings.SitePeering) (settings.SitePeering, error) {
 			return pr.Build(ctx, s, p, edge)
@@ -319,7 +326,7 @@ func (h *Handler) routingSave(w http.ResponseWriter, r *http.Request) {
 	}
 	h.log.Info("site routing saved", "via", "ui", "site", s.ID, "peer", kind, "op", name)
 	d := h.networking(r.Context(), s, s.Network)
-	d.Notice = "Saved: the peering is being " + map[string]string{"build": "built", "move-router": "moved to your router", "move-edge": "moved to the edge router", "tear-down": "removed"}[name] + "."
+	d.Notice = "Saved: the peering is being " + map[string]string{"build": "built", "move-router": "moved to your router", "move-edge": "moved to the edge router", "replace": "replaced with the new address", "tear-down": "removed"}[name] + "."
 	h.writeNetworking(w, r, http.StatusOK, d)
 }
 
@@ -435,7 +442,7 @@ func (h *Handler) routingConfirmed(w http.ResponseWriter, r *http.Request, s set
 		d.Title, d.Button = "Delete the edge router of "+s.Code+"?", "Delete"
 		d.Text = "The edge router kept powered off is deleted; the way back to it is gone. Remove the static route to it from your core."
 		op = func(ctx context.Context, pr Peerer, _ peering.EdgeBuilder, p settings.SitePeering) (settings.SitePeering, error) {
-			return pr.DeleteEdge(ctx, p)
+			return pr.DeleteEdge(ctx, s, p)
 		}
 	}
 	if r.PostFormValue("confirmed") != "on" {
