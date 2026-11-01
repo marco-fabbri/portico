@@ -232,7 +232,7 @@ func TestIsTransient(t *testing.T) {
 		{fmt.Errorf("wrapped: %w", &APIError{Status: 500}), true},
 		{&APIError{Status: 400}, false},
 		{&APIError{Status: 404}, false},
-		{&APIError{Status: 504}, false},
+		{&APIError{Status: 504}, true}, // write-up 39: the gateway's "upstream request timeout" on a read
 		{&APIError{Status: 500, Task: true}, false},
 		{errors.New("dial tcp: timeout"), false},
 		{nil, false},
@@ -299,5 +299,18 @@ func TestWaitTaskGivesUpOnARefusal(t *testing.T) {
 	}
 	if n := len(f.requests()); n != 1 {
 		t.Fatalf("task reads = %d, want 1", n)
+	}
+}
+
+// Prism Central's gateway answers 504 "upstream request timeout" to a
+// task read while it is slow, and the task itself succeeds (write-up 39:
+// PowerOnVm, CreateVm): a poll that gets one is a poll to repeat, not a
+// failed wait.
+func TestWaitTaskPollsThroughAGatewayTimeout(t *testing.T) {
+	f := newFakePC(t)
+	f.failN["GET "+PathTasks+"/t-1"] = 1
+	f.failWith["GET "+PathTasks+"/t-1"] = 504
+	if err := newClient(t, f, nil).WaitTask(context.Background(), "t-1"); err != nil {
+		t.Fatalf("WaitTask: %v", err)
 	}
 }
