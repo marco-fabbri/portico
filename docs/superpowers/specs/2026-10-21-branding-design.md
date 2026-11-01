@@ -163,7 +163,7 @@ on the lab).
 A `PUT` without one of the new fields gets it as an old document is read
 (goal 7): background = accent, text `#ffffff`, header text = the MSP name
 when the document has a logo. A client that does not know the new fields
-keeps the look it had, and re-running `lab/portico/bootstrap-acceptance.sh`
+keeps the look it had, and re-running the lab's bootstrap acceptance
 gives the same page as upgrading (my call). An empty `header_text` sent
 explicitly stays empty. The lab scripts that write the branding are
 updated to send the new fields. (Builder's call: how "absent" is told
@@ -213,7 +213,7 @@ claim from him, and a light palette he chose on the mockup (not recorded
 here; this document's examples use background `#f5f5f7`, text `#222222`,
 accent `#3b5bdb`, which pass the 4.5:1 check). Applied with a lab
 script that takes the logo path and the texts as arguments and leaves the
-rest of the branding unchanged, in the style of `lab/portico/tab-icons.sh`.
+rest of the branding unchanged, in the style of the lab's tab-icon script.
 
 ## 5. What changes in the main design
 
