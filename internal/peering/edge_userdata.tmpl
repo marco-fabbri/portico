@@ -1,0 +1,69 @@
+#cloud-config
+hostname: {{.Name}}
+ssh_pwauth: false
+disable_root: true
+bootcmd:
+  - |
+    cat > /etc/NetworkManager/system-connections/eth0.nmconnection <<'NM'
+    [connection]
+    id=eth0
+    type=ethernet
+    interface-name=eth0
+    [ipv4]
+    method=manual
+    address1={{.Addr}},{{.GW}}
+{{- if .DNS}}
+    dns={{.DNS}};
+{{- end}}
+    [ipv6]
+    method=disabled
+    NM
+  - chmod 600 /etc/NetworkManager/system-connections/eth0.nmconnection
+  - nmcli connection reload
+  - nmcli connection up eth0 || true
+write_files:
+  - path: /etc/sysctl.d/90-edge.conf
+    content: |
+      net.ipv4.ip_forward = 1
+      net.ipv4.conf.all.send_redirects = 0
+      net.ipv4.conf.default.send_redirects = 0
+      net.ipv4.conf.eth0.send_redirects = 0
+  - path: /etc/nftables/edge.nft
+    content: |
+      table inet edge {
+        chain input {
+          type filter hook input priority filter; policy drop;
+          iif "lo" accept
+          ct state established,related accept
+          ct state invalid drop
+          icmp type { echo-request, echo-reply, destination-unreachable, time-exceeded } accept
+          ip saddr {{.Peer}} tcp dport 179 accept
+        }
+        chain forward {
+          type filter hook forward priority filter; policy accept;
+        }
+      }
+  - path: /etc/frr/frr.conf
+    owner: frr:frr
+    permissions: "0640"
+    content: |
+      frr defaults traditional
+      hostname {{.Name}}
+      log syslog informational
+      !
+      router bgp {{.ASN}}
+       bgp router-id {{.IP}}
+       no bgp ebgp-requires-policy
+       neighbor {{.Peer}} remote-as {{.PeerASN}}
+       neighbor {{.Peer}} description portico-bgp-gateway
+       !
+       address-family ipv4 unicast
+        neighbor {{.Peer}} soft-reconfiguration inbound
+       exit-address-family
+      !
+runcmd:
+  - sysctl --system
+  - sed -i 's/^bgpd=no/bgpd=yes/' /etc/frr/daemons
+  - grep -q edge.nft /etc/sysconfig/nftables.conf || echo 'include "/etc/nftables/edge.nft"' >> /etc/sysconfig/nftables.conf
+  - systemctl enable --now nftables
+  - systemctl enable --now frr
