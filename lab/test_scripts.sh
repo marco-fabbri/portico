@@ -299,5 +299,11 @@ if [ -z "$old_node" ]; then ok "every action runs on Node 24, pinned with its ex
 # for eth0 before cloud-init wrote its profile, and network-online waited 60 s.
 if grep -q '^no-auto-default=\*' image/scripts/cleanup.sh && grep -q '/etc/NetworkManager/conf.d/' image/scripts/cleanup.sh; then ok "the image turns off NetworkManager's default wired profile"; else ko "the image keeps NetworkManager's default wired profile"; fi
 
+# v0.3.0: the tag was pushed with the README still presenting 0.2.1 (the
+# documentation landed after it). The README's badge, release box and
+# release-notes link follow the newest notes in docs/releases/.
+latest=$(find docs/releases -name 'v*.md' | sed 's#.*/v##; s#\.md$##' | sort -V | tail -1)
+if grep -q "badge/release-v$latest-" README.md && grep -q "Current release, $latest\." README.md && grep -q "docs/releases/v$latest.md" README.md; then ok "README presents the newest release notes (v$latest)"; else ko "README is behind docs/releases/v$latest.md (badge, release box or notes link)"; fi
+
 if shellcheck -x lab/*.sh lab/*/*.sh deploy/install.sh; then ok "shellcheck"; else ko "shellcheck"; fi
 if [ $fail -eq 0 ]; then echo PASS; else echo FAIL; exit 1; fi
