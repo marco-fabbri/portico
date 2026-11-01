@@ -284,10 +284,15 @@ func (h *Handler) routingSave(w http.ResponseWriter, r *http.Request) {
 		h.writeNetworking(w, r, http.StatusOK, d)
 		return
 	case built && curKind == settings.PeerEdge && kind == settings.PeerRouter:
+		// The stored kind follows the remote gateway: the service changes
+		// it once Prism Central peers with the router, so a move that
+		// fails before leaves the edge as the peer (write-up 39).
+		p.Kind = curKind
 		name, op = "move-router", func(ctx context.Context, pr Peerer, _ peering.EdgeBuilder, p settings.SitePeering) (settings.SitePeering, error) {
 			return pr.MoveToRouter(ctx, s, p)
 		}
 	case built && curKind == settings.PeerRouter && kind == settings.PeerEdge:
+		p.Kind = curKind
 		name, op = "move-edge", func(ctx context.Context, pr Peerer, edge peering.EdgeBuilder, p settings.SitePeering) (settings.SitePeering, error) {
 			return pr.MoveToEdge(ctx, s, p, edge)
 		}

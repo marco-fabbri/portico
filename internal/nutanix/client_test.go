@@ -232,7 +232,7 @@ func TestIsTransient(t *testing.T) {
 		{fmt.Errorf("wrapped: %w", &APIError{Status: 500}), true},
 		{&APIError{Status: 400}, false},
 		{&APIError{Status: 404}, false},
-		{&APIError{Status: 504}, true}, // write-up 39: the gateway's "upstream request timeout" on a read
+		{&APIError{Status: 504}, false}, // write-up 39: the gateway's "upstream request timeout" may hide a create still running; only the task polls repeat it
 		{&APIError{Status: 500, Task: true}, false},
 		{errors.New("dial tcp: timeout"), false},
 		{nil, false},
