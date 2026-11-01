@@ -7,7 +7,10 @@ the Rocky 9 GenericCloud image (CPU type host, 4 vCPU, 8 GiB, 80 GiB,
 VLAN 210, `10.23.210.192`, beside Prism Central so it can serve images
 to it; `BUILD_HOST_IP`, `BUILD_HOST_VLAN`, `BUILD_HOST_GATEWAY` change
 that), taking the Proxmox endpoint, node, datastores and bridge from the NKP toolkit's `tofu/proxmox/terraform.tfvars` and
-the API token from there into the environment only; then `provision.sh`
+the API token from there into the environment only (the DNS is public,
+`BUILD_HOST_DNS` changes it: the toolkit's resolvers do not answer from
+VLAN 210, and QEMU's user-mode network asks only the host's first one,
+so every `dnf` in a build VM failed on 2026-11-01); then `provision.sh`
 installs QEMU/KVM, Packer, OpenTofu, Go, gh and clones the repository
 under `~build/portico`.
 

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Portico edge router: the CIS Level 1 Server profile of scap-security-guide
+     for Rocky Linux 9 with the appliance's exceptions (image/oscap/README.md),
+     evaluated on the GenericCloud base the edge is built from. The profile id
+     is the appliance's so scripts/harden.sh runs unchanged. -->
+<xccdf:Tailoring xmlns:xccdf="http://checklists.nist.gov/xccdf/1.2" id="xccdf_org.portico_tailoring_edge">
+  <xccdf:benchmark href="/usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml"/>
+  <xccdf:version time="2026-11-01T00:00:00">1</xccdf:version>
+  <xccdf:Profile id="xccdf_org.ssgproject.content_profile_portico" extends="xccdf_org.ssgproject.content_profile_cis_server_l1">
+    <xccdf:title>Portico edge router (CIS Level 1 Server with documented exceptions)</xccdf:title>
+    <xccdf:description>The CIS Level 1 Server profile as shipped by scap-security-guide, minus the rules below. The edge is a router: it forwards between the VLAN and the routed prefix (prefix-routing design 4.3).</xccdf:description>
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_sysctl_net_ipv4_ip_forward" selected="false"/>
+    <!-- No root password and no user by design: nothing to log in to on the edge (design 4.3). -->
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_ensure_root_password_configured" selected="false"/>
+    <!-- A bootloader password would have to be shared with every MSP; whoever reaches the console reaches no login anyway. -->
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_grub2_password" selected="false"/>
+    <!-- Evaluated on the day the image is built, when every password change date is that day. -->
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_accounts_password_last_change_is_in_past" selected="false"/>
+    <!-- FRR is the edge's purpose (design 4.3) and its package requires net-snmp (the SNMP agent library its modules link): the rule that removes net-snmp removed FRR with it. The SNMP daemon is masked by edge-provision.sh and nothing listens on 161. -->
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_package_net-snmp_removed" selected="false"/>
+    <!-- The edge's firewall is the one nftables table its cloud-init writes (design 4.3); firewalld would manage the same tables beside it and is not installed. The four rules that want firewalld on and nftables off describe the other arrangement. -->
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_package_firewalld_installed" selected="false"/>
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_service_firewalld_enabled" selected="false"/>
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_firewalld_loopback_traffic_restricted" selected="false"/>
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_firewalld_loopback_traffic_trusted" selected="false"/>
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_service_nftables_disabled" selected="false"/>
+    <!-- The SSH server is removed when the image closes (edge-provision.sh poweroff): its rules describe nothing on the edge. They are evaluated while Packer still needs SSH, so they are set aside rather than reported. -->
+    <xccdf:select idref="xccdf_org.ssgproject.content_group_ssh_server" selected="false"/>
+  </xccdf:Profile>
+</xccdf:Tailoring>

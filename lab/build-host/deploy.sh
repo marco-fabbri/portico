@@ -35,7 +35,7 @@ image_datastore  = "$(val image_datastore)"
 network_bridge   = "$(val network_bridge)"
 network_vlan_id  = $VLAN
 network_gateway  = "$GATEWAY"
-dns_servers      = $(sed -n 's/^dns_servers *= *//p' "$NKP" | head -1)
+dns_servers      = ["${BUILD_HOST_DNS:-1.1.1.1}", "8.8.8.8"]
 address          = "$ADDRESS"
 ssh_public_key   = "$sshkey"
 VARS
