@@ -121,9 +121,8 @@ by `update-remote 10.23.210.196` on `portico-edge`; item 3 by
 `subnet-gateway external-routed 10.23.210.254` and back to `.194`; item 4
 by `image-url portico-edge-test https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2`
 (the release's URL once Task 10 exists); item 9 by `edge-on-external`;
-items 5 and 6 by repeating 1-4 with `PC_API_KEY` of the `.193` service
-account and reading which calls answer 403 (`lab/pc.sh` honours
-`PC_API_KEY`); item 6 by powering `portico-edge` off for ten minutes and
+item 5 by reading the IAM operations catalogue (a temporary key for the
+service account was planned and not created); item 6 by powering `portico-edge` off for ten minutes and
 reading `bgp-sessions` every minute. Expected: a status per item, and the
 FRR summary on `portico-edge` before and after each change.
 
@@ -341,14 +340,15 @@ git commit -m "settings: the site's peering, static for every site built before"
 - Consumes: Task 2 and Task 3 methods behind an interface
   `PrismCentral` declared here (gateways, sessions, routes, VMs, images,
   categories, `GetSubnet`, `UpdateSubnetGateway`, `ListClusters`,
-  `CreateVLANSubnet` if Task 1 item 9 needs it); `settings.SitePeering`.
+  `CreateVLANSubnet(ctx, name, clusterExtID string, vlanID int, virtualSwitchExtID string)`, needed: write-up 38
+  refuses a VM NIC on the external subnet); `settings.SitePeering`.
 - Produces:
   ```go
   type Service struct{ ... } // New(pc PrismCentral, log *slog.Logger, save func(ctx, settings.SitePeering) error)
   func (s *Service) Build(ctx, site settings.Site, p settings.SitePeering, edge EdgeBuilder) (settings.SitePeering, error)   // gateway-local (wait UP, 10 min bound, 20 s poll), gateway-remote, edge (kind edge), session, read-back
   func (s *Service) Refresh(ctx, p settings.SitePeering) (settings.SitePeering, error)                                   // State from Prism Central: up/down with the message
   func (s *Service) ReplaceEdge(ctx, site, p, edge EdgeBuilder) (settings.SitePeering, error)                            // power off, delete, create, wait session UP
-  func (s *Service) MoveToRouter(ctx, site, p) (settings.SitePeering, error)                                              // update remote (or recreate + update session, or recreate session), wait UP, subnet gateway back, edge off, EdgeKept
+  func (s *Service) MoveToRouter(ctx, site, p) (settings.SitePeering, error)                                              // PUT the remote gateway (address, ASN; write-up 38), wait UP, subnet gateway back, edge off, EdgeKept
   func (s *Service) MoveToEdge(ctx, site, p, edge EdgeBuilder) (settings.SitePeering, error)
   func (s *Service) BackToEdge(ctx, site, p) (settings.SitePeering, error)
   func (s *Service) DeleteEdge(ctx, p) (settings.SitePeering, error)
@@ -366,10 +366,10 @@ git commit -m "settings: the site's peering, static for every site built before"
 `Error` names `gateway-local`), `TestBuildAdoptsExistingByNameInSystemProject`
 (a gateway `portico-s1-bgp` in the system project is reused; one in a
 tenant's project is refused with "belongs to another project"),
-`TestMoveToRouterUpdatesRemoteWhenAccepted`,
-`TestMoveToRouterRecreatesSessionOnlyAfterNewRemoteExists` (the fake
-refuses the PUT; the delete of the old session comes after the new
-remote gateway's create, never before), `TestMoveToRouterKeepsEdgeOff`
+`TestMoveToRouterUpdatesRemoteGateway` (one PUT with the router's
+address and ASN, no session delete), `TestBuildRecreatesSessionWhenItsReferencesDiffer`
+(a session by name pointing at other gateways is deleted and created
+again, the delete after the gateways exist), `TestMoveToRouterKeepsEdgeOff`
 (`PowerVM(off)`, no `DeleteVM`, `EdgeKept` true), `TestReplaceEdgeIsBreakBeforeMake`
 (power off and delete precede the create), `TestTearDownOrder` (session,
 gateways, VM, subnet gateway), `TestRefreshReadsDownMessage`.
@@ -564,12 +564,20 @@ git commit -m "web: the Routing section of the Networking card"
   `internal/settings/networking_rights_test.go`
 
 **Interfaces:**
-- Consumes: Task 1 item 5's list.
-- Produces: `NetworkingOperations` extended with the gateway, BGP
-  session, image, VM and category operations measured;
-  `networkingEntityTypes` extended with `gateway`, `bgp_session`, `vm`,
-  `image`, `category`; Repair offers the new operations to a site set up
-  before (the existing `networkingRights` diff).
+- Consumes: write-up 38's list: `View_Network_Gateway`, `Create_Network_Gateway`,
+  `Update_Network_Gateway`, `Delete_Network_Gateway`, `View_Bgp_Session`,
+  `Create_Bgp_Session`, `Update_Bgp_Session`, `Delete_Bgp_Session`,
+  `View_Bgp_Route`, `View_Image`, `Create_Image`, `Delete_Image`,
+  `View_Virtual_Machine`, `Create_Virtual_Machine`, `Update_Virtual_Machine`,
+  `Delete_Virtual_Machine`, `Allow_Virtual_Machine_Power_On`,
+  `Allow_Virtual_Machine_Power_Off`, `Update_Virtual_Machine_Categories`,
+  `View_Category`, `Create_Category`, `Update_Subnet`, `View_Cluster`.
+- Produces: `NetworkingOperations` extended with that list;
+  `networkingEntityTypes` extended with `network_gateway`, `bgp_session`,
+  `vm`, `image`, `category`, `cluster`; Repair offers the new operations
+  to a site set up before (the existing `networkingRights` diff); the
+  acceptance (Task 13) is where sufficiency is proven, the temporary-key
+  measurement of Task 1 was not run.
 
 - [ ] **Step 1: Write the failing test**
 
