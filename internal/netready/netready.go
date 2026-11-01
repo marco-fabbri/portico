@@ -193,7 +193,11 @@ func RouterLines(p settings.SitePeering) []string {
 // CoreRoute is the one static route the MSP adds on its core in edge
 // mode: the routed prefix via the edge router.
 func CoreRoute(prefix netip.Prefix, p settings.SitePeering) string {
-	return prefix.String() + " via " + p.EdgeAddr.String()
+	routed := "<routed prefix>" // the transit check did not answer yet
+	if prefix.IsValid() {
+		routed = prefix.String()
+	}
+	return routed + " via " + p.EdgeAddr.String()
 }
 
 // peeringChecks are the Routing section's rows (prefix routing design
