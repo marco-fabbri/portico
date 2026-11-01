@@ -41,6 +41,10 @@ check "forwarding on" 'forward=1'
 check "nftables active" 'nftables=active'
 check "frr active" 'frr=active'
 check "no sshd unit active" 'sshd=(inactive|)($|;)'
+# The image has no login (goal 3): the build user is gone and no account
+# holds a password hash.
+check "no build user" 'users=none'
+check "no password hash" 'hashes=0'
 # An SSH server answers with its banner at once; a closed port gives
 # nothing (QEMU accepts on the host side and closes when the guest refuses).
 banner=$(timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/2223 && head -c 4 <&3' 2>/dev/null || true)
