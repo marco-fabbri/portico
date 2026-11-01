@@ -18,8 +18,9 @@ const (
 
 // networkingEntityTypes are the entity filters of the networking policy:
 // every entity of each type, since a narrower filter is not measured
-// (tenant networking design 6.1).
-var networkingEntityTypes = []string{"subnet", "floating_ip", "vpc", "vpc_route_table"}
+// (tenant networking design 6.1); the peering's types from write-up 38.
+var networkingEntityTypes = []string{"subnet", "floating_ip", "vpc", "vpc_route_table",
+	"network_gateway", "bgp_session", "image", "vm", "category", "cluster"}
 
 // tenantWithout are the operations Portico Tenant leaves out of Project
 // Admin's: the tenant's floating IPs are Portico's allowance (design 4.3).
@@ -114,7 +115,7 @@ func (b *Bootstrapper) networkingRights(ctx context.Context, pc *nutanix.Client,
 func (b *Bootstrapper) networkingRole(ctx context.Context, pc *nutanix.Client, target, account string, ops []string) (*nutanix.RoleDetail, string, string) {
 	found, err := pc.FindRole(ctx, networkingRole)
 	if nutanix.IsNotFound(err) {
-		role, err := pc.CreateRole(ctx, networkingRole, "Portico: tenant subnets in the transit VPC, sharing, floating IPs, default routes", ops)
+		role, err := pc.CreateRole(ctx, networkingRole, "Portico: tenant subnets in the transit VPC, sharing, floating IPs, default routes, the BGP peering and the edge router", ops)
 		if err != nil {
 			return nil, "", rightsRefusal(target, "role "+networkingRole, "Create_Role", err)
 		}
@@ -150,7 +151,7 @@ func (b *Bootstrapper) networkingRole(ctx context.Context, pc *nutanix.Client, t
 	if err := pc.DeleteRole(ctx, role.ExtID); err != nil && !nutanix.IsNotFound(err) {
 		return nil, "", rightsRefusal(target, "role "+networkingRole, "Delete_Role", err)
 	}
-	role, err = pc.CreateRole(ctx, networkingRole, "Portico: tenant subnets in the transit VPC, sharing, floating IPs, default routes", ops)
+	role, err = pc.CreateRole(ctx, networkingRole, "Portico: tenant subnets in the transit VPC, sharing, floating IPs, default routes, the BGP peering and the edge router", ops)
 	if err != nil {
 		return nil, "", rightsRefusal(target, "role "+networkingRole, "Create_Role", err)
 	}
