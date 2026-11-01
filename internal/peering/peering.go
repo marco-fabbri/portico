@@ -20,7 +20,7 @@ import (
 // SystemProject is Prism Central's `_internal` project, where the peering's
 // objects live: a local gateway created without a project cannot read back
 // its own image (write-up 37).
-const SystemProject = "00000000-0000-0000-0000-000000000000"
+const SystemProject = nutanix.SystemProject
 
 // The waits: the local gateway reports DOWN for about a minute after its VM
 // is on and its first create downloads the image (write-up 37); a session
