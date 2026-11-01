@@ -147,15 +147,33 @@ missing:
    external subnet, and a **routed prefix** of your address space as
    its externally routable prefix. Each tenant takes a `/28` of it, so
    a `/24` serves 16 tenants.
-3. **On your router**, a route of the routed prefix to the transit VPC's
-   fixed address, and the outbound NAT of that prefix to the Internet.
-   A static route is the simple way. The way Nutanix documents is a
-   **BGP gateway**: a Network Gateway VM on the VLAN (Prism Central
-   creates it from Network & Security > Connectivity, in the system
-   project, with the BGP service for the transit VPC), a remote gateway
-   standing for your router, and a BGP session between them that
-   advertises the routed prefix with the transit VPC's address as next
-   hop; your router then follows the prefix as it changes.
+3. **On your router**, the routed prefix reaches the transit VPC and
+   the outbound NAT of that prefix to the Internet is yours. The
+   requirement is an **eBGP peer**: Portico builds a BGP gateway on the
+   VLAN (a Network Gateway VM in the system project, with the BGP
+   service for the transit VPC) that advertises the routed prefix with
+   the transit VPC's address as next hop, and your router peers with
+   it, so the prefix follows the transit VPC wherever it moves. The
+   Networking card's **Routing** section asks for the peer:
+   - **Your router**: its address on the VLAN and its ASN; the card
+     shows the three lines the router needs (`router bgp <your ASN>`,
+     `neighbor <gateway address> remote-as 65010`, and the neighbour
+     activated). Any router that speaks eBGP does; an MSP that runs
+     its own router VM can use VyOS or FRR.
+   - **An edge router built by Portico**, when your router cannot peer:
+     one free address on the VLAN, and Portico creates a small VM from
+     the release's edge image that peers with the gateway; your core
+     keeps one static route, `<routed prefix> via <edge address>`,
+     which the card shows. The edge is one VM: while it is replaced
+     (a new release, a repair) the prefix is unreachable for about
+     three minutes, in a window you pick.
+   - **A static route** on your router to the transit VPC's fixed
+     address, the manual way of 0.2.x, still works for a site that has
+     no peer yet.
+
+   Set aside on the VLAN, outside the external subnet's pool: one
+   address for the BGP gateway, and either your router's address on
+   that VLAN or one address for the edge router.
 
 The routed prefix is not a VLAN: it exists only in the overlay, behind
 the transit VPC, so no switch or hypervisor carries it. Pick a block your
@@ -165,14 +183,22 @@ the only place that knows it.
 Example: `external-routed` on VLAN 210 with the pool
 `10.23.210.200`-`.219`, the transit VPC `portico-transit` at
 `10.23.210.200` with the routed prefix `198.51.100.0/24` (a
-documentation block: use your own), and on the router
-`198.51.100.0/24 via 10.23.210.200`.
+documentation block: use your own), the BGP gateway at `10.23.210.195`
+and the router at `10.23.210.254` with ASN 65000, which then learns
+`198.51.100.0/24 via 10.23.210.200` from the session; or the edge router
+at `10.23.210.194` and on the core `198.51.100.0/24 via 10.23.210.194`.
 
 ### Switching it on
 
 On the site's page, the **Networking** card: pick the transit VPC, give
 the DNS servers the tenant subnets hand out, confirm the Integrated
-mode, and switch it on. The switch stays off until every check passes.
+mode, and switch it on. The switch stays off until every check passes,
+and, with a router or an edge as the peer, until the BGP session is up;
+the card's Routing section shows the session's state as Prism Central
+reports it, and the site's row on the setup page says `peering up` or
+`peering down`. The peer can change later (your router to the edge and
+back) without the tenants' networks noticing more than the session's
+few minutes.
 New connections to the site then get their network; a tenant connected
 earlier gets it with **Create ready network** on its page.
 
