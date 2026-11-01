@@ -456,6 +456,7 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string) 
 	if err != nil {
 		return err
 	}
+	hadNetwork := hasNetwork(p)
 	fail := func(err error) error {
 		p.Status, p.LastError = store.PlacementRemoveFailed, err.Error()
 		// Recorded even when the run's context has just ended (a timeout
@@ -625,7 +626,32 @@ func (s *Service) removePlacement(ctx context.Context, tenantID, siteID string) 
 			return fail(err)
 		}
 	}
-	return s.st.DeletePlacement(ctx, tenantID, siteID)
+	if err := s.st.DeletePlacement(ctx, tenantID, siteID); err != nil {
+		return err
+	}
+	if hadNetwork {
+		s.lastNetworkGone(context.WithoutCancel(ctx), siteID)
+	}
+	return nil
+}
+
+// lastNetworkGone calls OnLastNetworkGone when no connection to the site
+// holds a ready network any more.
+func (s *Service) lastNetworkGone(ctx context.Context, siteID string) {
+	if s.OnLastNetworkGone == nil {
+		return
+	}
+	others, err := s.st.ListPlacementsBySite(ctx, siteID)
+	if err != nil {
+		s.log.Warn("placements unreadable after a disconnect", "site", siteID, "err", err.Error())
+		return
+	}
+	for i := range others {
+		if hasNetwork(&others[i]) {
+			return
+		}
+	}
+	s.OnLastNetworkGone(ctx, siteID)
 }
 
 // notEmptyYet reports whether err is Prism Central refusing to delete a

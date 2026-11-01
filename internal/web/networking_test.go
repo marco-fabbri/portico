@@ -37,7 +37,8 @@ func (f *netReader) ListVPCs(context.Context) ([]nutanix.VPC, error) {
 		RoutablePrefixes: []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")}}}, nil
 }
 func (f *netReader) GetSubnet(_ context.Context, id string) (*nutanix.Subnet, error) {
-	return &nutanix.Subnet{ExtID: id, Name: "external-routed", Type: "VLAN", External: true}, nil
+	return &nutanix.Subnet{ExtID: id, Name: "external-routed", Type: "VLAN", External: true, Prefix: netip.MustParsePrefix("10.0.210.0/24"),
+		Gateway: netip.MustParseAddr("10.0.210.1"), Pool: [2]netip.Addr{netip.MustParseAddr("10.0.210.30"), netip.MustParseAddr("10.0.210.40")}}, nil
 }
 func (f *netReader) Routes(context.Context, string) (string, []nutanix.Route, error) {
 	return "rt-1", []nutanix.Route{{Destination: netip.MustParsePrefix("0.0.0.0/0")}}, nil
