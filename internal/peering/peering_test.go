@@ -342,10 +342,34 @@ func TestTearDownOrder(t *testing.T) {
 	}
 	f.before(t, "DeleteBGPSession s-S", "DeleteGateway gw-L")
 	f.before(t, "DeleteGateway gw-L", "DeleteGateway rgw-R")
-	f.before(t, "DeleteGateway rgw-R", "PowerVM edge-E on=false")
+	// The external subnet is read before anything is deleted and its
+	// gateway moved back before the edge, its current gateway, goes.
+	f.before(t, "GetVPC", "DeleteBGPSession s-S")
+	f.before(t, "DeleteGateway rgw-R", "UpdateSubnetGateway ext-1 gw=10.0.210.254")
+	f.before(t, "UpdateSubnetGateway ext-1 gw=10.0.210.254", "PowerVM edge-E on=false")
 	f.before(t, "PowerVM edge-E on=false", "DeleteVM edge-E")
-	f.before(t, "DeleteVM edge-E", "UpdateSubnetGateway ext-1 gw=10.0.210.254")
-	f.before(t, "UpdateSubnetGateway", "DeleteSubnet vl-9")
+	f.before(t, "DeleteVM edge-E", "DeleteSubnet vl-9")
+}
+
+// An edge whose power-on fails after the create is still the site's
+// edge: its extId is stored, so Repair turns it on instead of building
+// a second VM (deferred minor of write-up 39).
+func TestBuildStoresTheEdgeWhosePowerOnFailed(t *testing.T) {
+	f := newFakePC()
+	s, svc := newService(t, f)
+	p := edgeInput()
+	out, err := s.Build(context.Background(), testSite(), p, &fakeEdge{f: f, failPower: &nutanix.APIError{Status: 503, Message: "busy"}})
+	if err == nil || out.State != settings.PeeringFailed || out.EdgeVMExtID == "" {
+		t.Fatalf("Build = %+v, %v", out, err)
+	}
+	if last := svc.last[len(svc.last)-1]; last.EdgeVMExtID != out.EdgeVMExtID {
+		t.Fatalf("stored = %+v", last)
+	}
+	f.calls = nil
+	out, err = s.Build(context.Background(), testSite(), out, &fakeEdge{f: f})
+	if err != nil || f.index("EdgeBuild") >= 0 || f.index("PowerVM "+out.EdgeVMExtID+" on=true") < 0 {
+		t.Fatalf("Repair: %v; calls:\n  %s", err, strings.Join(f.calls, "\n  "))
+	}
 }
 
 func TestTearDownKeepsAVLANSubnetItDidNotCreate(t *testing.T) {

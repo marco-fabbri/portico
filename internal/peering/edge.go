@@ -85,7 +85,8 @@ func DefaultEdgeImageURL(version string) string {
 	return fmt.Sprintf("https://github.com/marco-fabbri/portico/releases/download/v%s/portico-edge-%s.qcow2", version, version)
 }
 
-// Build makes the site's edge VM exist, powered on: the image found by
+// Build makes the site's edge VM exist, powered on (a VM whose power-on
+// fails is returned with the error): the image found by
 // name or imported from the URL, the category ensured, a VM of the
 // edge's name adopted only when it carries the category, else created
 // on the VLAN subnet with the cloud-config of EdgeUserData.
@@ -107,7 +108,7 @@ func (e Edge) Build(ctx context.Context, site settings.Site, p settings.SitePeer
 		}
 		if !vm.PowerOn {
 			if err := e.PC.PowerVM(ctx, vm.ExtID, true); err != nil {
-				return "", fmt.Errorf("powering the edge router on: %w", err)
+				return vm.ExtID, fmt.Errorf("powering the edge router on: %w", err)
 			}
 		}
 		return vm.ExtID, nil
@@ -149,8 +150,10 @@ func (e Edge) Build(ctx context.Context, site settings.Site, p settings.SitePeer
 	if err != nil {
 		return "", fmt.Errorf("creating the edge router: %w", err)
 	}
+	// The VM exists from here: its extId travels with a power-on error
+	// so the peering stores it (Repair turns it on, TearDown deletes it).
 	if err := e.PC.PowerVM(ctx, vm.ExtID, true); err != nil {
-		return "", fmt.Errorf("powering the edge router on: %w", err)
+		return vm.ExtID, fmt.Errorf("powering the edge router on: %w", err)
 	}
 	return vm.ExtID, nil
 }

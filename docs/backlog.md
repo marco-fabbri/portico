@@ -456,10 +456,6 @@ the code when taken, and the structural items.
 - A netready check on the external subnet's gateway: the edge's address
   in edge mode, the VLAN router in router mode (Delete the edge router
   puts it back now; nothing shows it in between).
-- `Edge.Build` returns no extId when the power-on fails after the
-  create: TearDown leaves the VM, Replace adopts it by name.
-- TearDown reads the external subnet after deleting everything: read
-  first, move the subnet's gateway before deleting the edge.
 - A Save back to static with partial objects (no local gateway, but a
   VLAN subnet, a remote gateway or an edge VM) leaves them behind.
 - Spec 4.4 (Replace offered with the new release's version) and 4.6

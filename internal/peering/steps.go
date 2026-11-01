@@ -148,11 +148,14 @@ func (s *Service) DeleteEdge(ctx context.Context, site settings.Site, p settings
 }
 
 // TearDown deletes what Portico built (design 4.6): the session, the
-// gateways, the edge VM, the VLAN subnet when Portico created it, and
-// puts the external subnet's gateway back to the VLAN's router. The
-// edge image stays. An object already gone is fine.
+// gateways, then puts the external subnet's gateway back to the VLAN's
+// router, deletes the edge VM and the VLAN subnet when Portico created
+// it. The edge image stays. An object already gone is fine.
 func (s *Service) TearDown(ctx context.Context, site settings.Site, p settings.SitePeering) (settings.SitePeering, error) {
 	r := s.start(ctx, site, p, settings.PeeringBuilding)
+	// The external subnet is read before anything goes: a Prism Central
+	// that does not answer stops the tear-down with everything in place.
+	r.step("external", r.findExternal)
 	r.step("session", func() error {
 		if r.p.SessionExtID == "" {
 			return nil
@@ -180,9 +183,10 @@ func (s *Service) TearDown(ctx context.Context, site settings.Site, p settings.S
 			return nil
 		})
 	}
-	r.step("edge-delete", r.edgeDelete)
-	r.step("external", r.findExternal)
+	// The subnet's gateway goes back to the VLAN router before the edge,
+	// its gateway in edge mode, is deleted.
 	r.step("subnet-gateway", func() error { return r.subnetGateway(r.p.GatewayGW) })
+	r.step("edge-delete", r.edgeDelete)
 	r.step("vlan-subnet", func() error {
 		if r.p.VLANSubnetExtID == "" {
 			return nil
@@ -319,12 +323,11 @@ func (r *run) edgeVM(edge EdgeBuilder) error {
 		return errors.New("the edge router is gone; build it again from the card")
 	}
 	id, err := edge.Build(r.ctx, r.site, r.p)
-	if err != nil {
-		return err
+	if id != "" {
+		r.p.EdgeVMExtID = id
+		r.store()
 	}
-	r.p.EdgeVMExtID = id
-	r.store()
-	return nil
+	return err
 }
 
 // edgePower turns the edge VM on or off when it is not already so.

@@ -56,10 +56,11 @@ func TestEdgeUserDataHasNoUserNoKeyNoNAT(t *testing.T) {
 
 // fakeEdgePC is the VM, image and category part of Prism Central.
 type fakeEdgePC struct {
-	calls  []string
-	images map[string]nutanix.Image
-	vms    []nutanix.VM
-	next   int
+	calls    []string
+	images   map[string]nutanix.Image
+	vms      []nutanix.VM
+	next     int
+	powerErr error
 }
 
 func (f *fakeEdgePC) log(format string, a ...any) {
@@ -102,6 +103,9 @@ func (f *fakeEdgePC) CreateVM(_ context.Context, s nutanix.VMSpec) (*nutanix.VM,
 
 func (f *fakeEdgePC) PowerVM(_ context.Context, extID string, on bool) error {
 	f.log("PowerVM %s on=%v", extID, on)
+	if f.powerErr != nil {
+		return f.powerErr
+	}
 	for i := range f.vms {
 		if f.vms[i].ExtID == extID {
 			f.vms[i].PowerOn = on
@@ -217,5 +221,19 @@ func TestEdgeBootTestFixtureIsEdgeUserData(t *testing.T) {
 	}
 	if string(got) != want {
 		t.Fatalf("%s differs from EdgeUserData: run go test ./internal/peering -run Fixture -update", path)
+	}
+}
+
+// A power-on that fails after the create still returns the VM's extId
+// with the error: the peering stores it, Repair turns the VM on and
+// TearDown deletes it, nothing is left behind by name only (deferred
+// minor of write-up 39).
+func TestEdgeBuildReturnsTheVMWhenThePowerOnFails(t *testing.T) {
+	f := &fakeEdgePC{images: map[string]nutanix.Image{"portico-edge-0.3.0": {ExtID: "img-1", Name: "portico-edge-0.3.0"}},
+		powerErr: &nutanix.APIError{Status: 503, Message: "busy"}}
+	e := Edge{PC: f, Version: "0.3.0"}
+	id, err := e.Build(context.Background(), edgeSite(), edgeInput())
+	if err == nil || id != "vm-1" {
+		t.Fatalf("Build = %q, %v", id, err)
 	}
 }
