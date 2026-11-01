@@ -165,3 +165,21 @@ func TestSetupPageNamesIncompleteSites(t *testing.T) {
 		t.Fatalf("setup page with an incomplete site:\n%s", body)
 	}
 }
+
+// The sites table says how the BGP peering is for a site that has one
+// (prefix-routing design 4.6); a static site shows nothing of it.
+func TestSetupPageShowsThePeeringState(t *testing.T) {
+	e := newEnv(t, true)
+	svc, _, _ := withSetup(t, e, true)
+	doc, _ := svc.Get(context.Background())
+	doc.Sites[0].Network.Peering = settings.SitePeering{Kind: settings.PeerRouter, State: settings.PeeringDown, Error: "The BGP session is DOWN"}
+	doc.Sites = append(doc.Sites, settings.Site{ID: "nyc1", Code: "AZ-US-NYC1", Name: "New York", Order: 2, URL: "https://pc2.example.test:9440"})
+	if err := svc.Set(context.Background(), doc); err != nil {
+		t.Fatal(err)
+	}
+	e.login(t)
+	body := e.do("GET", "/setup", nil, true).Body.String()
+	if !strings.Contains(body, `<span class="peering peering-down" title="The BGP session is DOWN">peering down</span>`) || strings.Count(body, `class="peering `) != 1 {
+		t.Fatalf("setup page's peering state:\n%s", body)
+	}
+}
