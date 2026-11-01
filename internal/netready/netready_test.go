@@ -456,3 +456,41 @@ func TestRightsOfAStaticSiteWarnOnThePeeringOperations(t *testing.T) {
 		t.Fatalf("rights with a peer = %+v", c)
 	}
 }
+
+// The rows promise what Repair does (write-up 39's deferred minors): a
+// gateway that is DOWN is waited for, not recreated; an edge that is
+// off is turned on; a session down in edge mode is fixed by Replace,
+// not by Repair; the objects of a running build read "being built".
+func TestPeeringRowsPromiseWhatRepairDoes(t *testing.T) {
+	f := peered()
+	f.gateways["gw-1"].State, f.gateways["gw-1"].Message = "DOWN", "Service nginx is down"
+	cs := Evaluate(context.Background(), f, routerNet(), "sa-1", 0, "")
+	if c := check(t, cs, "bgp gateway"); c.Status != Failed || !strings.Contains(c.Message, "Repair waits for it") || strings.Contains(c.Message, "recreates") {
+		t.Fatalf("gateway DOWN = %+v", c)
+	}
+	f = peered()
+	f.vms["vm-e"].PowerOn = false
+	cs = Evaluate(context.Background(), f, edgeNet(), "sa-1", 0, "")
+	if c := check(t, cs, "edge router"); c.Status != Failed || !strings.Contains(c.Message, "Repair turns it on") {
+		t.Fatalf("edge off = %+v", c)
+	}
+	f = peered()
+	f.sessions["s-1"].State, f.sessions["s-1"].Message = "DOWN", "Current BGP state: Active"
+	cs = Evaluate(context.Background(), f, edgeNet(), "sa-1", 0, "")
+	if c := check(t, cs, "bgp session"); c.Status != Failed || !strings.Contains(c.Message, "Replace the edge router") || strings.Contains(c.Message, "Repair replaces") {
+		t.Fatalf("session down (edge) = %+v", c)
+	}
+	n := edgeNet()
+	n.Peering.State, n.Peering.SessionExtID, n.Peering.EdgeVMExtID = settings.PeeringBuilding, "", ""
+	cs = Evaluate(context.Background(), peered(), n, "sa-1", 0, "")
+	for _, name := range []string{"bgp session", "edge router"} {
+		if c := check(t, cs, name); c.Status != Todo || !strings.Contains(c.Message, "being built") {
+			t.Fatalf("%s during a build = %+v", name, c)
+		}
+	}
+	n.Peering.LocalGatewayExtID = ""
+	cs = Evaluate(context.Background(), peered(), n, "sa-1", 0, "")
+	if c := check(t, cs, "bgp gateway"); c.Status != Todo || !strings.Contains(c.Message, "being built") {
+		t.Fatalf("gateway during a build = %+v", c)
+	}
+}

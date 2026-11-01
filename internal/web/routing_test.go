@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http/httptest"
 	"net/netip"
 	"strings"
 	"sync"
@@ -424,5 +425,26 @@ func TestRoutingSaveNewEdgeAddressReplaces(t *testing.T) {
 	rec = e.hx("POST", "/setup/sites/site-a/routing", e.form("peer", "edge", "gateway_addr", "10.0.210.195", "gateway_gw", "10.0.210.1", "gateway_asn", "65010", "router_addr", "10.0.210.1", "router_asn", "65000", "edge_addr", "10.0.210.197", "edge_asn", "65020"))
 	if !strings.Contains(rec.Body.String(), "Delete the edge router first") || fp.has("MoveToEdge") {
 		t.Fatalf("move with a new address: %d calls=%v\n%s", rec.Code, fp.calls, rec.Body.String())
+	}
+}
+
+// An address typed with its prefix length ("10.0.210.196/24", the
+// reflex of anyone who configures routers) is accepted: the mask is the
+// gateway address's, the fields hold addresses (deferred minor of
+// write-up 39).
+func TestRoutingAddressFieldsAcceptAPrefixLength(t *testing.T) {
+	req := httptest.NewRequest("POST", "/", strings.NewReader("peer=edge&gateway_addr=10.0.210.195/24&gateway_gw=10.0.210.1&gateway_asn=65010&edge_addr=10.0.210.196/24&edge_asn=65020"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	p, err := peeringFromForm(req, settings.SitePeering{})
+	if err != nil {
+		t.Fatalf("peeringFromForm: %v", err)
+	}
+	if p.GatewayAddr.String() != "10.0.210.195/24" || p.EdgeAddr.String() != "10.0.210.196" {
+		t.Fatalf("parsed = %+v", p)
+	}
+	req = httptest.NewRequest("POST", "/", strings.NewReader("peer=edge&edge_addr=10.0.210.196/33"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if _, err := peeringFromForm(req, settings.SitePeering{}); err == nil || !strings.Contains(err.Error(), "not an IPv4 address") {
+		t.Fatalf("a bad prefix length: err = %v", err)
 	}
 }
