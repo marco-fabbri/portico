@@ -81,7 +81,7 @@
     <tbody>
     {{range .Data.Sites}}<tr>
       <td><a href="/setup/sites/{{.S.ID}}">{{.S.Code}}</a></td><td>{{.S.Name}}</td><td><code>{{.S.URL}}</code></td>
-      <td>{{with .Status}}<span class="status status-{{.}}">{{.}}</span>{{else}}<span class="muted">not running</span>{{end}}</td>
+      <td>{{with .Status}}<span class="status status-{{.}}">{{.}}</span>{{else}}<span class="muted">not running</span>{{end}}{{with .S.Network.Peering}}{{if ne .KindOrStatic "static"}} <span class="peering peering-{{.State}}" title="{{.Error}}">peering {{.State}}</span>{{end}}{{end}}</td>
       <td>{{if .KeySet}}key stored{{else}}<span class="state todo">missing</span>{{end}}</td>
       <td>{{with .S.SAMLIdPName}}<code>{{.}}</code>{{else}}<span class="state todo">missing</span>{{end}}</td>
       <td>{{len .Tenants}}</td>

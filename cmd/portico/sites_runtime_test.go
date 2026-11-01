@@ -311,3 +311,54 @@ func TestSiteNetworkWaitsForThePeering(t *testing.T) {
 		t.Fatalf("router up = %+v", got)
 	}
 }
+
+// A site with a BGP peering gets a refresh beside its probe: what Prism
+// Central reports is stored (prefix-routing design 4.6). A gateway Prism
+// Central no longer lists is down; a static site has nothing to refresh.
+func TestRuntimePeeringRefreshStoresTheState(t *testing.T) {
+	e := newRuntimeEnv(t)
+	a := e.site("site-a", "SITE-A", e.pcA)
+	a.Network = settings.SiteNetwork{Peering: settings.SitePeering{Kind: settings.PeerRouter, LocalGatewayExtID: "gw-gone", SessionExtID: "sess-1", State: settings.PeeringUp}}
+	b := e.site("site-b", "SITE-B", e.pcB)
+	doc := settings.Settings{Sites: []settings.Site{a, b}}
+	if err := e.svc.Set(context.Background(), doc); err != nil {
+		t.Fatal(err)
+	}
+	e.rt.Apply(context.Background(), doc)
+	e.monitor.RefreshPeering(context.Background(), time.Second)
+	cur, _ := e.svc.Get(context.Background())
+	sa, _ := cur.Site("site-a")
+	if sa.Network.Peering.State != settings.PeeringDown || !strings.Contains(sa.Network.Peering.Error, "gone") {
+		t.Fatalf("site-a peering = %+v", sa.Network.Peering)
+	}
+	sb, _ := cur.Site("site-b")
+	if sb.Network.Peering.State != "" {
+		t.Fatalf("site-b peering = %+v", sb.Network.Peering)
+	}
+	// Stored once: a second refresh with the same answer writes nothing.
+	at := sa.Network.Peering.StateAt
+	e.monitor.RefreshPeering(context.Background(), time.Second)
+	cur, _ = e.svc.Get(context.Background())
+	sa, _ = cur.Site("site-a")
+	if !sa.Network.Peering.StateAt.Equal(at) {
+		t.Fatal("the unchanged state was stored again")
+	}
+}
+
+// An operation in progress (state building) is not refreshed over.
+func TestRuntimePeeringRefreshLeavesABuildAlone(t *testing.T) {
+	e := newRuntimeEnv(t)
+	a := e.site("site-a", "SITE-A", e.pcA)
+	a.Network = settings.SiteNetwork{Peering: settings.SitePeering{Kind: settings.PeerRouter, LocalGatewayExtID: "gw-gone", State: settings.PeeringBuilding}}
+	doc := settings.Settings{Sites: []settings.Site{a}}
+	if err := e.svc.Set(context.Background(), doc); err != nil {
+		t.Fatal(err)
+	}
+	e.rt.Apply(context.Background(), doc)
+	e.monitor.RefreshPeering(context.Background(), time.Second)
+	cur, _ := e.svc.Get(context.Background())
+	sa, _ := cur.Site("site-a")
+	if sa.Network.Peering.State != settings.PeeringBuilding {
+		t.Fatalf("site-a peering = %+v", sa.Network.Peering)
+	}
+}

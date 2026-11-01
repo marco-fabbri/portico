@@ -16,6 +16,7 @@ import (
 
 	"github.com/marco-fabbri/portico/internal/idp/keycloak"
 	"github.com/marco-fabbri/portico/internal/nutanix"
+	"github.com/marco-fabbri/portico/internal/peering"
 	"github.com/marco-fabbri/portico/internal/proxy"
 	"github.com/marco-fabbri/portico/internal/settings"
 	"github.com/marco-fabbri/portico/internal/sites"
@@ -44,6 +45,7 @@ type siteParts struct {
 	tenant  tenant.Site
 	probe   sites.Prober
 	trust   sites.Prober
+	peering sites.Prober
 	backend *proxy.SiteBackend
 	idle    []func() // close the idle connections of the site's clients
 }
@@ -180,19 +182,20 @@ func (r *siteRuntime) Apply(ctx context.Context, doc settings.Settings) error {
 	}
 
 	backends := map[string]*proxy.SiteBackend{}
-	probes, trust := map[string]sites.Prober{}, map[string]sites.Prober{}
+	probes, trust, peerings := map[string]sites.Prober{}, map[string]sites.Prober{}, map[string]sites.Prober{}
 	var tenantSites []tenant.Site
 	for _, site := range doc.OrderedSites() {
 		p, ok := next[site.ID]
 		if !ok {
 			continue
 		}
-		backends[site.ID], probes[site.ID], trust[site.ID] = p.backend, p.probe, p.trust
+		backends[site.ID], probes[site.ID], trust[site.ID], peerings[site.ID] = p.backend, p.probe, p.trust, p.peering
 		tenantSites = append(tenantSites, p.tenant)
 	}
 	r.backends.Replace(backends)
 	r.monitor.SetProbes(probes)
 	r.monitor.SetTrustChecks(trust)
+	r.monitor.SetPeeringRefresh(peerings)
 	r.tenants.SetSites(tenantSites)
 	r.parts = next
 	r.applyPassthrough(doc)
@@ -237,6 +240,7 @@ func (r *siteRuntime) build(site settings.Site) (*siteParts, error) {
 		trust: func(ctx context.Context) error {
 			return settings.SiteStatus(ctx, r.deps.kc, site, r.deps.log).MonitorError()
 		},
+		peering: r.peeringRefresh(site.ID, c),
 		backend: &proxy.SiteBackend{ID: site.ID, Code: site.Code, Name: site.Name, Order: site.Order,
 			Upstream: up,
 			PrismHTTP: &http.Client{
@@ -354,5 +358,45 @@ func closeIdle(rt http.RoundTripper) func() {
 		if c, ok := rt.(interface{ CloseIdleConnections() }); ok {
 			c.CloseIdleConnections()
 		}
+	}
+}
+
+// peeringRefresh is the monitor's refresh of a site's BGP peering
+// (prefix-routing design 4.6): the stored peering read at every run, so a
+// site whose peering was built since is covered; nothing while a build
+// runs (the Routing section marks it) or when nothing is built; the state
+// stored only when it changed, so the settings do not churn every probe.
+func (r *siteRuntime) peeringRefresh(siteID string, pc *nutanix.Client) sites.Prober {
+	return func(ctx context.Context) error {
+		if r.deps.settings == nil {
+			return nil
+		}
+		doc, err := r.deps.settings.Get(ctx)
+		if err != nil {
+			return err
+		}
+		site, ok := doc.Site(siteID)
+		if !ok {
+			return nil
+		}
+		p := site.Network.Peering
+		if p.State == settings.PeeringBuilding || (p.LocalGatewayExtID == "" && p.SessionExtID == "") {
+			return nil
+		}
+		out, err := peering.New(pc, r.deps.log, nil).Refresh(ctx, p)
+		if err != nil {
+			return err
+		}
+		if out.State == p.State && out.Error == p.Error {
+			return nil
+		}
+		r.deps.log.Info("site peering", "site", siteID, "state", out.State, "message", out.Error)
+		return r.deps.settings.Patch(ctx, func(d *settings.Settings) {
+			for i := range d.Sites {
+				if d.Sites[i].ID == siteID && d.Sites[i].Network.Peering.State != settings.PeeringBuilding {
+					d.Sites[i].Network.Peering = out
+				}
+			}
+		})
 	}
 }
