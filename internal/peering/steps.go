@@ -134,9 +134,12 @@ func (s *Service) DeleteEdge(ctx context.Context, p settings.SitePeering) (setti
 	if p.KindOrStatic() == settings.PeerEdge {
 		return p, errors.New("peering: the edge router is the peer; move to your router first")
 	}
-	r := s.start(ctx, settings.Site{}, p, p.State)
+	r := s.start(ctx, settings.Site{}, p, settings.PeeringBuilding)
 	r.step("edge-delete", r.edgeDelete)
 	r.p.EdgeKept = false
+	// The state is the session's, read back: the one received is the
+	// building mark the caller set.
+	r.settle(false)
 	return r.finish()
 }
 
