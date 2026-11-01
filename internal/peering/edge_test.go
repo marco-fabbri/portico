@@ -3,8 +3,10 @@ package peering
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"net/netip"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -34,7 +36,8 @@ func TestEdgeUserDataHasNoUserNoKeyNoNAT(t *testing.T) {
 		"neighbor 10.0.210.195 remote-as 65010", "neighbor 10.0.210.195 soft-reconfiguration inbound",
 		"net.ipv4.ip_forward = 1", "send_redirects = 0",
 		"policy drop", `ip saddr 10.0.210.195 tcp dport 179 accept`,
-		"systemctl enable --now frr", "systemctl enable --now nftables", "bgpd=yes",
+		"systemctl restart frr", "systemctl restart nftables", "bgpd=yes",
+		"portico-edge ready",
 	} {
 		if !strings.Contains(ud, want) {
 			t.Errorf("user data lacks %q:\n%s", want, ud)
@@ -186,5 +189,33 @@ func TestEdgeBuildDefaultsTheImageURLToTheRelease(t *testing.T) {
 	}
 	if !f.has("CreateImageFromURL portico-edge-0.3.0 https://github.com/marco-fabbri/portico/releases/download/v0.3.0/portico-edge-0.3.0.qcow2") {
 		t.Fatalf("calls:\n  %s", strings.Join(f.calls, "\n  "))
+	}
+}
+
+var updateFixtures = flag.Bool("update", false, "rewrite the boot test's user data fixture from EdgeUserData")
+
+// The edge image's boot test (image/scripts/edge-boottest.sh) boots the
+// image with this fixture on a config drive: the edge on QEMU's user-mode
+// network, its peer the host side of that network. The fixture is
+// EdgeUserData's output, so the boot test exercises what Portico sends;
+// `go test ./internal/peering -run Fixture -update` rewrites it.
+func TestEdgeBootTestFixtureIsEdgeUserData(t *testing.T) {
+	const path = "../../image/scripts/edge-boottest-user-data.yaml"
+	want, err := EdgeUserData("portico-s1-edge", netip.MustParsePrefix("10.0.2.15/24"), netip.MustParseAddr("10.0.2.2"),
+		[]netip.Addr{netip.MustParseAddr("10.0.2.3")}, 65020, netip.MustParseAddr("10.0.2.2"), 65010)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *updateFixtures {
+		if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Fatalf("%s differs from EdgeUserData: run go test ./internal/peering -run Fixture -update", path)
 	}
 }

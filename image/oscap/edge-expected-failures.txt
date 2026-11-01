@@ -1,0 +1,7 @@
+# OpenSCAP rules of the portico profile (oscap/edge-tailoring.xml) known
+# to fail in the edge router image build, one rule id per line with the
+# reason after "#". harden.sh fails the build on a failing rule that is
+# not listed here, and reports a listed rule that passes so the line can go.
+#
+# None as of the build of 2026-11-01 (237 pass, 0 fail; the exceptions of
+# README.md are excluded by edge-tailoring.xml, not listed here).

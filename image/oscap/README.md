@@ -37,6 +37,19 @@ passes is reported so its line can go. The list is empty since the build
 of 2026-10-19: the exceptions above are excluded by the tailoring, not
 expected failures.
 
+## The edge router image
+
+`edge-tailoring.xml` applies the same profile to the edge router image
+(prefix-routing design 4.4) with the four exceptions above and these,
+each with its reason in the file; `edge-expected-failures.txt` is its
+regression list, empty since the build of 2026-11-01 (237 rules pass).
+
+| Rule | Why |
+|---|---|
+| `package_net-snmp_removed` | FRR's package requires `net-snmp` (its SNMP module links the agent library); removing it removed FRR. The SNMP daemon is masked, nothing listens on 161 |
+| `package_firewalld_installed`, `service_firewalld_enabled`, `firewalld_loopback_traffic_restricted`, `firewalld_loopback_traffic_trusted`, `service_nftables_disabled` | The edge's firewall is the one nftables table its cloud-init writes (design 4.3); firewalld would manage the same tables beside it and is not installed |
+| the `ssh_server` group | The SSH server is removed when the image closes: its rules describe nothing on the edge. They are evaluated while Packer still needs SSH, so they are set aside rather than reported |
+
 ## Layout exceptions documented in the kickstart
 
 `/var/lib/containers` is mounted `nodev,nosuid` without `noexec`:

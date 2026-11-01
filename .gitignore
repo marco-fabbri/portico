@@ -10,7 +10,10 @@ coverage.*
 *.img
 *.iso
 /image/output/
+/image/output-*/
+/image/boot/
 /image/packer_cache/
+/image/*.log
 
 # Secrets and local environment: never commit
 *.key

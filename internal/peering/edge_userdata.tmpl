@@ -65,5 +65,14 @@ runcmd:
   - sysctl --system
   - sed -i 's/^bgpd=no/bgpd=yes/' /etc/frr/daemons
   - grep -q edge.nft /etc/sysconfig/nftables.conf || echo 'include "/etc/nftables/edge.nft"' >> /etc/sysconfig/nftables.conf
-  - systemctl enable --now nftables
-  - systemctl enable --now frr
+  - systemctl enable nftables frr
+  - systemctl restart nftables
+  - systemctl restart frr
+  # The state on the VM's console (the AHV console and the serial one):
+  # what FRR runs, forwarding, the firewall, that nothing listens for a
+  # login. The last line is what the image's boot test waits for.
+  - |
+    for _ in 1 2 3 4 5 6; do vtysh -c 'show running-config' 2>/dev/null | grep -q '^router bgp' && break; sleep 2; done
+    status="portico-edge $(hostname): $(vtysh -c 'show running-config' 2>/dev/null | grep -E '^router bgp|^ neighbor .* remote-as' | sed 's/^ *//' | paste -sd ';' -); forward=$(sysctl -n net.ipv4.ip_forward); nftables=$(systemctl is-active nftables); frr=$(systemctl is-active frr); sshd=$(systemctl is-active sshd 2>/dev/null || true)"
+    detail=""; systemctl is-active -q frr || detail=$(journalctl -u frr --no-pager -n 5 -o cat 2>/dev/null)
+    for c in /dev/tty1 /dev/ttyS0; do { echo; echo "$status"; [ -z "$detail" ] || echo "$detail"; echo "portico-edge ready"; } > "$c" 2>/dev/null || true; done
