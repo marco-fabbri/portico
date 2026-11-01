@@ -395,3 +395,40 @@ func routerSubnet(f *fakePC) {
 	s.Gateway = netip.MustParseAddr("10.0.210.254")
 	f.subnets[extSubnet] = s
 }
+
+func TestBuildRouterPutsTheSubnetGatewayOnTheVLANRouter(t *testing.T) {
+	f := newFakePC()
+	// The external subnet still points at a previous edge router.
+	ext := f.subnets[extSubnet]
+	ext.Gateway = netip.MustParseAddr("10.0.210.194")
+	f.subnets[extSubnet] = ext
+	s, _ := newService(t, f)
+	p, err := s.Build(context.Background(), testSite(), routerPeering(), nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if p.State != settings.PeeringUp {
+		t.Fatalf("peering = %+v", p)
+	}
+	f.before(t, "GetBGPSession", "UpdateSubnetGateway ext-1 gw=10.0.210.254")
+	if f.subnets[extSubnet].Gateway != netip.MustParseAddr("10.0.210.254") {
+		t.Fatalf("the external subnet's gateway is %s", f.subnets[extSubnet].Gateway)
+	}
+}
+
+func TestBuildRouterLeavesTheSubnetGatewayWhenTheSessionStaysDown(t *testing.T) {
+	f := newFakePC()
+	ext := f.subnets[extSubnet]
+	ext.Gateway = netip.MustParseAddr("10.0.210.194")
+	f.subnets[extSubnet] = ext
+	f.sessionStates, f.sessionMsg = []string{"DOWN"}, "Current BGP state: Active"
+	s, _ := newService(t, f)
+	p, err := s.Build(context.Background(), testSite(), routerPeering(), nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if p.State != settings.PeeringDown {
+		t.Fatalf("peering = %+v", p)
+	}
+	f.never(t, "UpdateSubnetGateway")
+}
