@@ -470,3 +470,20 @@ func TestMoveToEdgeThatFailsToBuildTheEdgeKeepsTheRouterAsPeer(t *testing.T) {
 	}
 	f.never(t, "UpdateRemoteGateway")
 }
+
+// The web handler marks the peering building before DeleteEdge runs;
+// DeleteEdge must end with the session's state, not that mark (write-up
+// 39: a card stuck on "working" with nothing running).
+func TestDeleteEdgeEndsWithTheSessionState(t *testing.T) {
+	f := newFakePC()
+	p := built(f)
+	p.Kind, p.EdgeKept, p.State = settings.PeerRouter, true, settings.PeeringBuilding
+	s, _ := newService(t, f)
+	out, err := s.DeleteEdge(context.Background(), p)
+	if err != nil {
+		t.Fatalf("DeleteEdge: %v", err)
+	}
+	if out.State != settings.PeeringUp || out.EdgeVMExtID != "" || out.EdgeKept {
+		t.Fatalf("peering = %+v", out)
+	}
+}
