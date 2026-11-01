@@ -30,8 +30,13 @@ func (s *Service) Build(ctx context.Context, site settings.Site, p settings.Site
 		if r.settle(true) {
 			r.step("subnet-gateway", func() error { return r.subnetGateway(r.p.EdgeAddr) })
 		}
-	} else {
-		r.settle(false)
+	} else if r.settle(false) {
+		// The external subnet's gateway follows the VLAN router the MSP
+		// gave (design 4.5): a previous edge, or a value corrected in the
+		// card, is put right when the session is already up. The session
+		// is not waited for here: the MSP configures the neighbour after
+		// this build, and Repair runs the same steps.
+		r.step("subnet-gateway", func() error { return r.subnetGateway(r.p.GatewayGW) })
 	}
 	return r.finish()
 }
