@@ -235,7 +235,7 @@
   </fieldset>
   <div class="grid">
     <label>BGP gateway address (on the external subnet's VLAN, outside its pool) <input type="text" name="gateway_addr" value="{{if .P.GatewayAddr.IsValid}}{{.P.GatewayAddr.Addr}}{{end}}" placeholder="10.0.0.195"></label>
-    <label>VLAN router (the gateway's default gateway) <input type="text" name="gateway_gw" value="{{.DefaultGW}}" placeholder="the external subnet's gateway"></label>
+    <label>VLAN router (the router that forwards the routed prefix: the default route of the gateway and of the edge router, the external subnet's gateway when your router peers) <input type="text" name="gateway_gw" value="{{.DefaultGW}}" placeholder="the external subnet's gateway"></label>
     <label>BGP gateway ASN <input type="text" name="gateway_asn" value="{{.P.GatewayASN}}"></label>
     <label>Your router's address <input type="text" name="router_addr" value="{{if .P.RouterAddr.IsValid}}{{.P.RouterAddr}}{{end}}"></label>
     <label>Your router's ASN <input type="text" name="router_asn" value="{{if .P.RouterASN}}{{.P.RouterASN}}{{end}}"></label>
