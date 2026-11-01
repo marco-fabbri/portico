@@ -446,3 +446,35 @@ the code when taken, and the structural items.
   tests only and nothing logs who acted. `unset.html` and the "no
   password" branches are unreachable since `serve` always stores the
   factory password (design 4.2 still describes that state).
+
+## Deferred from the final review of prefix routing (0.3.0, write-up 39)
+
+- The service account's authorization policy filters VMs and images by
+  entity type; spec 4.1 wants the `portico:edge` category on the VM
+  filter. Measure whether a v4 authz policy takes a category filter
+  (and a name filter for images) on pc.7.6, then narrow the policy.
+- A netready check on the external subnet's gateway: the edge's address
+  in edge mode, the VLAN router in router mode (Delete the edge router
+  puts it back now; nothing shows it in between).
+- The card's wording promises more than Repair does ("Repair recreates
+  it" for a gateway that is DOWN, "Repair replaces it" for an edge that
+  is off); rows read "not built" during a build.
+- `Edge.Build` returns no extId when the power-on fails after the
+  create: TearDown leaves the VM, Replace adopts it by name.
+- TearDown reads the external subnet after deleting everything: read
+  first, move the subnet's gateway before deleting the edge.
+- A Save back to static with partial objects (no local gateway, but a
+  VLAN subnet, a remote gateway or an edge VM) leaves them behind.
+- Spec 4.4 (Replace offered with the new release's version) and 4.6
+  (the edge image deleted when no site uses it) are not implemented:
+  `DeleteImage` is unused, images pile up release after release.
+- The task poll's transient limit is 40 s against 504 waves of two to
+  four minutes; the peering waits take five minutes of them.
+- The address fields strip only `/0`; an address typed as `x/24` is
+  refused with "not an IPv4 address".
+- The edge image imported by URL is not checked against the release's
+  `.sha256`; adoption by name trusts any image with that name.
+- The `edge` job of the image workflow has never run in CI; run it by
+  `workflow_dispatch` before the v0.3.0 tag.
+- A 0.2.3 that cherry-picks the system-project read-back (`c7ce446`)
+  would unblock 0.2.2 users at once.
