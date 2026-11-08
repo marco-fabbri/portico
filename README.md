@@ -79,6 +79,20 @@ flowchart LR
     A -->|"8443 admin UI and API"| P
 ```
 
+## What it looks like
+
+A tenant user signs in once, on the MSP's login page, chooses a site and
+lands in Prism Central inside their own project. The MSP works on the
+internal admin UI.
+
+| | |
+|---|---|
+| ![The login page, with the MSP's name, claim and colour](docs/images/tenant-login.jpg) | ![The site chooser: AZ-IT-MI1 and AZ-US-NYC1, both available](docs/images/tenant-choose-site.jpg) |
+| ![Prism Central as the tenant sees it: its own project, no VM yet](docs/images/tenant-prism-central.jpg) | ![The tenants list of the admin UI](docs/images/admin-tenants.jpg) |
+
+Taken on a 0.3.0 appliance with two test sites, right after the tenant
+`globex` was created.
+
 ## How a request flows
 
 1. The browser opens `https://portal.msp.example`. The public policy
