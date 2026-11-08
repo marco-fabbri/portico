@@ -2,6 +2,7 @@
 
 - Status: accepted (2026-10-17)
 - Deciders: Marco, Claude
+- Amended 2026-11-08: the deny list runs before the session check, as the code has done since Milestone 1; this text said the opposite.
 
 ## Context
 
@@ -19,8 +20,10 @@ generating configuration from an application and reconciling two languages.
 
 Portico's proxy is implemented in the Go binary with the standard library's
 reverse proxy: Host-based routing (Prism Central host, Keycloak host),
-session check first (no Portico session, no proxying), then the deny list
-of design §4.3, then forwarding with TLS SNI to Prism Central, WebSocket
+the deny list of design §4.3 first, before any session check, so a
+credential sent from outside gets 403 and never a login redirect; then
+the session check (no Portico session, no proxying); then forwarding
+with TLS SNI to Prism Central, WebSocket
 upgrade pass-through and no buffering for long-lived connections. The
 nginx configuration of the lab VM is the reference
 behaviour the Go proxy must match, not a component of the product.
