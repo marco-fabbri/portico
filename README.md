@@ -81,12 +81,13 @@ flowchart LR
 
 ## How a request flows
 
-1. The browser opens `https://portal.msp.example`. Portico looks for
-   its session cookie; without one it redirects to Keycloak (OIDC
-   authorization code flow) and issues its own cookie after the login.
-2. With a session, the public policy runs: every `Authorization` header
-   is refused, the local-login endpoints of pc.7.6 are refused, and
-   Portico's own cookies are stripped before forwarding.
+1. The browser opens `https://portal.msp.example`. The public policy
+   runs first, with or without a session: every `Authorization` header
+   is refused, the local-login endpoints of pc.7.6 are refused, and a
+   credential sent without a session gets a 403, never a login redirect.
+2. Then Portico looks for its session cookie; without one it redirects
+   to Keycloak (OIDC authorization code flow) and issues its own cookie
+   after the login. Portico's own cookies are stripped before forwarding.
 3. The request is proxied on port 9440, under the public host name, to
    the Prism Central of the site the tenant chose (a tenant with several
    sites picks one on a branded page; with one it goes straight on); VM
