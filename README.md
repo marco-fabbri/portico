@@ -82,16 +82,27 @@ flowchart LR
 ## What it looks like
 
 A tenant user signs in once, on the MSP's login page, chooses a site and
-lands in Prism Central inside their own project. The MSP works on the
-internal admin UI.
+lands in Prism Central inside their own project.
 
 | | |
 |---|---|
 | ![The login page, with the MSP's name, claim and colour](docs/images/tenant-login.jpg) | ![The site chooser: AZ-IT-MI1 and AZ-US-NYC1, both available](docs/images/tenant-choose-site.jpg) |
-| ![Prism Central as the tenant sees it: its own project, no VM yet](docs/images/tenant-prism-central.jpg) | ![The tenants list of the admin UI](docs/images/admin-tenants.jpg) |
 
-Taken on a 0.3.0 appliance with two test sites, right after the tenant
-`globex` was created.
+![Prism Central as the tenant sees it: its own project and its two VMs](docs/images/tenant-prism-central.jpg)
+
+The MSP works on the internal admin UI: the tenants, the look of the
+login page, the sites and, for each site, the networking checks and the
+routing of the tenants' prefix.
+
+| | |
+|---|---|
+| ![The tenants list of the admin UI](docs/images/admin-tenants.jpg) | ![The branding page: name, logo, texts and colours, with a preview of the login page](docs/images/admin-branding.jpg) |
+| ![The setup page: two sites and how tenants are named](docs/images/admin-setup-sites.jpg) | ![A tenant's page: the recorded steps of its first site](docs/images/admin-tenant-steps.jpg) |
+| ![A site's networking checks, down to the BGP session and the advertised prefix](docs/images/admin-site-networking.jpg) | ![A site's routing section: the three ways the routed prefix reaches the MSP's network](docs/images/admin-site-routing.jpg) |
+
+Taken on a 0.3.0 appliance with two test sites and one tenant, `globex`,
+with two test VMs. The grey boxes cover the addresses and object ids of
+the test environment.
 
 ## How a request flows
 
