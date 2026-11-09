@@ -468,3 +468,14 @@ the code when taken, and the structural items.
   `workflow_dispatch` before the v0.3.0 tag.
 - A 0.2.3 that cherry-picks the system-project read-back (`c7ce446`)
   would unblock 0.2.2 users at once.
+
+## Found while preparing the demo (2026-11-09)
+
+- The site page's Networking card reads every check under one 30-second
+  deadline (`internal/web/networking.go`). When Prism Central answers
+  the network reads in 10 to 12 s each, the card takes 31 s and its last
+  rows (BGP gateway, BGP session, advertised) show "context deadline
+  exceeded" although the session is up; at other times the same card
+  loads in 3 s. Measured on 0.3.0. To verify: a reader that sleeps 11 s
+  per call in a test, and see which rows fail. Candidates: a deadline
+  per check, or the checks read in parallel.
