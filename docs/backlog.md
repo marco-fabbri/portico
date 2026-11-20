@@ -83,6 +83,19 @@ drawn from this file.
   out with Marco on 2026-10-22 (sites usability design 4.6, ADR 0006);
   emptying the project stays the MSP's work in Prism Central. Reconsider
   only if MSPs ask for it.
+- A person in more than one tenant is not possible (asked 2026-11-20).
+  `CreateUser` refuses an email Keycloak already holds, and the login
+  resolver gives no tenant to a user found in several tenant groups
+  (`internal/tenant/service.go`, `internal/tenant/resolve.go`; sites
+  design 4.3). The case: in a small MSP, an operator who manages the
+  customers. Today that operator works on the internal listener only,
+  with a Prism Central account that sees the whole platform, or with one
+  tenant account per customer. Not built, by Marco's choice; if it is,
+  his preference is that the operator sees all the customers assigned to
+  them together in one console. To measure first: what Prism Central
+  shows a SAML user whose groups map to several projects. To decide
+  first: whether such an account may use the public path at all, and
+  what protects it there (it opens several customers at once).
 
 ## Admin UI, branding, settings
 
