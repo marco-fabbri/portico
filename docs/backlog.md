@@ -84,18 +84,37 @@ drawn from this file.
   emptying the project stays the MSP's work in Prism Central. Reconsider
   only if MSPs ask for it.
 - A person in more than one tenant is not possible (asked 2026-11-20).
-  `CreateUser` refuses an email Keycloak already holds, and the login
-  resolver gives no tenant to a user found in several tenant groups
-  (`internal/tenant/service.go`, `internal/tenant/resolve.go`; sites
-  design 4.3). The case: in a small MSP, an operator who manages the
-  customers. Today that operator works on the internal listener only,
-  with a Prism Central account that sees the whole platform, or with one
-  tenant account per customer. Not built, by Marco's choice; if it is,
-  his preference is that the operator sees all the customers assigned to
-  them together in one console. To measure first: what Prism Central
-  shows a SAML user whose groups map to several projects. To decide
-  first: whether such an account may use the public path at all, and
-  what protects it there (it opens several customers at once).
+  `CreateUser` refuses an email Keycloak already holds; the login
+  resolver gives no tenant to a user found in several tenant groups;
+  suspending a tenant disables the Keycloak users of its group and
+  deleting it deletes them, so a shared person would be locked out of,
+  or removed from, the other tenant too (`internal/tenant/service.go`,
+  `resolve.go`, `provision.go`; sites design 4.3). Why the rule is kept:
+  Marco wants Portico's tenants to stay compatible with SP Central
+  (2026-11-21), and SP Central 1.0 has no shared person either. Each
+  tenant has its own URL and its own identity provider, and the
+  provider's staff sign in from the provider's directory on an internal
+  path that tenants never see (SP Central Admin Guide 1.0, identity and
+  access management; NVD-2219, authentication). The two cases raised:
+  - A customer made of several companies: one tenant for the whole
+    group, or one tenant per company with one account per tenant, each
+    under its own email address, for whoever works in both. Both work
+    today.
+  - An MSP operator (service desk) who manages the customers' VMs
+    without the shared `admin` account. A candidate, not designed: a
+    group of the MSP's own staff, separate from every tenant group, with
+    named accounts and a role on the customers' projects. To measure
+    first: what Prism Central shows a SAML user whose group has a role
+    on many projects, and which role a service desk needs. To decide
+    first: the internal path only, or the public path with a required
+    second factor (the account opens several customers at once).
+- One Keycloak realm is the identity provider of every tenant, told
+  apart by group. SP Central 1.0 asks that each tenant have its own SAML
+  identity provider (entityID) and warns that one shared across tenants
+  may leak privileges (SP Central Admin Guide 1.0, prerequisites for
+  tenant onboarding). First noted on 2026-11-21. To decide when the
+  brokering to customer directories is designed: one realm for all, or
+  one per tenant.
 
 ## Admin UI, branding, settings
 
