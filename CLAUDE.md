@@ -11,7 +11,7 @@ Italian; nothing Italian goes on disk here. The only exception is
 
 - Plan before code. Marco is an infrastructure architect, not a developer:
   explain non-obvious choices and their trade-offs.
-- Design document: `docs/superpowers/specs/2026-10-17-portico-design.md`.
+- Design document: `docs/specs/2026-10-17-portico-design.md`.
   Update it when a decision changes; record the reasoning in `docs/adr/`.
 - Lab findings are short write-ups with what was measured, on which
   version, and how to re-measure after an upgrade. They live outside the
@@ -45,3 +45,10 @@ Italian; nothing Italian goes on disk here. The only exception is
 - Portico works through its own `portico` service account in Prism Central
   and never stores a human administrator's credentials.
 - Secrets at rest are encrypted; the master key never leaves the appliance.
+
+## Designs and plans
+
+Designs live in `docs/specs/` (owner, 2026-11-26), never in a folder named after a tool; plans
+stay out of the repository in an ignored folder. Until that day designs sat in `docs/superpowers/`,
+named after a Claude Code plugin the owner has turned off; no document here asks for a skill of
+that plugin.

@@ -3,7 +3,7 @@
 Provenance of the Portico design. These files are the original analysis,
 written in Italian under the working name "Prism Gate" before the project was
 named Portico. They are kept verbatim as historical record and are not
-maintained. The current design is in `docs/superpowers/specs/`.
+maintained. The current design is in `docs/specs/`.
 
 ## 2026-09-07 — Prism Gate design (`2026-09-07-prism-gate-design.it.md`)
 
