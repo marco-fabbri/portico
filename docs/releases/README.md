@@ -20,7 +20,7 @@ Before the tag, on `main`, with no open pull request of the release:
    install paragraph's link to the notes, the "What it does" table when
    a piece is new, the diagram when the picture changed, the "Status
    and validation" row, the "Documentation" counts, the roadmap.
-3. **Design document** `docs/superpowers/specs/2026-10-17-portico-design.md`,
+3. **Design document** `docs/specs/2026-10-17-portico-design.md`,
    section 9: the milestone row, with its write-ups, design and ADRs.
 4. **Install guide** and **operating guide** for whatever the release
    changes in how the appliance is installed, upgraded or run, and

@@ -23,7 +23,7 @@ welcome; this page says how the project works so a contribution fits.
 ## How changes are made
 
 1. **Plan before code.** A milestone starts from the design document
-   (`docs/superpowers/specs/`) and a written plan with tasks small enough
+   (`docs/specs/`) and a written plan with tasks small enough
    to carry their own test.
 2. **Test first.** Every behaviour change starts with a test watched failing,
    then the smallest code that makes it pass; `go test ./...` stays green.

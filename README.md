@@ -331,7 +331,7 @@ internal/
 deploy/               systemd units, quadlets, firewalld, the OpenTofu module
 image/                the appliance image build (Packer, kickstart, OpenSCAP)
 docs/
-  superpowers/specs/  the design documents
+  specs/  the design documents
   adr/                decisions
   history/            the original analysis, as provenance
   lab/                measurements, one write-up per question
@@ -344,7 +344,7 @@ docs/
 - [Install guide](docs/install.md) and the
   [release notes](docs/releases/), 0.3.0's with the known limits of
   0.2.x that still apply; [how a release is made](docs/releases/README.md).
-- [Design document](docs/superpowers/specs/2026-10-17-portico-design.md):
+- [Design document](docs/specs/2026-10-17-portico-design.md):
   intent, goals and anti-goals, architecture, security model, milestones.
 - [Decisions](docs/adr/): ten, from the pc.7.6 baseline to the peering
   state that follows Prism Central.

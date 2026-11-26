@@ -856,7 +856,7 @@ portico/
   README.md                 what it is, what it is not, status
   LICENSE                   Apache-2.0
   docs/
-    superpowers/specs/      this design
+    specs/      this design
     lab/                    measurements from the cluster
     adr/                    architecture decision records
   cmd/portico/              main: serve | console | provision | ...
